@@ -46,6 +46,8 @@ var is_crouching: bool = false
 var crouch_lerp: float = 1.0  # 1.0 = standing, CROUCH_HEIGHT = crouched
 var model_node: Node3D = null
 var shadow_blob: MeshInstance3D = null
+var coat_tail: MeshInstance3D = null
+var head_rain_splash: GPUParticles3D = null
 var sprint_breath_toggle: bool = false  # alternates per footstep when sprinting
 var sprint_time: float = 0.0  # how long we've been sprinting
 var impact_aberration: float = 0.0  # chromatic aberration from hard landing
@@ -65,6 +67,7 @@ func _ready() -> void:
 	_setup_compass_hud()
 	_setup_interaction_prompt()
 	_setup_shadow_blob()
+	_setup_head_rain_splash()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
@@ -146,10 +149,22 @@ func _physics_process(delta: float) -> void:
 	if anim:
 		anim.update(delta, horiz_speed)
 
+	# Coat tail sway based on speed
+	if coat_tail:
+		var tail_target := 0.0
+		if horiz_speed > 0.5:
+			tail_target = horiz_speed * 0.04 + sin(bob_timer * 2.0) * 0.05
+		coat_tail.rotation.x = lerpf(coat_tail.rotation.x, tail_target, 6.0 * delta)
+
 	var is_sprinting := Input.is_key_pressed(KEY_SHIFT) and horiz_speed > 1.0
 
-	# Sprint FOV effect
+	# Sprint + jump FOV effect
 	var target_fov := SPRINT_FOV if is_sprinting else BASE_FOV
+	if not is_on_floor():
+		if velocity.y > 0.5:
+			target_fov += 3.0  # ascent: slight widen
+		elif velocity.y < -1.0:
+			target_fov -= 2.0  # descent: slight narrow
 	camera.fov = lerpf(camera.fov, target_fov, FOV_LERP_SPEED * delta)
 
 	# Sprint strafe camera roll
@@ -330,6 +345,24 @@ func _build_humanoid_model() -> void:
 	var right_knee := _add_pivot(right_hip, "RightKnee", Vector3(0, -0.33, 0))
 	_add_body_part(right_knee, "RightLowerLeg", BoxMesh.new(), Vector3(0, -0.17, 0),
 		pants_color, Vector3(0.14, 0.33, 0.14))
+
+	# Coat tail flap (back of jacket)
+	coat_tail = MeshInstance3D.new()
+	var tail_mesh := BoxMesh.new()
+	tail_mesh.size = Vector3(0.35, 0.25, 0.04)
+	coat_tail.mesh = tail_mesh
+	coat_tail.position = Vector3(0, 0.85, -0.16)
+	var tail_mat := ShaderMaterial.new()
+	tail_mat.shader = ps1_shader
+	tail_mat.set_shader_parameter("albedo_color", jacket_color)
+	tail_mat.set_shader_parameter("vertex_snap_intensity", 4.0)
+	tail_mat.set_shader_parameter("color_depth", 12.0)
+	tail_mat.set_shader_parameter("fog_color", Color(0.05, 0.03, 0.1, 1.0))
+	tail_mat.set_shader_parameter("fog_distance", 100.0)
+	tail_mat.set_shader_parameter("fog_density", 0.3)
+	coat_tail.set_surface_override_material(0, tail_mat)
+	coat_tail.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	model.add_child(coat_tail)
 
 	# Setup animation controller
 	anim = HumanoidAnimation.new()
@@ -588,3 +621,27 @@ func _trigger_breath_sound() -> void:
 		var sample := formant * env * 0.08
 		if step_playback.can_push_buffer(1):
 			step_playback.push_frame(Vector2(sample, sample))
+
+func _setup_head_rain_splash() -> void:
+	head_rain_splash = GPUParticles3D.new()
+	head_rain_splash.amount = 3
+	head_rain_splash.lifetime = 0.2
+	head_rain_splash.visibility_aabb = AABB(Vector3(-0.5, -0.3, -0.5), Vector3(1, 0.6, 1))
+	var hmat := ParticleProcessMaterial.new()
+	hmat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	hmat.emission_sphere_radius = 0.15
+	hmat.direction = Vector3(0, 1, 0)
+	hmat.spread = 45.0
+	hmat.initial_velocity_min = 0.3
+	hmat.initial_velocity_max = 0.6
+	hmat.gravity = Vector3(0, -4.0, 0)
+	hmat.scale_min = 0.02
+	hmat.scale_max = 0.04
+	hmat.color = Color(0.5, 0.55, 0.65, 0.2)
+	head_rain_splash.process_material = hmat
+	var hmesh := SphereMesh.new()
+	hmesh.radius = 0.02
+	hmesh.height = 0.01
+	head_rain_splash.draw_pass_1 = hmesh
+	head_rain_splash.position = Vector3(0, 1.65, 0)
+	add_child(head_rain_splash)
