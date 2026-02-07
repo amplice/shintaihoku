@@ -102,6 +102,11 @@ func _process(delta: float) -> void:
 		# Update walk animation (only for visible NPCs)
 		anim.update(delta, current_speed)
 
+		# Toggle cigarette smoke
+		var smoke: GPUParticles3D = npc_data["smoke"]
+		if smoke:
+			smoke.emitting = is_stopped
+
 func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 	var npc := Node3D.new()
 
@@ -187,6 +192,33 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 	var anim := HumanoidAnimation.new()
 	anim.setup(model)
 
+	# Cigarette smoke (30% of NPCs are smokers)
+	var smoke_particles: GPUParticles3D = null
+	if rng.randf() < 0.30:
+		smoke_particles = GPUParticles3D.new()
+		smoke_particles.position = Vector3(0.1, 1.6, 0.15)
+		smoke_particles.amount = 8
+		smoke_particles.lifetime = 2.0
+		smoke_particles.emitting = false
+		smoke_particles.visibility_aabb = AABB(Vector3(-1, -1, -1), Vector3(2, 3, 2))
+		var smoke_mat := ParticleProcessMaterial.new()
+		smoke_mat.direction = Vector3(0.2, 1, 0)
+		smoke_mat.spread = 15.0
+		smoke_mat.initial_velocity_min = 0.3
+		smoke_mat.initial_velocity_max = 0.6
+		smoke_mat.gravity = Vector3(0, 0.2, 0)
+		smoke_mat.damping_min = 0.5
+		smoke_mat.damping_max = 1.0
+		smoke_mat.scale_min = 0.02
+		smoke_mat.scale_max = 0.08
+		smoke_mat.color = Color(0.6, 0.6, 0.7, 0.15)
+		smoke_particles.process_material = smoke_mat
+		var smoke_mesh := SphereMesh.new()
+		smoke_mesh.radius = 0.04
+		smoke_mesh.height = 0.08
+		smoke_particles.draw_pass_1 = smoke_mesh
+		model.add_child(smoke_particles)
+
 	add_child(npc)
 
 	npcs.append({
@@ -196,9 +228,10 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		"axis": axis,
 		"direction": direction,
 		"anim": anim,
-		"stop_timer": rng.randf_range(8.0, 25.0),  # time until next stop
-		"stop_duration": 0.0,  # how long to stay stopped
+		"stop_timer": rng.randf_range(8.0, 25.0),
+		"stop_duration": 0.0,
 		"is_stopped": false,
+		"smoke": smoke_particles,
 	})
 
 func _add_pivot(parent: Node3D, pivot_name: String, pos: Vector3) -> Node3D:

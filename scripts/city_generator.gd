@@ -18,6 +18,10 @@ var holo_signs: Array[Dictionary] = []  # [{node, base_y, phase, speed}]
 var vending_screens: Array[Dictionary] = []  # [{node, phase, color}]
 var color_shift_signs: Array[Dictionary] = []  # [{node, light, phase, speed, base_hue}]
 var rotating_fans: Array[Dictionary] = []  # [{node, speed}]
+var drone_node: Node3D = null
+var drone_time: float = 0.0
+var drone_light: OmniLight3D = null
+var pipe_arcs: Array[Dictionary] = []  # [{light, phase, speed}]
 var neon_colors: Array[Color] = [
 	Color(1.0, 0.05, 0.4),   # hot magenta
 	Color(0.0, 0.9, 1.0),    # cyan
@@ -96,6 +100,12 @@ func _ready() -> void:
 	_generate_ground_fog()
 	_generate_sparking_boxes()
 	_generate_ventilation_fans()
+	_generate_power_cables()
+	_generate_rooftop_ac_units()
+	_generate_rain_drips()
+	_generate_neon_arrows()
+	_generate_surveillance_drone()
+	_generate_pipe_arcs()
 	_setup_neon_flicker()
 	_setup_color_shift_signs()
 	print("CityGenerator: generation complete, total children=", get_child_count())
@@ -3600,6 +3610,283 @@ func _find_color_shift_candidates(node: Node, rng: RandomNumberGenerator) -> voi
 		if child.get_child_count() > 0:
 			_find_color_shift_candidates(child, rng)
 
+func _generate_power_cables() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5100
+	var cell_stride_local := block_size + street_width
+	var cable_mat := _make_ps1_material(Color(0.06, 0.06, 0.06))
+
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			if rng.randf() > 0.08:
+				continue
+			var cell_x := gx * cell_stride_local
+			var cell_z := gz * cell_stride_local
+			# Cable across X-street (east-west)
+			var cable_y := rng.randf_range(8.0, 14.0)
+			var z_pos := cell_z + block_size * 0.5 + street_width * 0.5
+			var x_start := cell_x - block_size * 0.3
+			var x_end := cell_x + block_size * 0.3
+			var cable_len := x_end - x_start
+			var cable := MeshInstance3D.new()
+			var cable_mesh := BoxMesh.new()
+			cable_mesh.size = Vector3(cable_len, 0.03, 0.03)
+			cable.mesh = cable_mesh
+			cable.position = Vector3((x_start + x_end) * 0.5, cable_y, z_pos)
+			cable.set_surface_override_material(0, cable_mat)
+			add_child(cable)
+			# Sag in the middle (second cable lower)
+			var sag := MeshInstance3D.new()
+			var sag_mesh := BoxMesh.new()
+			sag_mesh.size = Vector3(cable_len * 0.6, 0.03, 0.03)
+			sag.mesh = sag_mesh
+			sag.position = Vector3((x_start + x_end) * 0.5, cable_y - 0.4, z_pos + 0.15)
+			sag.set_surface_override_material(0, cable_mat)
+			add_child(sag)
+
+func _generate_rooftop_ac_units() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5200
+	var ac_body_mat := _make_ps1_material(Color(0.18, 0.18, 0.2))
+	var ac_grill_mat := _make_ps1_material(Color(0.1, 0.1, 0.12))
+
+	for child in get_children():
+		if not child is MeshInstance3D:
+			continue
+		var mi := child as MeshInstance3D
+		if not mi.mesh is BoxMesh:
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		if bsize.y < 12.0 or bsize.x < 3.0:
+			continue
+		if rng.randf() > 0.20:
+			continue
+		var bpos := mi.position
+		var roof_y := bpos.y + bsize.y * 0.5
+		var num_units := rng.randi_range(1, 3)
+		for _u in range(num_units):
+			var ac := Node3D.new()
+			var ux := bpos.x + rng.randf_range(-bsize.x * 0.3, bsize.x * 0.3)
+			var uz := bpos.z + rng.randf_range(-bsize.z * 0.3, bsize.z * 0.3)
+			ac.position = Vector3(ux, roof_y, uz)
+			# AC body
+			var body := MeshInstance3D.new()
+			var body_mesh := BoxMesh.new()
+			body_mesh.size = Vector3(1.2, 0.8, 0.8)
+			body.mesh = body_mesh
+			body.position = Vector3(0, 0.4, 0)
+			body.set_surface_override_material(0, ac_body_mat)
+			ac.add_child(body)
+			# Grill on front
+			var grill := MeshInstance3D.new()
+			var grill_mesh := BoxMesh.new()
+			grill_mesh.size = Vector3(1.0, 0.5, 0.05)
+			grill.mesh = grill_mesh
+			grill.position = Vector3(0, 0.4, 0.43)
+			grill.set_surface_override_material(0, ac_grill_mat)
+			ac.add_child(grill)
+			add_child(ac)
+
+func _generate_rain_drips() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4900
+	# Find awnings (MeshInstance3D named with thin Y dimension at storefront height)
+	for child in get_children():
+		if not child is MeshInstance3D:
+			continue
+		var mi := child as MeshInstance3D
+		if not mi.mesh is BoxMesh:
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		# Awnings are thin (y < 0.15) and wide (x > 1.5), at low height
+		if bsize.y > 0.15 or bsize.x < 1.5 or mi.position.y < 2.5 or mi.position.y > 5.0:
+			continue
+		if rng.randf() > 0.20:
+			continue
+		# Place drip emitter at front edge of awning
+		var drip := GPUParticles3D.new()
+		drip.position = Vector3(mi.position.x, mi.position.y - 0.05, mi.position.z + bsize.z * 0.5)
+		drip.amount = 6
+		drip.lifetime = 0.6
+		drip.visibility_aabb = AABB(Vector3(-2, -2, -1), Vector3(4, 4, 2))
+		var drip_mat := ParticleProcessMaterial.new()
+		drip_mat.direction = Vector3(0, -1, 0)
+		drip_mat.spread = 5.0
+		drip_mat.initial_velocity_min = 1.0
+		drip_mat.initial_velocity_max = 2.0
+		drip_mat.gravity = Vector3(0, -8.0, 0)
+		drip_mat.scale_min = 0.02
+		drip_mat.scale_max = 0.05
+		drip_mat.color = Color(0.6, 0.7, 0.9, 0.3)
+		drip_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+		drip_mat.emission_box_extents = Vector3(bsize.x * 0.4, 0.02, 0.02)
+		drip.process_material = drip_mat
+		var drip_mesh := SphereMesh.new()
+		drip_mesh.radius = 0.03
+		drip_mesh.height = 0.06
+		drip.draw_pass_1 = drip_mesh
+		add_child(drip)
+
+func _generate_neon_arrows() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5000
+	var neon_colors_local: Array[Color] = [
+		Color(1.0, 0.05, 0.4), Color(0.0, 0.9, 1.0),
+		Color(1.0, 0.4, 0.0), Color(0.6, 0.0, 1.0),
+	]
+	for child in get_children():
+		if not child is MeshInstance3D:
+			continue
+		var mi := child as MeshInstance3D
+		if not mi.mesh is BoxMesh:
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		# Target building fronts (tall enough, reasonable width)
+		if bsize.y < 6.0 or bsize.x < 4.0:
+			continue
+		if rng.randf() > 0.06:
+			continue
+		var ncol := neon_colors_local[rng.randi_range(0, neon_colors_local.size() - 1)]
+		var arrow_mat := _make_ps1_material(ncol * 0.4, true, ncol, 3.5)
+		var arrow := Node3D.new()
+		var arrow_x := mi.position.x + rng.randf_range(-bsize.x * 0.2, bsize.x * 0.2)
+		var arrow_y := mi.position.y - bsize.y * 0.5 + rng.randf_range(3.0, 5.0)
+		var arrow_z := mi.position.z + bsize.z * 0.5 + 0.15
+		arrow.position = Vector3(arrow_x, arrow_y, arrow_z)
+		# Arrow shaft (vertical bar pointing down)
+		var shaft := MeshInstance3D.new()
+		var shaft_mesh := BoxMesh.new()
+		shaft_mesh.size = Vector3(0.15, 1.2, 0.08)
+		shaft.mesh = shaft_mesh
+		shaft.position = Vector3(0, 0, 0)
+		shaft.set_surface_override_material(0, arrow_mat)
+		arrow.add_child(shaft)
+		# Arrow head left diagonal
+		var head_l := MeshInstance3D.new()
+		var head_l_mesh := BoxMesh.new()
+		head_l_mesh.size = Vector3(0.6, 0.12, 0.08)
+		head_l.mesh = head_l_mesh
+		head_l.position = Vector3(-0.2, -0.5, 0)
+		head_l.rotation.z = 0.6
+		head_l.set_surface_override_material(0, arrow_mat)
+		arrow.add_child(head_l)
+		# Arrow head right diagonal
+		var head_r := MeshInstance3D.new()
+		var head_r_mesh := BoxMesh.new()
+		head_r_mesh.size = Vector3(0.6, 0.12, 0.08)
+		head_r.mesh = head_r_mesh
+		head_r.position = Vector3(0.2, -0.5, 0)
+		head_r.rotation.z = -0.6
+		head_r.set_surface_override_material(0, arrow_mat)
+		arrow.add_child(head_r)
+		# Glow light
+		var glow := OmniLight3D.new()
+		glow.light_color = ncol
+		glow.light_energy = 1.5
+		glow.omni_range = 5.0
+		glow.omni_attenuation = 1.5
+		glow.shadow_enabled = false
+		glow.position = Vector3(0, -0.3, 0.5)
+		arrow.add_child(glow)
+		add_child(arrow)
+
+func _generate_surveillance_drone() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4800
+	drone_node = Node3D.new()
+	drone_node.position = Vector3(0, 35.0, 0)
+	# Body
+	var body := MeshInstance3D.new()
+	var body_mesh := BoxMesh.new()
+	body_mesh.size = Vector3(0.8, 0.3, 0.5)
+	body.mesh = body_mesh
+	body.set_surface_override_material(0, _make_ps1_material(Color(0.15, 0.15, 0.18)))
+	drone_node.add_child(body)
+	# Rotor arms (4 arms extending outward)
+	var arm_mat := _make_ps1_material(Color(0.1, 0.1, 0.12))
+	for corner in [Vector3(0.5, 0, 0.35), Vector3(-0.5, 0, 0.35),
+			Vector3(0.5, 0, -0.35), Vector3(-0.5, 0, -0.35)]:
+		var arm := MeshInstance3D.new()
+		var arm_mesh := BoxMesh.new()
+		arm_mesh.size = Vector3(0.4, 0.06, 0.06)
+		arm.mesh = arm_mesh
+		arm.position = corner
+		arm.set_surface_override_material(0, arm_mat)
+		drone_node.add_child(arm)
+		# Rotor disc
+		var rotor := MeshInstance3D.new()
+		var rotor_mesh := CylinderMesh.new()
+		rotor_mesh.top_radius = 0.2
+		rotor_mesh.bottom_radius = 0.2
+		rotor_mesh.height = 0.02
+		rotor.mesh = rotor_mesh
+		rotor.position = Vector3(corner.x, corner.y + 0.05, corner.z)
+		rotor.set_surface_override_material(0, _make_ps1_material(Color(0.2, 0.2, 0.2, 0.5)))
+		drone_node.add_child(rotor)
+	# Red searchlight pointing down
+	drone_light = OmniLight3D.new()
+	drone_light.light_color = Color(1.0, 0.1, 0.1)
+	drone_light.light_energy = 3.0
+	drone_light.omni_range = 20.0
+	drone_light.omni_attenuation = 1.2
+	drone_light.shadow_enabled = false
+	drone_light.position = Vector3(0, -1.0, 0)
+	drone_node.add_child(drone_light)
+	# Blinking nav light (green)
+	var nav := MeshInstance3D.new()
+	var nav_mesh := SphereMesh.new()
+	nav_mesh.radius = 0.05
+	nav_mesh.height = 0.1
+	nav.mesh = nav_mesh
+	nav.position = Vector3(0, 0.18, -0.25)
+	var nav_col := Color(0.0, 1.0, 0.0)
+	nav.set_surface_override_material(0, _make_ps1_material(nav_col * 0.3, true, nav_col, 3.0))
+	drone_node.add_child(nav)
+	# Register nav light for blinking
+	var nav_light := OmniLight3D.new()
+	nav_light.light_color = nav_col
+	nav_light.light_energy = 1.0
+	nav_light.omni_range = 3.0
+	nav_light.shadow_enabled = false
+	nav_light.position = Vector3(0, 0.18, -0.25)
+	drone_node.add_child(nav_light)
+	flickering_lights.append({
+		"node": nav_light, "mesh": nav, "base_energy": 1.0,
+		"phase": 0.0, "speed": 4.0, "style": "blink",
+	})
+	add_child(drone_node)
+
+func _generate_pipe_arcs() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5300
+	# Find exposed pipes (thin horizontal/vertical cylinders on building faces)
+	for child in get_children():
+		if not child is MeshInstance3D:
+			continue
+		var mi := child as MeshInstance3D
+		if not mi.mesh is CylinderMesh:
+			continue
+		var cm := mi.mesh as CylinderMesh
+		# Pipes are thin cylinders
+		if cm.top_radius > 0.12 or cm.top_radius < 0.03:
+			continue
+		if rng.randf() > 0.03:
+			continue
+		# Place a sparking light at mid-point of pipe
+		var arc_light := OmniLight3D.new()
+		arc_light.light_color = Color(0.5, 0.7, 1.0)
+		arc_light.light_energy = 0.0
+		arc_light.omni_range = 3.0
+		arc_light.omni_attenuation = 1.5
+		arc_light.shadow_enabled = false
+		arc_light.position = mi.position + Vector3(0, 0.1, 0)
+		add_child(arc_light)
+		pipe_arcs.append({
+			"light": arc_light,
+			"phase": rng.randf() * TAU,
+			"speed": rng.randf_range(15.0, 30.0),
+		})
+
 func _setup_neon_flicker() -> void:
 	# Register existing neon sign lights for flickering
 	var rng := RandomNumberGenerator.new()
@@ -3756,3 +4043,31 @@ func _process(_delta: float) -> void:
 			screen.set_surface_override_material(0, vs["mat_bright"])
 		else:
 			screen.set_surface_override_material(0, vs["mat_dim"])
+
+	# Surveillance drone patrol (figure-8 path)
+	if drone_node and is_instance_valid(drone_node):
+		drone_time += _delta
+		var patrol_radius := 50.0
+		var patrol_speed := 0.15
+		var t := drone_time * patrol_speed
+		drone_node.position.x = sin(t) * patrol_radius
+		drone_node.position.z = sin(t * 2.0) * patrol_radius * 0.5
+		drone_node.position.y = 35.0 + sin(drone_time * 0.3) * 2.0
+		# Face direction of travel
+		var next_x := sin(t + 0.01) * patrol_radius
+		var next_z := sin((t + 0.01) * 2.0) * patrol_radius * 0.5
+		drone_node.rotation.y = atan2(next_x - drone_node.position.x, next_z - drone_node.position.z)
+
+	# Pipe arc flicker (rapid blue-white sparking)
+	for pa in pipe_arcs:
+		var arc_light: OmniLight3D = pa["light"]
+		if not is_instance_valid(arc_light):
+			continue
+		var pa_phase: float = pa["phase"]
+		var pa_speed: float = pa["speed"]
+		# Sparse sparking: mostly off, occasional rapid flashes
+		var spark_val := sin(time * pa_speed + pa_phase) * sin(time * pa_speed * 0.7 + pa_phase * 1.3)
+		if spark_val > 0.85:
+			arc_light.light_energy = 2.5 + sin(time * 60.0) * 1.5
+		else:
+			arc_light.light_energy = 0.0
