@@ -562,6 +562,21 @@ func _process(delta: float) -> void:
 						npc_data["stumble_t"] = -1.0  # done
 					stumble_model.rotation.x = lerpf(stumble_model.rotation.x, pitch_fwd, 10.0 * delta)
 
+		# Glance behind while walking (5% of walking NPCs, paranoid over-shoulder look)
+		if npc_data.get("does_glance_back", false) and not is_stopped:
+			npc_data["glance_clock"] = npc_data.get("glance_clock", 0.0) + delta
+			var glance_cycle := fmod(npc_data["glance_clock"], 20.0)
+			if glance_cycle < 1.5:
+				if head_node and is_instance_valid(head_node) and head_node.is_inside_tree():
+					var turn := 0.0
+					if glance_cycle < 0.4:
+						turn = (glance_cycle / 0.4) * 0.8  # turn head
+					elif glance_cycle < 1.0:
+						turn = 0.8  # hold look
+					else:
+						turn = 0.8 * ((1.5 - glance_cycle) / 0.5)  # return
+					head_node.rotation.y = lerpf(head_node.rotation.y, turn, 6.0 * delta)
+
 		# Hand rub for warmth (15% of idle NPCs, both arms forward, slight rub oscillation)
 		if npc_data.get("does_hand_rub", false) and is_stopped and not npc_data["smoke"] and not npc_data.get("arms_crossed", false):
 			npc_data["rub_clock"] = npc_data.get("rub_clock", 0.0) + delta
@@ -682,6 +697,44 @@ func _process(delta: float) -> void:
 					ls_roll.rotation.z = lerpf(ls_roll.rotation.z, back, 6.0 * delta)
 					rs_roll.rotation.x = lerpf(rs_roll.rotation.x, rise, 8.0 * delta)
 					rs_roll.rotation.z = lerpf(rs_roll.rotation.z, -back, 6.0 * delta)
+
+		# Coat collar pull (8% of stopped NPCs, hand reaches to neck — noir gesture)
+		if npc_data.get("does_collar_pull", false) and is_stopped and not npc_data.get("arms_crossed", false):
+			npc_data["collar_clock"] = npc_data.get("collar_clock", 0.0) + delta
+			var collar_cycle := fmod(npc_data["collar_clock"], 14.0)
+			if collar_cycle < 1.5:
+				var crs := node.get_node_or_null("Model/RightShoulder")
+				var cre := node.get_node_or_null("Model/RightShoulder/RightElbow")
+				if crs and cre:
+					var reach := 0.0
+					var bend := 0.0
+					if collar_cycle < 0.4:
+						reach = (collar_cycle / 0.4) * -0.5
+						bend = (collar_cycle / 0.4) * -1.0
+					elif collar_cycle < 1.0:
+						reach = -0.5
+						bend = -1.0
+					else:
+						reach = -0.5 * ((1.5 - collar_cycle) / 0.5)
+						bend = -1.0 * ((1.5 - collar_cycle) / 0.5)
+					crs.rotation.x = lerpf(crs.rotation.x, reach, 6.0 * delta)
+					cre.rotation.x = lerpf(cre.rotation.x, bend, 6.0 * delta)
+
+		# Ground scuff (4% of stopped NPCs, idle foot drag)
+		if npc_data.get("does_ground_scuff", false) and is_stopped and not npc_data.get("has_limp", false):
+			npc_data["scuff_clock"] = npc_data.get("scuff_clock", 0.0) + delta
+			var scuff_cycle := fmod(npc_data["scuff_clock"], 16.0)
+			if scuff_cycle < 1.0:
+				var scuff_rh := node.get_node_or_null("Model/RightHip")
+				if scuff_rh:
+					var kick := 0.0
+					if scuff_cycle < 0.3:
+						kick = (scuff_cycle / 0.3) * -0.2  # foot extends forward
+					elif scuff_cycle < 0.6:
+						kick = -0.2 + ((scuff_cycle - 0.3) / 0.3) * 0.3  # drags back past neutral
+					else:
+						kick = 0.1 * ((1.0 - scuff_cycle) / 0.4)  # settle back
+					scuff_rh.rotation.x = lerpf(scuff_rh.rotation.x, kick, 8.0 * delta)
 
 		# Sigh trigger (10% of idle NPCs, sets flag for audio pool to pick up)
 		if npc_data.get("does_sigh", false) and is_stopped:
@@ -1366,6 +1419,9 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		"does_sleeve_fidget": not has_umbrella and not has_phone and not has_newspaper and rng.randf() < 0.08,
 		"does_head_tilt": not has_phone and not has_newspaper and rng.randf() < 0.10,
 		"does_shoulder_roll": rng.randf() < 0.06,
+		"does_collar_pull": not has_umbrella and rng.randf() < 0.08,
+		"does_glance_back": rng.randf() < 0.05,
+		"does_ground_scuff": not has_umbrella and rng.randf() < 0.04,
 		"last_cell_x": -999,
 		"last_cell_z": -999,
 	})

@@ -248,6 +248,11 @@ var car_alarm_timer: float = 0.0
 var car_alarm_phase: float = 0.0
 var car_alarm_active: bool = false
 var car_alarm_duration: float = 4.0
+var fence_timer: float = 0.0
+var fence_phase: float = 0.0
+var fence_active: bool = false
+var fence_duration: float = 2.0
+var fence_filter: float = 0.0
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -1094,6 +1099,19 @@ func _process(delta: float) -> void:
 		if car_alarm_phase > car_alarm_duration:
 			car_alarm_active = false
 
+	# Chain link fence rattle (wind-driven metallic vibration)
+	fence_timer -= delta
+	if fence_timer <= 0.0 and not fence_active:
+		fence_timer = rng.randf_range(45.0, 120.0)
+		fence_active = true
+		fence_phase = 0.0
+		fence_duration = rng.randf_range(1.5, 3.0)
+
+	if fence_active:
+		fence_phase += delta
+		if fence_phase > fence_duration:
+			fence_active = false
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -1877,6 +1895,23 @@ func _fill_hum_buffer() -> void:
 			var alarm_tone := sin(t * freq * TAU) * 0.6
 			alarm_tone += sin(t * freq * 2.0 * TAU) * 0.2  # harmonic
 			sample += alarm_tone * ca_env * 0.006
+
+		# Chain link fence rattle (high-frequency metallic vibration)
+		if fence_active:
+			var fe_env := 0.0
+			if fence_phase < 0.2:
+				fe_env = fence_phase / 0.2
+			elif fence_phase < fence_duration - 0.4:
+				fe_env = 1.0
+			else:
+				fe_env = (fence_duration - fence_phase) / 0.4
+			fe_env = maxf(0.0, fe_env)
+			var fe_noise := rng.randf_range(-1.0, 1.0)
+			fence_filter = fence_filter * 0.3 + fe_noise * 0.7  # high-pass for metallic
+			var rattle := fence_filter * 0.4
+			rattle += sin(t * 2000.0 * TAU) * fence_filter * 0.3  # metallic resonance
+			rattle += sin(t * 3500.0 * TAU) * fence_filter * 0.15  # harmonic
+			sample += rattle * fe_env * 0.005
 
 		# Distant crowd murmur (band-limited noise, 200-800Hz band)
 		var murmur_noise := rng.randf_range(-1.0, 1.0)

@@ -69,6 +69,8 @@ const FOOTPRINT_POOL_SIZE: int = 8
 const FOOTPRINT_LIFETIME: float = 4.0
 var limp_timer: float = 0.0  # recovery limp after hard landing
 var catch_breath_timer: float = 0.0  # heavier breathing after sustained sprint
+var rain_drip_timer: float = 0.0  # rain droplet on camera lens
+var rain_drip_flash: float = 0.0  # current drip noise intensity
 
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
@@ -334,10 +336,21 @@ func _physics_process(delta: float) -> void:
 		crt_material.set_shader_parameter("vignette_intensity", lerpf(cur_vig_f, target_vignette, 2.0 * delta))
 
 	# Wet lens effect: more noise grain when looking down at puddle level
+	# Rain drip: random noise spike when looking up (rain hits camera lens)
 	if crt_material:
-		var down_factor := clampf(-camera_rotation_x - 0.3, 0.0, 0.5) * 2.0  # 0-1 based on how much we look down
+		var down_factor := clampf(-camera_rotation_x - 0.3, 0.0, 0.5) * 2.0
 		var wet_noise := lerpf(0.02, 0.05, down_factor)
-		crt_material.set_shader_parameter("noise_intensity", lerpf(0.02, wet_noise, 3.0 * delta))
+		# Rain drip pulse when looking up
+		if camera_rotation_x > 0.3:
+			rain_drip_timer -= delta
+			if rain_drip_timer <= 0.0:
+				rain_drip_timer = randf_range(2.0, 5.0)
+				rain_drip_flash = 0.06
+		else:
+			rain_drip_timer = randf_range(1.0, 3.0)
+		rain_drip_flash = lerpf(rain_drip_flash, 0.0, 4.0 * delta)
+		var final_noise := maxf(wet_noise, rain_drip_flash)
+		crt_material.set_shader_parameter("noise_intensity", lerpf(0.02, final_noise, 3.0 * delta))
 
 	# Interaction prompt (proximity + look direction NPC detection)
 	if interact_label:
