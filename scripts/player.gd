@@ -581,6 +581,7 @@ func _build_humanoid_model() -> void:
 	model.name = "Model"
 	add_child(model)
 	model_node = model
+	model.position.y = -0.9  # offset down to match collision capsule center
 
 	var skin_color := Color(0.85, 0.72, 0.6)
 	var jacket_color := Color(0.12, 0.12, 0.15)
