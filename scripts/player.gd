@@ -225,6 +225,18 @@ func _physics_process(delta: float) -> void:
 	if land_fov_dip > 0.0:
 		land_fov_dip = maxf(0.0, land_fov_dip - delta * 20.0)
 		target_fov -= land_fov_dip
+	# Alley claustrophobia (tight streets narrow FOV slightly)
+	var cg := get_node_or_null("../CityGenerator")
+	if cg and "block_size" in cg and "street_width" in cg:
+		var stride: float = cg.block_size + cg.street_width
+		var px := fmod(absf(global_position.x), stride)
+		var pz := fmod(absf(global_position.z), stride)
+		var in_street_x := px > cg.block_size or px < cg.street_width * 0.5
+		var in_street_z := pz > cg.block_size or pz < cg.street_width * 0.5
+		if in_street_x and in_street_z:
+			target_fov -= 2.0  # intersection — tight
+		elif in_street_x or in_street_z:
+			target_fov -= 1.0  # on a street between buildings
 	camera.fov = lerpf(camera.fov, target_fov, FOV_LERP_SPEED * delta)
 
 	# Sprint strafe camera roll + forward lean

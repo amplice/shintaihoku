@@ -325,6 +325,12 @@ var keyjingle_active: bool = false
 var keyjingle_count: int = 0
 var keyjingle_max: int = 0
 var keyjingle_gap: float = 0.0
+var bagrustle_timer: float = 0.0
+var bagrustle_phase: float = 0.0
+var bagrustle_active: bool = false
+var zipper_timer: float = 0.0
+var zipper_phase: float = 0.0
+var zipper_active: bool = false
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -1434,6 +1440,30 @@ func _process(delta: float) -> void:
 		if keyjingle_count >= keyjingle_max and keyjingle_phase > 0.15:
 			keyjingle_active = false
 
+	# Shopping bag rustle (plastic crinkling)
+	bagrustle_timer -= delta
+	if bagrustle_timer <= 0.0 and not bagrustle_active:
+		bagrustle_timer = rng.randf_range(90.0, 180.0)
+		bagrustle_active = true
+		bagrustle_phase = 0.0
+
+	if bagrustle_active:
+		bagrustle_phase += delta
+		if bagrustle_phase > 0.4:
+			bagrustle_active = false
+
+	# Zipper sound (jacket zip-up sweep)
+	zipper_timer -= delta
+	if zipper_timer <= 0.0 and not zipper_active:
+		zipper_timer = rng.randf_range(120.0, 220.0)
+		zipper_active = true
+		zipper_phase = 0.0
+
+	if zipper_active:
+		zipper_phase += delta
+		if zipper_phase > 0.3:
+			zipper_active = false
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -2493,6 +2523,35 @@ func _fill_hum_buffer() -> void:
 			var kj_tone := sin(t * kj_freq * TAU) * 0.4
 			kj_tone += sin(t * kj_freq * 1.5 * TAU) * 0.2  # inharmonic overtone
 			sample += kj_tone * kj_env * 0.005
+
+		# Shopping bag rustle (high-frequency filtered noise)
+		if bagrustle_active:
+			var br_env := 0.0
+			if bagrustle_phase < 0.05:
+				br_env = bagrustle_phase / 0.05
+			elif bagrustle_phase < 0.3:
+				br_env = 1.0 - (bagrustle_phase - 0.05) * 2.0
+			else:
+				br_env = maxf(0.0, (0.4 - bagrustle_phase) / 0.1)
+			var br_noise := rng.randf_range(-1.0, 1.0)
+			# Emphasize high frequencies by adding rapid oscillation
+			br_noise *= 0.3 + absf(sin(t * 5000.0 * TAU)) * 0.4
+			sample += br_noise * br_env * 0.004
+
+		# Zipper sweep (ascending freq with metallic buzz)
+		if zipper_active:
+			var zp_env := 0.0
+			if zipper_phase < 0.03:
+				zp_env = zipper_phase / 0.03
+			elif zipper_phase < 0.25:
+				zp_env = 1.0
+			else:
+				zp_env = maxf(0.0, (0.3 - zipper_phase) / 0.05)
+			var zp_freq := lerpf(1500.0, 4000.0, zipper_phase / 0.3)
+			var zp_tone := sin(t * zp_freq * TAU) * 0.3
+			zp_tone += sin(t * zp_freq * 2.0 * TAU) * 0.15  # metallic harmonic
+			zp_tone += rng.randf_range(-1.0, 1.0) * 0.1  # buzz
+			sample += zp_tone * zp_env * 0.005
 
 		# Distant crowd murmur (band-limited noise, 200-800Hz band)
 		var murmur_noise := rng.randf_range(-1.0, 1.0)

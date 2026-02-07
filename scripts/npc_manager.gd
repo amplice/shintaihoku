@@ -884,32 +884,15 @@ func _process(delta: float) -> void:
 					rs.rotation.x = lerpf(rs.rotation.x, -0.7 * fw_blend, 8.0 * delta)
 					re.rotation.x = lerpf(re.rotation.x, -0.8 * fw_blend, 8.0 * delta)
 
-		# Yawn (4% of NPCs, triggers after extended stop)
-		if npc_data.get("does_yawn", false) and is_stopped:
-			npc_data["yawn_cooldown"] = npc_data.get("yawn_cooldown", 0.0) - delta
-			if npc_data["yawn_cooldown"] <= 0.0:
-				npc_data["yawn_phase"] = npc_data.get("yawn_phase", 0.0) + delta
-				var yp: float = npc_data["yawn_phase"]
-				if yp < 3.0:
-					if head_node and is_instance_valid(head_node):
-						var yawn_blend := 0.0
-						if yp < 0.5:
-							yawn_blend = yp / 0.5
-						elif yp < 2.0:
-							yawn_blend = 1.0
-						else:
-							yawn_blend = (3.0 - yp) / 1.0
-						head_node.rotation.x = lerpf(head_node.rotation.x, 0.2 * yawn_blend, 4.0 * delta)
-						head_node.scale.y = lerpf(head_node.scale.y, 1.0 + 0.08 * yawn_blend, 5.0 * delta)
-					# Cover mouth with right hand
-					var yrs := node.get_node_or_null("Model/RightShoulder")
-					if yrs and is_instance_valid(yrs) and not npc_data.get("smoke"):
-						yrs.rotation.x = lerpf(yrs.rotation.x, -0.5 if yp < 2.0 else 0.0, 4.0 * delta)
-				else:
-					npc_data["yawn_phase"] = 0.0
-					npc_data["yawn_cooldown"] = 40.0
-					if head_node and is_instance_valid(head_node):
-						head_node.scale.y = 1.0
+		# Neck roll (3% of stopped NPCs — slow head Z arc, tiredness)
+		if npc_data.get("does_neck_roll", false) and is_stopped:
+			npc_data["neck_roll_t"] = npc_data.get("neck_roll_t", 0.0) + delta
+			var nr_cycle := fmod(npc_data["neck_roll_t"], 35.0)
+			if nr_cycle < 2.0 and head_node and is_instance_valid(head_node):
+				# Sweep from left to right in a slow arc
+				var nr_prog := nr_cycle / 2.0  # 0 to 1
+				var nr_angle := sin(nr_prog * PI) * 0.2 * (1.0 if nr_prog < 0.5 else -1.0)
+				head_node.rotation.z = lerpf(head_node.rotation.z, nr_angle, 4.0 * delta)
 
 		# Step-over puddle (3% of walking NPCs — wider stride briefly)
 		if npc_data.get("does_step_over", false) and not is_stopped:
@@ -1829,10 +1812,9 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		"does_collar_adj": not has_umbrella and not has_phone and rng.randf() < 0.07,
 		"does_watch_check": not has_phone and not has_umbrella and rng.randf() < 0.06,
 		"does_face_wipe": not has_umbrella and not has_phone and rng.randf() < 0.04,
-		"does_yawn": rng.randf() < 0.04,
-		"yawn_cooldown": rng.randf_range(10.0, 30.0),
 		"does_step_over": rng.randf() < 0.03,
 		"step_over_timer": rng.randf_range(20.0, 40.0),
+		"does_neck_roll": rng.randf() < 0.03,
 		"horn_flinch": 0.0,
 		"nod_cooldown": 0.0,
 		"last_cell_x": -999,
