@@ -19,6 +19,7 @@ var holo_signs: Array[Dictionary] = []  # [{node, base_y, phase, speed}]
 var vending_screens: Array[Dictionary] = []  # [{node, phase, color}]
 var color_shift_signs: Array[Dictionary] = []  # [{node, light, phase, speed, base_hue}]
 var rotating_fans: Array[Dictionary] = []  # [{node, speed}]
+var crosswalk_signals: Array[Dictionary] = []  # [{walk_mesh, stop_mesh, phase}]
 var drone_node: Node3D = null
 var drone_time: float = 0.0
 var drone_light: OmniLight3D = null
@@ -156,6 +157,7 @@ func _ready() -> void:
 	_generate_street_vendors()
 	_generate_alleys()
 	_generate_pigeon_flocks()
+	_generate_rooftop_gardens()
 	_setup_neon_flicker()
 	_setup_color_shift_signs()
 	print("CityGenerator: generation complete, total children=", get_child_count())
@@ -501,6 +503,20 @@ func _add_windows(building: MeshInstance3D, size: Vector3, rng: RandomNumberGene
 				win.set_surface_override_material(0,
 					_make_ps1_material(wc * 0.3, true, wc, rng.randf_range(2.5, 5.0)))
 				building.add_child(win)
+				# 10% of lit windows get horizontal blinds overlay
+				if rng.randf() < 0.10:
+					for blind_row in range(4):
+						var blind := MeshInstance3D.new()
+						var blind_mesh := QuadMesh.new()
+						blind_mesh.size = Vector2(1.15, 0.08)
+						blind.mesh = blind_mesh
+						blind.position = Vector3(wx, wy - 0.5 + blind_row * 0.35, face * (size.z * 0.51 + 0.005))
+						if face < 0:
+							blind.rotation.y = PI
+						blind.set_surface_override_material(0,
+							_make_ps1_material(Color(0.06, 0.05, 0.04)))
+						blind.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+						building.add_child(blind)
 				# 8% of lit windows get a person silhouette
 				if rng.randf() < 0.08:
 					var sil := MeshInstance3D.new()
@@ -555,6 +571,21 @@ func _add_windows(building: MeshInstance3D, size: Vector3, rng: RandomNumberGene
 				win.set_surface_override_material(0,
 					_make_ps1_material(wc * 0.3, true, wc, rng.randf_range(2.5, 5.0)))
 				building.add_child(win)
+				# 10% blinds on side windows
+				if rng.randf() < 0.10:
+					for blind_row in range(4):
+						var blind := MeshInstance3D.new()
+						var blind_mesh := QuadMesh.new()
+						blind_mesh.size = Vector2(1.15, 0.08)
+						blind.mesh = blind_mesh
+						blind.position = Vector3(face * (size.x * 0.51 + 0.005), wy - 0.5 + blind_row * 0.35, wz)
+						blind.rotation.y = PI * 0.5
+						if face < 0:
+							blind.rotation.y = -PI * 0.5
+						blind.set_surface_override_material(0,
+							_make_ps1_material(Color(0.06, 0.05, 0.04)))
+						blind.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+						building.add_child(blind)
 				# 8% silhouette on side windows too
 				if rng.randf() < 0.08:
 					var sil := MeshInstance3D.new()
@@ -4523,6 +4554,56 @@ func _generate_crosswalks() -> void:
 				stripe.position = Vector3(cross_x, 0.015, cross_z + (s - 2) * 0.8)
 				stripe.set_surface_override_material(0, stripe_mat)
 				add_child(stripe)
+			# Crosswalk signal pole at corner
+			if rng.randf() < 0.5:
+				var sig_node := Node3D.new()
+				var sig_side := 1.0 if rng.randf() < 0.5 else -1.0
+				sig_node.position = Vector3(cross_x + sig_side * street_width * 0.4, 0, cross_z - 2.5)
+				# Pole
+				var sig_pole := MeshInstance3D.new()
+				var sp_mesh := CylinderMesh.new()
+				sp_mesh.top_radius = 0.04
+				sp_mesh.bottom_radius = 0.06
+				sp_mesh.height = 3.0
+				sig_pole.mesh = sp_mesh
+				sig_pole.position = Vector3(0, 1.5, 0)
+				sig_pole.set_surface_override_material(0, _make_ps1_material(Color(0.3, 0.3, 0.32)))
+				sig_node.add_child(sig_pole)
+				# Signal box
+				var sig_box := MeshInstance3D.new()
+				var sb_mesh := BoxMesh.new()
+				sb_mesh.size = Vector3(0.2, 0.3, 0.12)
+				sig_box.mesh = sb_mesh
+				sig_box.position = Vector3(0, 3.1, 0)
+				sig_box.set_surface_override_material(0, _make_ps1_material(Color(0.2, 0.2, 0.22)))
+				sig_node.add_child(sig_box)
+				# Walk signal (white/green quad)
+				var walk_quad := MeshInstance3D.new()
+				var wq_mesh := QuadMesh.new()
+				wq_mesh.size = Vector2(0.12, 0.12)
+				walk_quad.mesh = wq_mesh
+				walk_quad.position = Vector3(0, 3.15, 0.07)
+				var walk_col := Color(0.2, 1.0, 0.4)
+				walk_quad.set_surface_override_material(0,
+					_make_ps1_material(walk_col * 0.3, true, walk_col, 3.0))
+				walk_quad.visible = false
+				sig_node.add_child(walk_quad)
+				# Stop signal (red quad)
+				var stop_quad := MeshInstance3D.new()
+				var sq_mesh := QuadMesh.new()
+				sq_mesh.size = Vector2(0.12, 0.12)
+				stop_quad.mesh = sq_mesh
+				stop_quad.position = Vector3(0, 3.05, 0.07)
+				var stop_col := Color(1.0, 0.15, 0.0)
+				stop_quad.set_surface_override_material(0,
+					_make_ps1_material(stop_col * 0.3, true, stop_col, 3.0))
+				sig_node.add_child(stop_quad)
+				add_child(sig_node)
+				crosswalk_signals.append({
+					"walk_mesh": walk_quad,
+					"stop_mesh": stop_quad,
+					"phase": rng.randf() * 10.0,
+				})
 
 func _generate_aircraft_flyover() -> void:
 	aircraft_node = Node3D.new()
@@ -4880,6 +4961,25 @@ func _process(_delta: float) -> void:
 		var cs_light = cs["light"]
 		if cs_light and is_instance_valid(cs_light):
 			(cs_light as OmniLight3D).light_color = col
+
+	# Crosswalk walk/stop signals (synced to 10s traffic cycle)
+	for cs in crosswalk_signals:
+		var walk_m: MeshInstance3D = cs["walk_mesh"]
+		var stop_m: MeshInstance3D = cs["stop_mesh"]
+		if not is_instance_valid(walk_m):
+			continue
+		var cs_phase: float = cs["phase"]
+		var cs_cycle := fmod(time + cs_phase, 10.0)
+		# Walk when traffic is red (6-10s), stop when green/yellow (0-6s)
+		if cs_cycle > 6.0:
+			walk_m.visible = true
+			stop_m.visible = false
+		else:
+			walk_m.visible = false
+			stop_m.visible = true
+			# Blink stop signal in last second before walk
+			if cs_cycle > 5.0:
+				stop_m.visible = fmod(time * 4.0, 1.0) < 0.5
 
 	# Rotating ventilation fans
 	for fan in rotating_fans:
@@ -5722,3 +5822,56 @@ func _generate_pigeon_flocks() -> void:
 			head.set_surface_override_material(0, _make_ps1_material(col * 0.8))
 			bird.add_child(head)
 			add_child(bird)
+
+func _generate_rooftop_gardens() -> void:
+	# Green plant clusters on some tall building rooftops
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7700
+	var garden_count := 0
+	var max_gardens := 8
+	for child in get_children():
+		if garden_count >= max_gardens:
+			break
+		if not child is MeshInstance3D:
+			continue
+		var mi := child as MeshInstance3D
+		if not mi.mesh is BoxMesh:
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		if bsize.y < 15.0 or bsize.x < 8.0:
+			continue
+		if rng.randf() > 0.10:
+			continue
+		garden_count += 1
+		var roof_y := mi.position.y + bsize.y * 0.5
+		# Cluster of green boxes (plants)
+		var num_plants := rng.randi_range(4, 8)
+		for _p in range(num_plants):
+			var plant := MeshInstance3D.new()
+			var plant_mesh := BoxMesh.new()
+			var ph := rng.randf_range(0.3, 0.8)
+			plant_mesh.size = Vector3(
+				rng.randf_range(0.3, 0.7),
+				ph,
+				rng.randf_range(0.3, 0.7))
+			plant.mesh = plant_mesh
+			var px := mi.position.x + rng.randf_range(-bsize.x * 0.25, bsize.x * 0.25)
+			var pz := mi.position.z + rng.randf_range(-bsize.z * 0.25, bsize.z * 0.25)
+			plant.position = Vector3(px, roof_y + ph * 0.5, pz)
+			# Varied greens
+			var green := Color(
+				rng.randf_range(0.05, 0.15),
+				rng.randf_range(0.2, 0.4),
+				rng.randf_range(0.05, 0.12))
+			plant.set_surface_override_material(0, _make_ps1_material(green))
+			add_child(plant)
+		# Planter box (dark border)
+		var planter := MeshInstance3D.new()
+		var planter_mesh := BoxMesh.new()
+		var pw := rng.randf_range(2.0, bsize.x * 0.4)
+		var pd := rng.randf_range(2.0, bsize.z * 0.4)
+		planter_mesh.size = Vector3(pw, 0.3, pd)
+		planter.mesh = planter_mesh
+		planter.position = Vector3(mi.position.x, roof_y + 0.15, mi.position.z)
+		planter.set_surface_override_material(0, _make_ps1_material(Color(0.15, 0.12, 0.08)))
+		add_child(planter)

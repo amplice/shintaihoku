@@ -36,6 +36,7 @@ var sprint_streaks: GPUParticles3D
 var was_on_floor: bool = true
 var shake_intensity: float = 0.0
 var shake_timer: float = 0.0
+var bob_amplitude_current: float = 0.0  # smooth transition for head bob
 var breath_fog: GPUParticles3D
 var breath_timer: float = 0.0
 var compass_label: Label
@@ -176,27 +177,30 @@ func _physics_process(delta: float) -> void:
 			time_str = "  %02d:%02d" % [hours, minutes]
 		compass_label.text = "SHINTAIHOKU  [ %s %d° ]%s" % [directions[idx], int(heading), time_str]
 
-	# Head bob
+	# Head bob (smooth amplitude transition)
+	var target_bob_amp := 0.0
 	if is_on_floor() and horiz_speed > 0.5:
-		var bob_mult := BOB_SPRINT_MULT if is_sprinting else 1.0
-		bob_timer += delta * BOB_FREQUENCY * (horiz_speed / SPEED)
-		var bob_offset := sin(bob_timer) * BOB_AMPLITUDE * bob_mult
+		target_bob_amp = BOB_AMPLITUDE * (BOB_SPRINT_MULT if is_sprinting else 1.0)
+	bob_amplitude_current = lerpf(bob_amplitude_current, target_bob_amp, 8.0 * delta)
+
+	if bob_amplitude_current > 0.001:
+		bob_timer += delta * BOB_FREQUENCY * maxf(horiz_speed / SPEED, 0.3)
+		var bob_offset := sin(bob_timer) * bob_amplitude_current
 		camera.position.y = camera_base_y + bob_offset
-		# Subtle horizontal sway
-		camera.position.x = sin(bob_timer * 0.5) * BOB_AMPLITUDE * 0.5 * bob_mult
-		# Trigger footstep on bob cycle zero-crossing (each half-cycle = one step)
+		camera.position.x = sin(bob_timer * 0.5) * bob_amplitude_current * 0.5
+		# Trigger footstep on bob cycle zero-crossing
 		var current_sign := signf(sin(bob_timer))
 		if current_sign != last_step_sign and current_sign != 0.0:
 			last_step_sign = current_sign
-			_trigger_footstep(is_sprinting)
-		# Foot splash particles while walking on wet ground
+			if horiz_speed > 0.5:
+				_trigger_footstep(is_sprinting)
 		if foot_splash:
-			foot_splash.emitting = true
+			foot_splash.emitting = horiz_speed > 0.5
 	else:
 		if foot_splash:
 			foot_splash.emitting = false
 		# Idle breathing sway
-		bob_timer += delta * 1.2  # slow breathing rate
+		bob_timer += delta * 1.2
 		var breathe_y := sin(bob_timer * 0.8) * 0.005
 		var breathe_x := sin(bob_timer * 0.5) * 0.002
 		camera.position.y = lerpf(camera.position.y, camera_base_y + breathe_y, 5.0 * delta)
