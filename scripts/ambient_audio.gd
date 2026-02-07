@@ -210,6 +210,10 @@ var tune_phase: float = 0.0
 var tune_active: bool = false
 var tune_duration: float = 0.4
 var tune_freq: float = 1000.0
+var ship_timer: float = 0.0
+var ship_phase: float = 0.0
+var ship_active: bool = false
+var ship_duration: float = 4.0
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -934,6 +938,19 @@ func _process(delta: float) -> void:
 		if organ_phase > organ_duration:
 			organ_active = false
 
+	# Distant ship/container horn (very deep blast, rare)
+	ship_timer -= delta
+	if ship_timer <= 0.0 and not ship_active:
+		ship_timer = rng.randf_range(300.0, 500.0)
+		ship_active = true
+		ship_phase = 0.0
+		ship_duration = rng.randf_range(3.0, 5.0)
+
+	if ship_active:
+		ship_phase += delta
+		if ship_phase > ship_duration:
+			ship_active = false
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -1588,6 +1605,21 @@ func _fill_hum_buffer() -> void:
 			# Slight tremolo for pipe organ vibrato
 			var og_trem := 1.0 + sin(t * 5.5 * TAU) * 0.06
 			sample += (og_c + og_e + og_g) * og_env * og_trem * 0.012
+		# Distant ship/container horn (very deep resonant blast)
+		if ship_active:
+			var sh_env := 1.0
+			if ship_phase < 0.8:
+				sh_env = ship_phase / 0.8
+			elif ship_phase > ship_duration - 1.0:
+				sh_env = maxf(0.0, (ship_duration - ship_phase) / 1.0)
+			sh_env = sh_env * sh_env
+			# Very low fundamental: 55Hz + sub-harmonics
+			var sh_tone := sin(t * 55.0 * TAU) * 0.35
+			sh_tone += sin(t * 110.0 * TAU) * 0.15
+			sh_tone += sin(t * 27.5 * TAU) * 0.2  # sub-octave rumble
+			# Slight beating from detuned partial
+			sh_tone += sin(t * 57.0 * TAU) * 0.1
+			sample += sh_tone * sh_env * 0.025
 		# Distant crowd murmur (band-limited noise, 200-800Hz band)
 		var murmur_noise := rng.randf_range(-1.0, 1.0)
 		murmur_filter1 = murmur_filter1 * 0.85 + murmur_noise * 0.15

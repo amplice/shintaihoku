@@ -250,6 +250,49 @@ func _process(delta: float) -> void:
 				if nre:
 					nre.rotation.x = lerpf(nre.rotation.x, -0.7, 4.0 * delta)
 
+		# Shoulder shrug idle gesture (15% of NPCs, periodic when stopped)
+		if npc_data.get("does_shrug", false) and is_stopped:
+			npc_data["shrug_clock"] = npc_data.get("shrug_clock", 0.0) + delta
+			var sclock: float = npc_data["shrug_clock"]
+			var shrug_cycle := fmod(sclock, 6.0)  # shrug every 6s
+			var shrug_y := 0.0
+			if shrug_cycle < 0.4:
+				shrug_y = shrug_cycle / 0.4 * 0.06  # raise
+			elif shrug_cycle < 0.8:
+				shrug_y = 0.06  # hold
+			elif shrug_cycle < 1.2:
+				shrug_y = (1.2 - shrug_cycle) / 0.4 * 0.06  # lower
+			var sls := node.get_node_or_null("Model/LeftShoulder")
+			var srs := node.get_node_or_null("Model/RightShoulder")
+			if sls:
+				sls.position.y = lerpf(sls.position.y, 1.3 + shrug_y, 8.0 * delta)
+			if srs:
+				srs.position.y = lerpf(srs.position.y, 1.3 + shrug_y, 8.0 * delta)
+
+		# Head scratch idle gesture (10% of NPCs, periodic when stopped)
+		if npc_data.get("does_scratch", false) and is_stopped and not npc_data["has_phone"] and not npc_data.get("has_newspaper", false) and not npc_data["smoke"]:
+			npc_data["scratch_clock"] = npc_data.get("scratch_clock", 0.0) + delta
+			var scratch_cycle := fmod(npc_data["scratch_clock"], 8.0)
+			if scratch_cycle < 2.0:
+				var scratch_rs := node.get_node_or_null("Model/RightShoulder")
+				var scratch_re := node.get_node_or_null("Model/RightShoulder/RightElbow")
+				if scratch_rs:
+					var target_sh := -0.9
+					if scratch_cycle < 0.4:
+						target_sh = -0.9 * (scratch_cycle / 0.4)
+					elif scratch_cycle > 1.6:
+						target_sh = -0.9 * ((2.0 - scratch_cycle) / 0.4)
+					# Slight oscillation for scratching motion
+					target_sh += sin(scratch_cycle * 12.0) * 0.05
+					scratch_rs.rotation.x = lerpf(scratch_rs.rotation.x, target_sh, 6.0 * delta)
+				if scratch_re:
+					var target_el := -1.0
+					if scratch_cycle < 0.4:
+						target_el = -1.0 * (scratch_cycle / 0.4)
+					elif scratch_cycle > 1.6:
+						target_el = -1.0 * ((2.0 - scratch_cycle) / 0.4)
+					scratch_re.rotation.x = lerpf(scratch_re.rotation.x, target_el, 6.0 * delta)
+
 		# Head tracking: stopped NPCs look at player when nearby
 		# Also react to sprinting player passing by
 		var head_node := node.get_node_or_null("Model/Head")
@@ -755,6 +798,15 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 			_add_body_part(right_lower, "Cigarette", BoxMesh.new(), Vector3(-0.04, -0.12, 0.08),
 				cig_col * 0.3, Vector3(0.02, 0.02, 0.06), true, cig_col, 2.5)
 
+	# LED shoelaces (3% of NPCs - glowing strips at ankle level)
+	if rng.randf() < 0.03:
+		var led_cols: Array[Color] = [Color(0.0, 0.9, 1.0), Color(1.0, 0.05, 0.8), Color(0.0, 1.0, 0.4)]
+		var led_col: Color = led_cols[rng.randi_range(0, 2)]
+		_add_body_part(model, "LedL", BoxMesh.new(), Vector3(-0.08, 0.02, 0.04),
+			led_col * 0.3, Vector3(0.12, 0.015, 0.06), true, led_col, 3.0)
+		_add_body_part(model, "LedR", BoxMesh.new(), Vector3(0.08, 0.02, 0.04),
+			led_col * 0.3, Vector3(0.12, 0.015, 0.06), true, led_col, 3.0)
+
 	# Foot splash particles (wet ground)
 	var npc_splash := GPUParticles3D.new()
 	npc_splash.amount = 6
@@ -801,6 +853,8 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		"has_limp": rng.randf() < 0.05,
 		"is_jogger": is_jogger,
 		"has_newspaper": has_newspaper,
+		"does_shrug": rng.randf() < 0.15,
+		"does_scratch": rng.randf() < 0.10,
 	})
 
 func _add_pivot(parent: Node3D, pivot_name: String, pos: Vector3) -> Node3D:

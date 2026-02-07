@@ -7007,3 +7007,4 @@ func _generate_gutter_overflow() -> void:
 			stream.draw_pass_1 = s_mesh
 			add_child(stream)
 			overflow_count += 1
+
