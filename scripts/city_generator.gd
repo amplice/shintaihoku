@@ -187,6 +187,7 @@ func _ready() -> void:
 	_setup_fly_buzz_audio()
 	_setup_neon_flicker()
 	_setup_color_shift_signs()
+	_generate_chimney_smoke()
 	print("CityGenerator: generation complete, total children=", get_child_count())
 
 func _make_ps1_material(color: Color, is_emissive: bool = false,
@@ -6664,3 +6665,49 @@ func _setup_fly_buzz_audio() -> void:
 			"playback": player.get_stream_playback(),
 			"phase": 0.0,
 		})
+
+func _generate_chimney_smoke() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 9300
+	var stride := block_size + street_width
+	var count := 0
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			if count >= 10:
+				break
+			if rng.randf() > 0.08:
+				continue
+			var bx := gx * stride + rng.randf_range(3.0, block_size - 3.0)
+			var bz := gz * stride + rng.randf_range(3.0, block_size - 3.0)
+			var roof_y := rng.randf_range(15.0, 35.0)
+			# Chimney stack (dark box on rooftop)
+			var chimney := MeshInstance3D.new()
+			var ch_mesh := BoxMesh.new()
+			ch_mesh.size = Vector3(0.6, 1.8, 0.6)
+			chimney.mesh = ch_mesh
+			chimney.position = Vector3(bx, roof_y + 0.9, bz)
+			chimney.material_override = _make_ps1_material(Color(0.12, 0.1, 0.1))
+			add_child(chimney)
+			# Smoke particles rising from chimney top
+			var smoke := GPUParticles3D.new()
+			smoke.position = Vector3(bx, roof_y + 1.8, bz)
+			smoke.amount = 6
+			smoke.lifetime = 3.0
+			smoke.visibility_aabb = AABB(Vector3(-3, -1, -3), Vector3(6, 8, 6))
+			var sm_mat := ParticleProcessMaterial.new()
+			sm_mat.direction = Vector3(0.3, 1, 0)
+			sm_mat.spread = 15.0
+			sm_mat.initial_velocity_min = 0.4
+			sm_mat.initial_velocity_max = 0.9
+			sm_mat.gravity = Vector3(0.2, 0.05, 0)
+			sm_mat.damping_min = 0.3
+			sm_mat.damping_max = 0.7
+			sm_mat.scale_min = 0.15
+			sm_mat.scale_max = 0.5
+			sm_mat.color = Color(0.45, 0.42, 0.4, 0.06)
+			smoke.process_material = sm_mat
+			var sm_mesh := BoxMesh.new()
+			sm_mesh.size = Vector3(0.2, 0.2, 0.2)
+			smoke.draw_pass_1 = sm_mesh
+			add_child(smoke)
+			count += 1

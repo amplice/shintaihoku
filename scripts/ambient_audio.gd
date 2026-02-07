@@ -120,6 +120,21 @@ var construction_phase: float = 0.0
 var construction_active: bool = false
 var construction_duration: float = 4.0
 var construction_bpm: float = 3.0
+var cheer_timer: float = 0.0
+var cheer_phase: float = 0.0
+var cheer_active: bool = false
+var cheer_duration: float = 2.0
+var cheer_filter: float = 0.0
+var baby_timer: float = 0.0
+var baby_phase: float = 0.0
+var baby_active: bool = false
+var baby_duration: float = 3.0
+var chime_timer: float = 0.0
+var chime_phase: float = 0.0
+var chime_active: bool = false
+var chime_duration: float = 2.0
+var chime_notes: Array[float] = []
+var chime_note_idx: int = 0
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -531,6 +546,51 @@ func _process(delta: float) -> void:
 		if construction_phase > construction_duration:
 			construction_active = false
 
+	# Distant crowd cheer/applause
+	cheer_timer -= delta
+	if cheer_timer <= 0.0 and not cheer_active:
+		cheer_timer = rng.randf_range(120.0, 240.0)
+		cheer_active = true
+		cheer_phase = 0.0
+		cheer_duration = rng.randf_range(1.0, 3.0)
+		cheer_filter = 0.0
+
+	if cheer_active:
+		cheer_phase += delta
+		if cheer_phase > cheer_duration:
+			cheer_active = false
+
+	# Distant baby crying (very rare)
+	baby_timer -= delta
+	if baby_timer <= 0.0 and not baby_active:
+		baby_timer = rng.randf_range(150.0, 300.0)
+		baby_active = true
+		baby_phase = 0.0
+		baby_duration = rng.randf_range(2.0, 4.0)
+
+	if baby_active:
+		baby_phase += delta
+		if baby_phase > baby_duration:
+			baby_active = false
+
+	# Distant wind chime / music box tinkle
+	chime_timer -= delta
+	if chime_timer <= 0.0 and not chime_active:
+		chime_timer = rng.randf_range(80.0, 160.0)
+		chime_active = true
+		chime_phase = 0.0
+		chime_duration = rng.randf_range(2.0, 3.0)
+		chime_note_idx = 0
+		chime_notes.clear()
+		var chime_freqs: Array[float] = [1200.0, 1500.0, 1800.0, 2000.0, 2400.0]
+		for _n in range(rng.randi_range(4, 6)):
+			chime_notes.append(chime_freqs[rng.randi_range(0, 4)])
+
+	if chime_active:
+		chime_phase += delta
+		if chime_phase > chime_duration:
+			chime_active = false
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -860,6 +920,58 @@ func _fill_hum_buffer() -> void:
 			var heli_thump := sin(t * 40.0 * TAU) * chop_pulse * 0.3
 			var heli_whoosh := rng.randf_range(-1.0, 1.0) * chop_pulse * 0.15
 			sample += (heli_thump + heli_whoosh) * heli_env * 0.03
+		# Distant crowd cheer/applause (burst of filtered noise with energy swell)
+		if cheer_active:
+			var ch_env := 1.0
+			if cheer_phase < 0.2:
+				ch_env = cheer_phase / 0.2
+			elif cheer_phase > cheer_duration - 0.5:
+				ch_env = maxf(0.0, (cheer_duration - cheer_phase) / 0.5)
+			# Swell envelope: rises then fades
+			var swell := sin(cheer_phase / cheer_duration * PI)
+			ch_env *= swell
+			var ch_noise := rng.randf_range(-1.0, 1.0)
+			cheer_filter = cheer_filter * 0.6 + ch_noise * 0.4
+			# Band-pass: multiple voices merged into roar
+			var ch_tone := cheer_filter * 0.3
+			ch_tone += sin(t * 600.0 * TAU) * cheer_filter * 0.15
+			ch_tone += sin(t * 1100.0 * TAU) * cheer_filter * 0.1
+			sample += ch_tone * ch_env * 0.02
+		# Distant baby crying (wavering high-pitched wail)
+		if baby_active:
+			var by_env := 1.0
+			if baby_phase < 0.15:
+				by_env = baby_phase / 0.15
+			elif baby_phase > baby_duration - 0.3:
+				by_env = maxf(0.0, (baby_duration - baby_phase) / 0.3)
+			# Cry has rhythmic bursts (~2.5Hz sobbing rhythm)
+			var sob := maxf(0.0, sin(baby_phase * 2.5 * TAU))
+			by_env *= sob
+			# High-pitched wail with vibrato (~650Hz)
+			var cry_vib := 1.0 + sin(baby_phase * 18.0) * 0.06
+			var cry_freq := 650.0 * cry_vib
+			var cry_tone := sin(t * cry_freq * TAU) * 0.3
+			cry_tone += sin(t * cry_freq * 1.5 * TAU) * 0.12
+			cry_tone += sin(t * cry_freq * 2.0 * TAU) * 0.06
+			sample += cry_tone * by_env * 0.012
+		# Distant wind chime / music box tinkle (metallic bell tones)
+		if chime_active and chime_notes.size() > 0:
+			var note_dur := chime_duration / float(chime_notes.size())
+			var ci := mini(int(chime_phase / note_dur), chime_notes.size() - 1)
+			var note_local := fmod(chime_phase, note_dur)
+			var cm_env := 1.0
+			# Sharp attack, long decay
+			if note_local < 0.005:
+				cm_env = note_local / 0.005
+			else:
+				cm_env = maxf(0.0, 1.0 - (note_local - 0.005) / (note_dur * 0.9))
+			cm_env = cm_env * cm_env  # squared for bell-like decay
+			var cm_freq := chime_notes[ci]
+			# Metallic bell: fundamental + inharmonic overtones
+			var bell := sin(t * cm_freq * TAU) * 0.25
+			bell += sin(t * cm_freq * 2.76 * TAU) * 0.1  # inharmonic partial
+			bell += sin(t * cm_freq * 5.4 * TAU) * 0.04  # high shimmer
+			sample += bell * cm_env * 0.015
 		# Distant crowd murmur (band-limited noise, 200-800Hz band)
 		var murmur_noise := rng.randf_range(-1.0, 1.0)
 		murmur_filter1 = murmur_filter1 * 0.85 + murmur_noise * 0.15
