@@ -36,6 +36,7 @@ var shake_timer: float = 0.0
 var breath_fog: GPUParticles3D
 var breath_timer: float = 0.0
 var compass_label: Label
+var crt_material: ShaderMaterial
 
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
@@ -121,9 +122,14 @@ func _physics_process(delta: float) -> void:
 	var target_fov := SPRINT_FOV if is_sprinting else BASE_FOV
 	camera.fov = lerpf(camera.fov, target_fov, FOV_LERP_SPEED * delta)
 
-	# Sprint rain streaks
+	# Sprint rain streaks + speed blur
 	if sprint_streaks:
 		sprint_streaks.emitting = is_sprinting
+	if crt_material:
+		var blur_target := clampf(horiz_speed / SPRINT_SPEED, 0.0, 1.0) * 0.6 if is_sprinting else 0.0
+		var current_blur_val = crt_material.get_shader_parameter("speed_blur")
+		var current_blur: float = current_blur_val if current_blur_val != null else 0.0
+		crt_material.set_shader_parameter("speed_blur", lerpf(current_blur, blur_target, 8.0 * delta))
 
 	# Breath fog puffs (every 2.5-3.5 seconds)
 	breath_timer -= delta
@@ -133,12 +139,19 @@ func _physics_process(delta: float) -> void:
 			breath_fog.restart()
 			breath_fog.emitting = true
 
-	# Update compass
+	# Update compass + time
 	if compass_label:
 		var heading := fmod(-rotation.y * 180.0 / PI + 360.0, 360.0)
 		var directions := ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
 		var idx := int(roundf(heading / 45.0)) % 8
-		compass_label.text = "[ %s  %d° ]" % [directions[idx], int(heading)]
+		var time_str := ""
+		var dnc := get_node_or_null("../DayNightCycle")
+		if dnc and "time_of_day" in dnc:
+			var tod: float = dnc.time_of_day
+			var hours := int(tod) % 24
+			var minutes := int((tod - float(hours)) * 60.0)
+			time_str = "  %02d:%02d" % [hours, minutes]
+		compass_label.text = "SHINTAIHOKU  [ %s %d° ]%s" % [directions[idx], int(heading), time_str]
 
 	# Head bob
 	if is_on_floor() and horiz_speed > 0.5:
@@ -433,4 +446,5 @@ func _setup_crt_overlay() -> void:
 	var mat := ShaderMaterial.new()
 	mat.shader = crt_shader
 	rect.material = mat
+	crt_material = mat
 	canvas_layer.add_child(rect)

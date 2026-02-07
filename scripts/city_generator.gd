@@ -132,6 +132,7 @@ func _ready() -> void:
 	_generate_aircraft_flyover()
 	_generate_neon_light_shafts()
 	_generate_distant_city_glow()
+	_generate_rooftop_water_tanks()
 	_setup_neon_buzz_audio()
 	_setup_neon_flicker()
 	_setup_color_shift_signs()
@@ -4775,3 +4776,57 @@ func _setup_neon_buzz_audio() -> void:
 			"playback": player.get_stream_playback(),
 			"phase": 0.0,
 		})
+
+func _generate_rooftop_water_tanks() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 6700
+	var children_snapshot := get_children()
+	var tanks_to_add: Array[Dictionary] = []
+	for raw_child in children_snapshot:
+		if not raw_child is MeshInstance3D:
+			continue
+		var child := raw_child as MeshInstance3D
+		if not child.mesh is BoxMesh:
+			continue
+		var bsize: Vector3 = (child.mesh as BoxMesh).size
+		if bsize.y < 20.0:
+			continue
+		if rng.randf() > 0.10:
+			continue
+		tanks_to_add.append({
+			"pos": Vector3(child.position.x, child.position.y + bsize.y * 0.5, child.position.z),
+			"roof_w": bsize.x,
+			"roof_d": bsize.z,
+		})
+	var tank_color := Color(0.15, 0.13, 0.12)
+	var leg_color := Color(0.1, 0.1, 0.1)
+	for td in tanks_to_add:
+		var tank_parent := Node3D.new()
+		var roof_pos: Vector3 = td["pos"]
+		var rw: float = td["roof_w"]
+		var rd: float = td["roof_d"]
+		var offset_x := rng.randf_range(-rw * 0.25, rw * 0.25)
+		var offset_z := rng.randf_range(-rd * 0.25, rd * 0.25)
+		tank_parent.position = Vector3(roof_pos.x + offset_x, roof_pos.y, roof_pos.z + offset_z)
+		# Cylinder tank body
+		var tank := MeshInstance3D.new()
+		var tank_mesh := CylinderMesh.new()
+		tank_mesh.top_radius = 0.8
+		tank_mesh.bottom_radius = 0.8
+		tank_mesh.height = 1.5
+		tank.mesh = tank_mesh
+		tank.position = Vector3(0, 2.5, 0)
+		tank.set_surface_override_material(0, _make_ps1_material(tank_color))
+		tank_parent.add_child(tank)
+		# 4 legs
+		for li in range(4):
+			var leg := MeshInstance3D.new()
+			var leg_mesh := BoxMesh.new()
+			leg_mesh.size = Vector3(0.08, 1.8, 0.08)
+			leg.mesh = leg_mesh
+			var lx := 0.5 if li % 2 == 0 else -0.5
+			var lz := 0.5 if li < 2 else -0.5
+			leg.position = Vector3(lx, 0.9, lz)
+			leg.set_surface_override_material(0, _make_ps1_material(leg_color))
+			tank_parent.add_child(leg)
+		add_child(tank_parent)

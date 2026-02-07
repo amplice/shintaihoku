@@ -28,6 +28,8 @@ var bark_count: int = 0
 var bark_max: int = 0
 var bark_gap_timer: float = 0.0
 var bark_pitch: float = 1.0
+var murmur_filter1: float = 0.0
+var murmur_filter2: float = 0.0
 var rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
@@ -182,5 +184,11 @@ func _fill_hum_buffer() -> void:
 			thunder_filter = thunder_filter * 0.92 + rumble_noise * 0.08
 			var rumble := thunder_filter * 0.3 + sin(t * 30.0 * TAU) * 0.15
 			sample += (crack + rumble) * thunder_env * 0.5
+		# Distant crowd murmur (band-limited noise, 200-800Hz band)
+		var murmur_noise := rng.randf_range(-1.0, 1.0)
+		murmur_filter1 = murmur_filter1 * 0.85 + murmur_noise * 0.15
+		murmur_filter2 = murmur_filter2 * 0.7 + murmur_filter1 * 0.3
+		var murmur := (murmur_filter1 - murmur_filter2) * 0.04
+		sample += murmur
 		sample *= 0.3
 		hum_playback.push_frame(Vector2(sample, sample))
