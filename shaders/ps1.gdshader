@@ -1,10 +1,9 @@
 shader_type spatial;
 
-// PS1-style shader: vertex jitter, color banding, fog
+// PS1-style shader: color banding, emission fog, wet surfaces
 render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_lambert, specular_disabled;
 
 uniform vec4 albedo_color : source_color = vec4(0.4, 0.4, 0.45, 1.0);
-uniform float vertex_snap_intensity : hint_range(1.0, 10.0, 0.5) = 1.0;
 uniform float color_depth : hint_range(2.0, 32.0, 1.0) = 15.0;
 uniform vec4 fog_color : source_color = vec4(0.02, 0.02, 0.08, 1.0);
 uniform float fog_distance : hint_range(10.0, 200.0, 1.0) = 60.0;
@@ -21,18 +20,6 @@ varying float vertex_distance;
 varying vec3 world_normal;
 
 void vertex() {
-	// Transform to clip space
-	vec4 clip_pos = PROJECTION_MATRIX * MODELVIEW_MATRIX * vec4(VERTEX, 1.0);
-
-	// Vertex snapping - snap to lower resolution grid (PS1 vertex jitter)
-	float snap = vertex_snap_intensity * 50.0;
-	clip_pos.xyz = clip_pos.xyz / clip_pos.w;
-	clip_pos.x = floor(clip_pos.x * snap + 0.5) / snap;
-	clip_pos.y = floor(clip_pos.y * snap + 0.5) / snap;
-	clip_pos.xyz *= clip_pos.w;
-
-	POSITION = clip_pos;
-
 	// Calculate distance for fog
 	vec4 world_pos = MODEL_MATRIX * vec4(VERTEX, 1.0);
 	vertex_distance = length((VIEW_MATRIX * world_pos).xyz);

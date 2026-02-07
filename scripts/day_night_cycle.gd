@@ -124,8 +124,8 @@ func _process(delta: float) -> void:
 	environment.background_color = bg_color
 	environment.ambient_light_color = ambient_color
 	environment.ambient_light_energy = ambient_energy
-	environment.fog_light_color = fog_color
-	environment.volumetric_fog_density = vol_fog_density
+	environment.fog_light_color = bg_color  # match fog to sky so no visible seam
+	environment.fog_light_energy = 0.0
 
 	# Apply to sun
 	sun.light_color = sun_color

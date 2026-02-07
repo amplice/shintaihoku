@@ -4389,47 +4389,8 @@ func _generate_car_rain_splashes() -> void:
 		add_child(splash)
 
 func _generate_haze_layers() -> void:
-	var cell_stride_local := block_size + street_width
-	var extent := grid_size * cell_stride_local
-	var haze_color := Color(0.08, 0.05, 0.15, 0.12)
-	var haze_mat := ShaderMaterial.new()
-	haze_mat.shader = ps1_shader
-	haze_mat.set_shader_parameter("albedo_color", haze_color)
-	haze_mat.set_shader_parameter("vertex_snap_intensity", 0.0)
-	haze_mat.set_shader_parameter("color_depth", 32.0)
-	haze_mat.set_shader_parameter("fog_distance", 200.0)
-	haze_mat.set_shader_parameter("fog_density", 0.0)
-	# 4 haze walls at grid edges
-	var directions := [
-		{"pos": Vector3(extent + 20, 20, 0), "rot": 0.0, "sx": 1.0, "sz": extent * 2.0},
-		{"pos": Vector3(-extent - 20, 20, 0), "rot": 0.0, "sx": 1.0, "sz": extent * 2.0},
-		{"pos": Vector3(0, 20, extent + 20), "rot": PI * 0.5, "sx": 1.0, "sz": extent * 2.0},
-		{"pos": Vector3(0, 20, -extent - 20), "rot": PI * 0.5, "sx": 1.0, "sz": extent * 2.0},
-	]
-	for dir in directions:
-		var plane := MeshInstance3D.new()
-		var plane_mesh := BoxMesh.new()
-		plane_mesh.size = Vector3(0.1, 50.0, dir["sz"])
-		plane.mesh = plane_mesh
-		plane.position = dir["pos"]
-		plane.rotation.y = dir["rot"]
-		plane.set_surface_override_material(0, haze_mat)
-		add_child(plane)
-	# Horizontal smog layer at mid-height
-	var smog := MeshInstance3D.new()
-	var smog_mesh := BoxMesh.new()
-	smog_mesh.size = Vector3(extent * 3.0, 0.1, extent * 3.0)
-	smog.mesh = smog_mesh
-	smog.position = Vector3(0, 40.0, 0)
-	var smog_mat := ShaderMaterial.new()
-	smog_mat.shader = ps1_shader
-	smog_mat.set_shader_parameter("albedo_color", Color(0.06, 0.04, 0.12, 0.08))
-	smog_mat.set_shader_parameter("vertex_snap_intensity", 0.0)
-	smog_mat.set_shader_parameter("color_depth", 32.0)
-	smog_mat.set_shader_parameter("fog_distance", 200.0)
-	smog_mat.set_shader_parameter("fog_density", 0.0)
-	smog.set_surface_override_material(0, smog_mat)
-	add_child(smog)
+	# Haze walls and smog layer removed — they created a visible ceiling
+	pass
 
 func _generate_neon_reflections() -> void:
 	var rng := RandomNumberGenerator.new()
@@ -5506,17 +5467,7 @@ func _generate_distant_city_glow() -> void:
 		wall.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(wall)
 
-	# Ground-level smog ring (horizontal plane at city boundary)
-	var smog := MeshInstance3D.new()
-	var smog_mesh := BoxMesh.new()
-	smog_mesh.size = Vector3(glow_distance * 3.0, 0.5, glow_distance * 3.0)
-	smog.mesh = smog_mesh
-	smog.position = Vector3(0, 5.0, 0)
-	var smog_color := Color(0.08, 0.04, 0.06)
-	smog.set_surface_override_material(0,
-		_make_ps1_material(smog_color, true, warm_glow * 0.3, 0.2))
-	smog.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(smog)
+	# (Ground-level smog ring removed — created visible ceiling)
 
 func _setup_neon_buzz_audio() -> void:
 	buzz_rng.seed = 6600
