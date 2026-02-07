@@ -96,9 +96,19 @@ func _setup_umbrella_audio() -> void:
 			"filter": 0.0,
 		})
 
+var _horn_was_active: bool = false
+
 func _process(delta: float) -> void:
 	var cam := get_viewport().get_camera_3d()
 	var cam_pos := cam.global_position if cam else Vector3.ZERO
+	# Detect horn onset for NPC flinch
+	var horn_onset := false
+	var amb_audio := get_node_or_null("../AmbientAudio")
+	if amb_audio and "horn_active" in amb_audio:
+		var horn_now: bool = amb_audio.horn_active
+		if horn_now and not _horn_was_active:
+			horn_onset = true
+		_horn_was_active = horn_now
 	for npc_data in npcs:
 		var node: Node3D = npc_data["node"]
 		var speed: float = npc_data["speed"]
@@ -792,6 +802,26 @@ func _process(delta: float) -> void:
 					rs.rotation.x = lerpf(rs.rotation.x, -0.6 * col_blend, 6.0 * delta)
 					re.rotation.x = lerpf(re.rotation.x, -0.9 * col_blend, 6.0 * delta)
 
+		# Watch check (6% of stopped NPCs without phone — quick wrist glance)
+		if npc_data.get("does_watch_check", false) and is_stopped and not npc_data.get("arms_crossed", false):
+			npc_data["watch_clock"] = npc_data.get("watch_clock", 0.0) + delta
+			var wt_cycle := fmod(npc_data["watch_clock"], 15.0)
+			if wt_cycle < 2.0:
+				var ls := node.get_node_or_null("Model/LeftShoulder")
+				var le := node.get_node_or_null("Model/LeftShoulder/LeftElbow")
+				if ls and is_instance_valid(ls) and le and is_instance_valid(le):
+					var wt_blend := 0.0
+					if wt_cycle < 0.4:
+						wt_blend = wt_cycle / 0.4
+					elif wt_cycle < 1.5:
+						wt_blend = 1.0
+					else:
+						wt_blend = (2.0 - wt_cycle) / 0.5
+					ls.rotation.x = lerpf(ls.rotation.x, -0.4 * wt_blend, 6.0 * delta)
+					le.rotation.x = lerpf(le.rotation.x, -0.7 * wt_blend, 6.0 * delta)
+				if head_node and is_instance_valid(head_node) and wt_cycle > 0.3 and wt_cycle < 1.5:
+					head_node.rotation.x = lerpf(head_node.rotation.x, -0.2, 4.0 * delta)
+
 		# Umbrella tilt in wind (umbrella-carrying NPCs tilt toward wind direction)
 		if npc_data.get("has_umbrella", false):
 			var umbrella_node := node.get_node_or_null("Model/Umbrella")
@@ -803,6 +833,17 @@ func _process(delta: float) -> void:
 				var tilt_z := clampf(wind_val * 0.08, -0.35, 0.35)
 				umbrella_node.rotation.z = lerpf(umbrella_node.rotation.z, tilt_z, 2.0 * delta)
 				umbrella_node.rotation.x = lerpf(umbrella_node.rotation.x, abs(wind_val) * 0.03, 2.0 * delta)
+
+		# Horn flinch (startle reaction when horn sounds nearby)
+		if horn_onset and dist < 15.0:
+			npc_data["horn_flinch"] = 0.3
+		var hf: float = npc_data.get("horn_flinch", 0.0)
+		if hf > 0.0:
+			npc_data["horn_flinch"] = maxf(0.0, hf - delta)
+			var flinch_mdl := node.get_node_or_null("Model")
+			if flinch_mdl and is_instance_valid(flinch_mdl):
+				var flinch_amt := hf / 0.3  # 1.0 -> 0.0
+				flinch_mdl.rotation.z += sin(hf * 40.0) * 0.08 * flinch_amt
 
 		# Hand rub for warmth (15% of idle NPCs, both arms forward, slight rub oscillation)
 		if npc_data.get("does_hand_rub", false) and is_stopped and not npc_data["smoke"] and not npc_data.get("arms_crossed", false):
@@ -1704,6 +1745,8 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		"does_ankle_roll": rng.randf() < 0.04,
 		"does_shiver": not has_umbrella and rng.randf() < 0.05,
 		"does_collar_adj": not has_umbrella and not has_phone and rng.randf() < 0.07,
+		"does_watch_check": not has_phone and not has_umbrella and rng.randf() < 0.06,
+		"horn_flinch": 0.0,
 		"nod_cooldown": 0.0,
 		"last_cell_x": -999,
 		"last_cell_z": -999,

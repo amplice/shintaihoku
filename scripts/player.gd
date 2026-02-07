@@ -328,6 +328,12 @@ func _physics_process(delta: float) -> void:
 	var wind_sway := wind_strength * 0.0008 * edge_mult
 	camera.rotation.z = lerpf(camera.rotation.z, camera.rotation.z + wind_sway, 2.0 * delta)
 
+	# Slope camera tilt (subtle pitch to match ground angle)
+	if is_on_floor():
+		var floor_n := get_floor_normal()
+		var slope_pitch := asin(clampf(-floor_n.z, -0.3, 0.3)) * 0.3
+		camera.rotation.x = lerpf(camera.rotation.x, camera.rotation.x + slope_pitch, 3.0 * delta)
+
 	# Standing wind buffet (subtle body sway when idle in heavy wind)
 	if horiz_speed < 0.5 and absf(wind_strength) > 0.3:
 		var buffet := sin(bob_timer * 1.8) * absf(wind_strength) * 0.003

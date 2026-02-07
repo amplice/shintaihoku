@@ -304,6 +304,12 @@ var ac_duration: float = 8.0
 var elev_timer: float = 0.0
 var elev_phase: float = 0.0
 var elev_active: bool = false
+var keycard_timer: float = 0.0
+var keycard_phase: float = 0.0
+var keycard_active: bool = false
+var puddle_timer: float = 0.0
+var puddle_phase: float = 0.0
+var puddle_active: bool = false
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -1333,6 +1339,30 @@ func _process(delta: float) -> void:
 		if ac_phase > ac_duration:
 			ac_active = false
 
+	# Keycard beep (security door access tone — two quick ascending pips)
+	keycard_timer -= delta
+	if keycard_timer <= 0.0 and not keycard_active:
+		keycard_timer = rng.randf_range(90.0, 200.0)
+		keycard_active = true
+		keycard_phase = 0.0
+
+	if keycard_active:
+		keycard_phase += delta
+		if keycard_phase > 0.22:
+			keycard_active = false
+
+	# Puddle surface drip (raindrops hitting standing water — resonant plop)
+	puddle_timer -= delta
+	if puddle_timer <= 0.0 and not puddle_active:
+		puddle_timer = rng.randf_range(30.0, 70.0)
+		puddle_active = true
+		puddle_phase = 0.0
+
+	if puddle_active:
+		puddle_phase += delta
+		if puddle_phase > 0.3:
+			puddle_active = false
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -2302,6 +2332,30 @@ func _fill_hum_buffer() -> void:
 			el_tone += sin(t * 5274.0 * TAU) * 0.3  # 5th harmonic-ish
 			el_tone += sin(t * 7040.0 * TAU) * 0.1  # octave above
 			sample += el_tone * el_env * 0.008
+
+		# Keycard beep (two ascending pips — security access tone)
+		if keycard_active:
+			var kc_env := 0.0
+			var kc_freq := 1200.0
+			if keycard_phase < 0.08:
+				kc_env = 1.0  # first pip
+				kc_freq = 1200.0
+			elif keycard_phase < 0.13:
+				kc_env = 0.0  # gap
+			elif keycard_phase < 0.21:
+				kc_env = 1.0  # second pip
+				kc_freq = 1600.0
+			var kc_tone := sin(t * kc_freq * TAU) * 0.6
+			kc_tone += sin(t * kc_freq * 2.0 * TAU) * 0.2
+			sample += kc_tone * kc_env * 0.007
+
+		# Puddle surface drip (resonant plop from raindrop hitting water)
+		if puddle_active:
+			var pd_env := exp(-puddle_phase * 12.0)  # fast decay
+			var pd_tone := sin(t * 800.0 * TAU) * 0.4
+			pd_tone += sin(t * 1200.0 * TAU) * 0.2  # resonant ring
+			pd_tone += sin(t * 400.0 * TAU) * 0.15  # body
+			sample += pd_tone * pd_env * 0.006
 
 		# AC unit compressor cycling (building HVAC motor hum)
 		if ac_active:
