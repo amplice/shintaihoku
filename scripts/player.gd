@@ -164,9 +164,10 @@ func _physics_process(delta: float) -> void:
 	if anim:
 		anim.update(delta, horiz_speed)
 
-	# Head follows camera pitch slightly
+	# Head follows camera pitch + lean direction
 	if head_node:
 		head_node.rotation.x = lerpf(head_node.rotation.x, camera_rotation_x * 0.3, 8.0 * delta)
+		head_node.rotation.z = lerpf(head_node.rotation.z, lean_amount * 0.15, 6.0 * delta)
 
 	# Coat tail sway based on speed
 	if coat_tail:
@@ -319,7 +320,8 @@ func _physics_process(delta: float) -> void:
 	# Head bob (smooth amplitude transition)
 	var target_bob_amp := 0.0
 	if is_on_floor() and horiz_speed > 0.5:
-		target_bob_amp = BOB_AMPLITUDE * (BOB_SPRINT_MULT if is_sprinting else 1.0)
+		var speed_ratio := clampf(horiz_speed / SPRINT_SPEED, 0.3, 1.0)
+		target_bob_amp = BOB_AMPLITUDE * lerpf(0.6, BOB_SPRINT_MULT, speed_ratio)
 	bob_amplitude_current = lerpf(bob_amplitude_current, target_bob_amp, 8.0 * delta)
 
 	if bob_amplitude_current > 0.001:

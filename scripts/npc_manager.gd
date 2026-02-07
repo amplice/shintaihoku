@@ -158,14 +158,31 @@ func _process(delta: float) -> void:
 			if mdl_ws and absf(mdl_ws.position.x) > 0.001:
 				mdl_ws.position.x = lerpf(mdl_ws.position.x, 0.0, 5.0 * delta)
 
-		# Hand in pocket override (dampens left arm swing while walking)
-		if npc_data.get("pocket_hand", false) and not is_stopped:
+		# Breathing animation (subtle torso scale pulse when stopped)
+		if is_stopped:
+			npc_data["breath_t"] = npc_data.get("breath_t", 0.0) + delta
+			var torso := node.get_node_or_null("Model/Torso")
+			if torso:
+				var breath := sin(npc_data["breath_t"] * 2.1) * 0.02
+				torso.scale.y = lerpf(torso.scale.y, 1.0 + breath, 4.0 * delta)
+
+		# Hand in pocket override
+		if npc_data.get("pocket_hand", false):
 			var ls := node.get_node_or_null("Model/LeftShoulder")
-			if ls:
-				ls.rotation.x = lerpf(ls.rotation.x, 0.1, 8.0 * delta)
 			var le := node.get_node_or_null("Model/LeftShoulder/LeftElbow")
-			if le:
-				le.rotation.x = lerpf(le.rotation.x, -0.3, 8.0 * delta)
+			if not is_stopped:
+				# Dampens left arm swing while walking
+				if ls:
+					ls.rotation.x = lerpf(ls.rotation.x, 0.1, 8.0 * delta)
+				if le:
+					le.rotation.x = lerpf(le.rotation.x, -0.3, 8.0 * delta)
+			else:
+				# Idle: arm hangs at side, elbow bent into hip
+				if ls:
+					ls.rotation.x = lerpf(ls.rotation.x, 0.15, 4.0 * delta)
+					ls.rotation.z = lerpf(ls.rotation.z, 0.1, 4.0 * delta)
+				if le:
+					le.rotation.x = lerpf(le.rotation.x, -0.5, 4.0 * delta)
 
 		# Limp override (right leg shorter stride, slight body bob)
 		if npc_data.get("has_limp", false) and not is_stopped:
@@ -360,6 +377,29 @@ func _process(delta: float) -> void:
 			else:
 				head_node.rotation.y = lerpf(head_node.rotation.y, 0.0, 2.0 * delta)
 				head_node.rotation.x = lerpf(head_node.rotation.x, 0.0, 2.0 * delta)
+
+		# Bag bounce (messenger bag/backpack sway when walking)
+		if not is_stopped:
+			var bag_node := node.get_node_or_null("Model/Bag")
+			var bag_base_y := 0.85  # messenger bag base y
+			if not bag_node:
+				bag_node = node.get_node_or_null("Model/Backpack")
+				bag_base_y = 1.05  # backpack base y
+			if bag_node:
+				var bag_swing := sin(anim.walk_cycle * 2.0) * 0.06
+				bag_node.rotation.x = lerpf(bag_node.rotation.x, bag_swing, 6.0 * delta)
+				bag_node.position.y = lerpf(bag_node.position.y, bag_base_y + sin(anim.walk_cycle) * 0.02, 4.0 * delta)
+
+		# Coat tail flap (sways while walking, gentle idle sway)
+		var coat_tail := node.get_node_or_null("Model/CoatTail")
+		if coat_tail:
+			var target_rot := 0.0
+			if not is_stopped:
+				target_rot = sin(anim.walk_cycle * 2.0) * 0.15 + 0.05
+			else:
+				npc_data["coat_wind_t"] = npc_data.get("coat_wind_t", 0.0) + delta
+				target_rot = sin(npc_data["coat_wind_t"] * 1.3) * 0.04
+			coat_tail.rotation.x = lerpf(coat_tail.rotation.x, target_rot, 5.0 * delta)
 
 		# Conversation gestures: active speaker raises arm emphatically
 		if npc_data.get("is_conversation", false):
@@ -784,6 +824,12 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		if left_lower:
 			_add_body_part(left_lower, "Watch", BoxMesh.new(), Vector3(0.05, -0.08, 0.06),
 				watch_col * 0.3, Vector3(0.04, 0.03, 0.06), true, watch_col, 2.0)
+
+	# Coat tail (30% of NPCs without backpacks - flaps when moving)
+	var has_backpack := model.get_node_or_null("Backpack") != null
+	if not has_backpack and rng.randf() < 0.30:
+		_add_body_part(model, "CoatTail", BoxMesh.new(), Vector3(0, 0.78, -0.12),
+			jacket_color * 0.9, Vector3(0.44, 0.15, 0.04))
 
 	# Boots (20% of NPCs, adds ground-level detail)
 	if rng.randf() < 0.20:
