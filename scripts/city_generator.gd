@@ -16,6 +16,8 @@ var flickering_lights: Array[Dictionary] = []  # [{node, base_energy, phase, spe
 var traffic_lights: Array[Dictionary] = []  # [{red, yellow, green, phase}]
 var holo_signs: Array[Dictionary] = []  # [{node, base_y, phase, speed}]
 var vending_screens: Array[Dictionary] = []  # [{node, phase, color}]
+var color_shift_signs: Array[Dictionary] = []  # [{node, light, phase, speed, base_hue}]
+var rotating_fans: Array[Dictionary] = []  # [{node, speed}]
 var neon_colors: Array[Color] = [
 	Color(1.0, 0.05, 0.4),   # hot magenta
 	Color(0.0, 0.9, 1.0),    # cyan
@@ -91,7 +93,11 @@ func _ready() -> void:
 	_generate_scaffolding()
 	_generate_antenna_arrays()
 	_generate_laundry_lines()
+	_generate_ground_fog()
+	_generate_sparking_boxes()
+	_generate_ventilation_fans()
 	_setup_neon_flicker()
+	_setup_color_shift_signs()
 	print("CityGenerator: generation complete, total children=", get_child_count())
 
 func _make_ps1_material(color: Color, is_emissive: bool = false,
@@ -3423,6 +3429,177 @@ func _generate_laundry_lines() -> void:
 				cloth.set_surface_override_material(0, _make_ps1_material(cc))
 				add_child(cloth)
 
+func _generate_ground_fog() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4400
+	var cell_stride := block_size + street_width
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			if rng.randf() > 0.08:
+				continue
+			var cell_x := gx * cell_stride
+			var cell_z := gz * cell_stride
+			var fog := GPUParticles3D.new()
+			fog.position = Vector3(
+				cell_x + rng.randf_range(-block_size * 0.3, block_size * 0.3),
+				0.3,
+				cell_z + rng.randf_range(-block_size * 0.3, block_size * 0.3)
+			)
+			fog.amount = 15
+			fog.lifetime = 6.0
+			fog.visibility_aabb = AABB(Vector3(-10, -2, -10), Vector3(20, 4, 20))
+			var mat := ParticleProcessMaterial.new()
+			mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+			mat.emission_box_extents = Vector3(6.0, 0.2, 6.0)
+			mat.direction = Vector3(0.3, 0.05, 0.1)
+			mat.spread = 30.0
+			mat.initial_velocity_min = 0.1
+			mat.initial_velocity_max = 0.4
+			mat.gravity = Vector3(0, 0, 0)
+			mat.damping_min = 0.5
+			mat.damping_max = 1.5
+			mat.scale_min = 1.0
+			mat.scale_max = 3.0
+			mat.color = Color(0.15, 0.1, 0.2, 0.04)
+			fog.process_material = mat
+			var mesh := BoxMesh.new()
+			mesh.size = Vector3(1.0, 0.3, 1.0)
+			fog.draw_pass_1 = mesh
+			add_child(fog)
+
+func _generate_sparking_boxes() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4500
+	for child in get_children():
+		if not (child is MeshInstance3D):
+			continue
+		var mi := child as MeshInstance3D
+		if not (mi.mesh is BoxMesh):
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		if bsize.y < 10.0:
+			continue
+		if rng.randf() > 0.03:
+			continue
+		# Place spark emitter on building wall
+		var face := rng.randi_range(0, 1)
+		var spark := GPUParticles3D.new()
+		var spark_y := rng.randf_range(2.0, 6.0) - bsize.y * 0.5
+		if face == 0:
+			spark.position = Vector3(bsize.x * 0.5 + 0.1, spark_y, rng.randf_range(-bsize.z * 0.3, bsize.z * 0.3))
+		else:
+			spark.position = Vector3(rng.randf_range(-bsize.x * 0.3, bsize.x * 0.3), spark_y, bsize.z * 0.5 + 0.1)
+		spark.amount = 8
+		spark.lifetime = 0.5
+		spark.explosiveness = 0.9  # burst-like
+		spark.visibility_aabb = AABB(Vector3(-2, -2, -2), Vector3(4, 4, 4))
+		var mat := ParticleProcessMaterial.new()
+		mat.direction = Vector3(0, -1, 0)
+		mat.spread = 60.0
+		mat.initial_velocity_min = 2.0
+		mat.initial_velocity_max = 5.0
+		mat.gravity = Vector3(0, -8.0, 0)
+		mat.scale_min = 0.02
+		mat.scale_max = 0.06
+		mat.color = Color(1.0, 0.9, 0.3, 1.0)
+		spark.process_material = mat
+		var mesh := BoxMesh.new()
+		mesh.size = Vector3(0.03, 0.03, 0.03)
+		spark.draw_pass_1 = mesh
+		mi.add_child(spark)
+		# Small flickering light at spark source
+		var spark_light := OmniLight3D.new()
+		spark_light.light_color = Color(1.0, 0.8, 0.3)
+		spark_light.light_energy = 1.5
+		spark_light.omni_range = 3.0
+		spark_light.shadow_enabled = false
+		spark_light.position = spark.position
+		mi.add_child(spark_light)
+		flickering_lights.append({
+			"node": spark_light, "mesh": null,
+			"base_energy": 1.5, "phase": rng.randf() * TAU,
+			"speed": rng.randf_range(15.0, 30.0), "style": "buzz",
+		})
+
+func _generate_ventilation_fans() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4600
+	var housing_mat := _make_ps1_material(Color(0.3, 0.3, 0.33))
+	var blade_mat := _make_ps1_material(Color(0.35, 0.35, 0.38))
+	for child in get_children():
+		if not (child is MeshInstance3D):
+			continue
+		var mi := child as MeshInstance3D
+		if not (mi.mesh is BoxMesh):
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		if bsize.y < 16.0:
+			continue
+		if rng.randf() > 0.12:
+			continue
+		var fan_parent := Node3D.new()
+		fan_parent.position = Vector3(
+			mi.position.x + rng.randf_range(-bsize.x * 0.25, bsize.x * 0.25),
+			mi.position.y + bsize.y * 0.5,
+			mi.position.z + rng.randf_range(-bsize.z * 0.25, bsize.z * 0.25)
+		)
+		# Housing box
+		var housing := MeshInstance3D.new()
+		var h_mesh := BoxMesh.new()
+		h_mesh.size = Vector3(1.2, 0.6, 1.2)
+		housing.mesh = h_mesh
+		housing.position = Vector3(0, 0.3, 0)
+		housing.set_surface_override_material(0, housing_mat)
+		fan_parent.add_child(housing)
+		# Fan blade cross (will rotate)
+		var blade := MeshInstance3D.new()
+		var bl_mesh := BoxMesh.new()
+		bl_mesh.size = Vector3(0.8, 0.04, 0.1)
+		blade.mesh = bl_mesh
+		blade.position = Vector3(0, 0.65, 0)
+		blade.set_surface_override_material(0, blade_mat)
+		fan_parent.add_child(blade)
+		var blade2 := MeshInstance3D.new()
+		var bl2_mesh := BoxMesh.new()
+		bl2_mesh.size = Vector3(0.1, 0.04, 0.8)
+		blade2.mesh = bl2_mesh
+		blade2.position = Vector3(0, 0.65, 0)
+		blade2.set_surface_override_material(0, blade_mat)
+		fan_parent.add_child(blade2)
+		add_child(fan_parent)
+		rotating_fans.append({
+			"blade1": blade,
+			"blade2": blade2,
+			"speed": rng.randf_range(2.0, 6.0),
+		})
+
+func _setup_color_shift_signs() -> void:
+	# Find some Label3D neon signs and register for color shifting
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4700
+	_find_color_shift_candidates(self, rng)
+
+func _find_color_shift_candidates(node: Node, rng: RandomNumberGenerator) -> void:
+	for child in node.get_children():
+		if child is Label3D:
+			var label := child as Label3D
+			if label.modulate != Color.WHITE and rng.randf() < 0.10:
+				# Find associated OmniLight3D sibling
+				var associated_light: OmniLight3D = null
+				for sibling in node.get_children():
+					if sibling is OmniLight3D:
+						associated_light = sibling as OmniLight3D
+						break
+				color_shift_signs.append({
+					"node": label,
+					"light": associated_light,
+					"phase": rng.randf() * TAU,
+					"speed": rng.randf_range(0.2, 0.5),
+					"base_hue": label.modulate.h,
+				})
+		if child.get_child_count() > 0:
+			_find_color_shift_candidates(child, rng)
+
 func _setup_neon_flicker() -> void:
 	# Register existing neon sign lights for flickering
 	var rng := RandomNumberGenerator.new()
@@ -3539,6 +3716,31 @@ func _process(_delta: float) -> void:
 		# Subtle alpha pulse
 		var alpha := 0.35 + 0.15 * sin(time * speed * 0.7 + phase)
 		node.modulate.a = alpha
+
+	# Color-shifting neon signs
+	for cs in color_shift_signs:
+		var cs_node: Label3D = cs["node"]
+		if not is_instance_valid(cs_node):
+			continue
+		var cs_phase: float = cs["phase"]
+		var cs_speed: float = cs["speed"]
+		var cs_base_hue: float = cs["base_hue"]
+		var hue := fmod(cs_base_hue + sin(time * cs_speed + cs_phase) * 0.15 + 0.5, 1.0)
+		var col := Color.from_hsv(hue, 0.9, 1.0)
+		cs_node.modulate = col
+		var cs_light = cs["light"]
+		if cs_light and is_instance_valid(cs_light):
+			(cs_light as OmniLight3D).light_color = col
+
+	# Rotating ventilation fans
+	for fan in rotating_fans:
+		var blade1: MeshInstance3D = fan["blade1"]
+		var blade2: MeshInstance3D = fan["blade2"]
+		if not is_instance_valid(blade1):
+			continue
+		var fan_speed: float = fan["speed"]
+		blade1.rotation.y = time * fan_speed
+		blade2.rotation.y = time * fan_speed
 
 	# Vending machine screen pulse (pre-cached materials)
 	for vs in vending_screens:
