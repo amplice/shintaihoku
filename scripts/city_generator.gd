@@ -15,6 +15,7 @@ var neon_font: Font
 var flickering_lights: Array[Dictionary] = []  # [{node, base_energy, phase, speed, style}]
 var traffic_lights: Array[Dictionary] = []  # [{red, yellow, green, phase}]
 var holo_signs: Array[Dictionary] = []  # [{node, base_y, phase, speed}]
+var vending_screens: Array[Dictionary] = []  # [{node, phase, color}]
 var neon_colors: Array[Color] = [
 	Color(1.0, 0.05, 0.4),   # hot magenta
 	Color(0.0, 0.9, 1.0),    # cyan
@@ -68,6 +69,8 @@ func _ready() -> void:
 	_generate_skyline_warning_lights()
 	_generate_holographic_signs()
 	_generate_phone_booths()
+	_generate_wind_debris()
+	_generate_utility_boxes()
 	_setup_neon_flicker()
 	print("CityGenerator: generation complete, total children=", get_child_count())
 
@@ -1158,6 +1161,13 @@ func _generate_vending_machines() -> void:
 				_make_ps1_material(vc * 0.3, true, vc, 3.0))
 			vm.add_child(panel)
 
+			# Track for blinking animation
+			vending_screens.append({
+				"node": panel,
+				"phase": rng.randf() * TAU,
+				"color": vc,
+			})
+
 			# Small light
 			var vlight := OmniLight3D.new()
 			vlight.light_color = vc
@@ -2039,6 +2049,81 @@ func _generate_phone_booths() -> void:
 
 			add_child(booth)
 
+func _generate_wind_debris() -> void:
+	# Particles that drift horizontally through streets like blowing trash/papers
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 2200
+	var cell_stride := block_size + street_width
+
+	# Place a few debris emitters around the city
+	for _i in range(8):
+		var gx := rng.randi_range(-grid_size + 1, grid_size - 2)
+		var gz := rng.randi_range(-grid_size + 1, grid_size - 2)
+		var cell_x := gx * cell_stride
+		var cell_z := gz * cell_stride
+
+		var debris := GPUParticles3D.new()
+		debris.position = Vector3(cell_x, 0.5, cell_z)
+		debris.amount = 8
+		debris.lifetime = 6.0
+		debris.visibility_aabb = AABB(Vector3(-30, -2, -30), Vector3(60, 10, 60))
+
+		var mat := ParticleProcessMaterial.new()
+		mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+		mat.emission_box_extents = Vector3(20, 0.5, 20)
+		# Wind direction (diagonal drift)
+		mat.direction = Vector3(0.7, 0.2, 0.3).normalized()
+		mat.spread = 25.0
+		mat.initial_velocity_min = 1.5
+		mat.initial_velocity_max = 3.5
+		mat.gravity = Vector3(0, -0.3, 0)
+		mat.damping_min = 0.5
+		mat.damping_max = 1.5
+		mat.angular_velocity_min = -180.0
+		mat.angular_velocity_max = 180.0
+		mat.scale_min = 0.15
+		mat.scale_max = 0.4
+		mat.color = Color(0.3, 0.28, 0.22, 0.4)
+		debris.process_material = mat
+
+		var mesh := QuadMesh.new()
+		mesh.size = Vector2(0.15, 0.1)
+		debris.draw_pass_1 = mesh
+
+		add_child(debris)
+
+func _generate_utility_boxes() -> void:
+	# Small transformer/utility boxes on street light and telephone poles
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 2300
+	var box_mat := _make_ps1_material(Color(0.15, 0.18, 0.14))
+
+	# Iterate through Node3D children (street lights and telephone poles are Node3D)
+	for child in get_children():
+		if not child is Node3D:
+			continue
+		# Skip MeshInstance3D children (buildings) - we want Node3D groups (lamps, poles)
+		if child is MeshInstance3D:
+			continue
+		# Check if this node has a cylinder child (pole indicator)
+		var has_pole := false
+		for sub in child.get_children():
+			if sub is MeshInstance3D:
+				var mi := sub as MeshInstance3D
+				if mi.mesh is CylinderMesh:
+					has_pole = true
+					break
+		if not has_pole or rng.randf() > 0.25:  # 25% of poles
+			continue
+
+		var box := MeshInstance3D.new()
+		var box_mesh := BoxMesh.new()
+		box_mesh.size = Vector3(0.3, 0.4, 0.25)
+		box.mesh = box_mesh
+		box.position = Vector3(0.15, rng.randf_range(2.5, 4.0), 0)
+		box.set_surface_override_material(0, box_mat)
+		child.add_child(box)
+
 func _setup_neon_flicker() -> void:
 	# Register existing neon sign lights for flickering
 	var rng := RandomNumberGenerator.new()
@@ -2145,3 +2230,19 @@ func _process(_delta: float) -> void:
 		# Subtle alpha pulse
 		var alpha := 0.35 + 0.15 * sin(time * speed * 0.7 + phase)
 		node.modulate.a = alpha
+
+	# Vending machine screen pulse
+	for vs in vending_screens:
+		var screen: MeshInstance3D = vs["node"]
+		if not is_instance_valid(screen):
+			continue
+		var phase: float = vs["phase"]
+		var vc: Color = vs["color"]
+		# Slow brightness pulse with occasional quick "cursor blink"
+		var pulse := 0.7 + 0.3 * sin(time * 1.5 + phase)
+		var blink := 1.0
+		if sin(time * 4.0 + phase * 2.0) > 0.9:
+			blink = 0.3
+		var strength := 3.0 * pulse * blink
+		screen.set_surface_override_material(0,
+			_make_ps1_material(vc * 0.3 * pulse, true, vc, strength))
