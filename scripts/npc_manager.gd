@@ -146,6 +146,18 @@ func _process(delta: float) -> void:
 		# Update walk animation (only for visible NPCs)
 		anim.update(delta, current_speed)
 
+		# Idle weight shifting (subtle lateral sway when stopped)
+		if is_stopped:
+			npc_data["idle_sway_t"] = npc_data.get("idle_sway_t", 0.0) + delta
+			var sway_x := sin(npc_data["idle_sway_t"] * 0.5) * 0.03
+			var mdl_ws := node.get_node_or_null("Model")
+			if mdl_ws:
+				mdl_ws.position.x = lerpf(mdl_ws.position.x, sway_x, 3.0 * delta)
+		else:
+			var mdl_ws := node.get_node_or_null("Model")
+			if mdl_ws and absf(mdl_ws.position.x) > 0.001:
+				mdl_ws.position.x = lerpf(mdl_ws.position.x, 0.0, 5.0 * delta)
+
 		# Hand in pocket override (dampens left arm swing while walking)
 		if npc_data.get("pocket_hand", false) and not is_stopped:
 			var ls := node.get_node_or_null("Model/LeftShoulder")
@@ -848,6 +860,19 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 			led_col * 0.3, Vector3(0.12, 0.015, 0.06), true, led_col, 3.0)
 		_add_body_part(model, "LedR", BoxMesh.new(), Vector3(0.08, 0.02, 0.04),
 			led_col * 0.3, Vector3(0.12, 0.015, 0.06), true, led_col, 3.0)
+
+	# Wrist tattoo (2% of NPCs - emissive circuit line on forearm)
+	if rng.randf() < 0.02:
+		var tattoo_cols: Array[Color] = [Color(0.0, 0.8, 1.0), Color(1.0, 0.0, 0.6), Color(0.4, 1.0, 0.2)]
+		var tattoo_col: Color = tattoo_cols[rng.randi_range(0, 2)]
+		var tattoo_arm := left_elbow.get_node_or_null("LeftLowerArm") if rng.randf() < 0.5 else right_elbow.get_node_or_null("RightLowerArm")
+		if tattoo_arm:
+			# Main line along forearm
+			_add_body_part(tattoo_arm, "Tattoo", BoxMesh.new(), Vector3(0.05, -0.1, 0.05),
+				tattoo_col * 0.3, Vector3(0.01, 0.18, 0.01), true, tattoo_col, 2.5)
+			# Short perpendicular branch
+			_add_body_part(tattoo_arm, "TattooBranch", BoxMesh.new(), Vector3(0.07, -0.06, 0.05),
+				tattoo_col * 0.3, Vector3(0.04, 0.01, 0.01), true, tattoo_col, 2.5)
 
 	# Rain drip particles (non-umbrella NPCs - water dripping off clothes)
 	var rain_drip: GPUParticles3D = null

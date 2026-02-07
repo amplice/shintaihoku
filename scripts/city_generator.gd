@@ -551,6 +551,21 @@ func _add_windows(building: MeshInstance3D, size: Vector3, rng: RandomNumberGene
 							_make_ps1_material(Color(0.06, 0.05, 0.04)))
 						blind.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 						building.add_child(blind)
+				# 10% of lit windows get a half-drawn curtain
+				elif rng.randf() < 0.10:
+					var curtain := MeshInstance3D.new()
+					var curtain_mesh := QuadMesh.new()
+					var curtain_height := rng.randf_range(0.4, 0.8)
+					curtain_mesh.size = Vector2(1.15, curtain_height)
+					curtain.mesh = curtain_mesh
+					# Curtain hangs from top of window
+					curtain.position = Vector3(wx, wy + (1.5 - curtain_height) * 0.5, face * (size.z * 0.51 + 0.003))
+					if face < 0:
+						curtain.rotation.y = PI
+					curtain.set_surface_override_material(0,
+						_make_ps1_material(Color(0.08, 0.06, 0.1)))
+					curtain.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+					building.add_child(curtain)
 				# 8% of lit windows get a person silhouette
 				if rng.randf() < 0.08:
 					var sil := MeshInstance3D.new()
