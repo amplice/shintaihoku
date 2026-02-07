@@ -41,6 +41,7 @@ var shake_intensity: float = 0.0
 var shake_timer: float = 0.0
 var bob_amplitude_current: float = 0.0  # smooth transition for head bob
 var breath_fog: GPUParticles3D
+var land_dust: GPUParticles3D
 var breath_timer: float = 0.0
 var compass_label: Label
 var crt_material: ShaderMaterial
@@ -79,6 +80,7 @@ func _ready() -> void:
 	_setup_foot_splash()
 	_setup_sprint_streaks()
 	_setup_breath_fog()
+	_setup_land_dust()
 	_setup_compass_hud()
 	_setup_interaction_prompt()
 	_setup_shadow_blob()
@@ -119,6 +121,10 @@ func _physics_process(delta: float) -> void:
 		shake_timer = 0.25
 		if fall_speed > 6.0:
 			impact_aberration = clampf((fall_speed - 6.0) * 0.15, 0.0, 1.0)
+		_play_landing_thud(fall_speed)
+		if fall_speed > 4.0 and land_dust:
+			land_dust.restart()
+			land_dust.emitting = true
 	was_on_floor = is_on_floor()
 
 	# Apply shake decay
@@ -601,6 +607,51 @@ func _play_echo_step() -> void:
 		var sample := (noise * 0.4 + ring * 0.6) * env * vol
 		if step_playback.can_push_buffer(1):
 			step_playback.push_frame(Vector2(sample, sample))
+
+func _play_landing_thud(fall_speed: float) -> void:
+	if not step_playback:
+		return
+	var intensity := clampf((fall_speed - 3.0) / 7.0, 0.2, 1.0)
+	var num := int(lerpf(600.0, 1200.0, intensity))
+	var base_freq := lerpf(60.0, 35.0, intensity)  # deeper for harder hits
+	var vol := lerpf(0.25, 0.6, intensity)
+	for i in range(num):
+		var t := float(i) / float(num)
+		var env := (1.0 - t) * (1.0 - t) * (1.0 - t)  # cubic decay
+		var thump := sin(t * base_freq * TAU) * 0.6
+		var sub := sin(t * base_freq * 0.5 * TAU) * 0.3
+		var noise := step_rng.randf_range(-1.0, 1.0) * 0.4
+		var sample := (thump + sub + noise) * env * vol
+		if step_playback.can_push_buffer(1):
+			step_playback.push_frame(Vector2(sample, sample))
+
+func _setup_land_dust() -> void:
+	land_dust = GPUParticles3D.new()
+	land_dust.amount = 10
+	land_dust.lifetime = 0.5
+	land_dust.one_shot = true
+	land_dust.emitting = false
+	land_dust.visibility_aabb = AABB(Vector3(-2, -1, -2), Vector3(4, 2, 4))
+	var dust_mat := ParticleProcessMaterial.new()
+	dust_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	dust_mat.emission_box_extents = Vector3(0.3, 0, 0.3)
+	dust_mat.direction = Vector3(0, 0.3, 0)
+	dust_mat.spread = 80.0
+	dust_mat.initial_velocity_min = 1.0
+	dust_mat.initial_velocity_max = 2.5
+	dust_mat.gravity = Vector3(0, -2.0, 0)
+	dust_mat.damping_min = 2.0
+	dust_mat.damping_max = 4.0
+	dust_mat.scale_min = 0.03
+	dust_mat.scale_max = 0.08
+	dust_mat.color = Color(0.4, 0.35, 0.3, 0.2)
+	land_dust.process_material = dust_mat
+	var dust_mesh := SphereMesh.new()
+	dust_mesh.radius = 0.04
+	dust_mesh.height = 0.08
+	land_dust.draw_pass_1 = dust_mesh
+	land_dust.position = Vector3(0, 0.05, 0)
+	add_child(land_dust)
 
 func _setup_flashlight() -> void:
 	flashlight = SpotLight3D.new()

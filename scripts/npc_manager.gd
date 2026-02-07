@@ -446,6 +446,27 @@ func _process(delta: float) -> void:
 		if npc_data.get("does_greet", false) and dist > 10.0:
 			npc_data["greet_done"] = false  # reset when player is far away
 
+		# Flinch from sprinting player (lean torso away when player sprints past close)
+		if is_stopped and player_sprinting and dist < 2.0:
+			if not npc_data.get("flinch_done", false):
+				npc_data["flinch_done"] = true
+				npc_data["flinch_t"] = 0.0
+		if npc_data.get("flinch_done", false) and npc_data.get("flinch_t", -1.0) >= 0.0:
+			npc_data["flinch_t"] = npc_data.get("flinch_t", 0.0) + delta
+			var ft: float = npc_data["flinch_t"]
+			var flinch_model := node.get_node_or_null("Model")
+			if flinch_model:
+				var lean := 0.0
+				if ft < 0.1:
+					lean = (ft / 0.1) * -0.15  # lean away
+				elif ft < 0.4:
+					lean = -0.15 * (1.0 - (ft - 0.1) / 0.3)  # recover
+				else:
+					npc_data["flinch_t"] = -1.0
+				flinch_model.rotation.z = lerpf(flinch_model.rotation.z, lean, 10.0 * delta)
+		if dist > 6.0:
+			npc_data["flinch_done"] = false  # reset when player leaves
+
 		# Bag bounce (messenger bag/backpack sway when walking)
 		if not is_stopped:
 			var bag_node := node.get_node_or_null("Model/Bag")
@@ -532,6 +553,24 @@ func _process(delta: float) -> void:
 					var mdl := node.get_node_or_null("Model")
 					if mdl and stretch_cycle > 0.3 and stretch_cycle < 2.0:
 						mdl.rotation.x = lerpf(mdl.rotation.x, -0.08, 3.0 * delta)
+
+		# Impatient toe tap (8% of idle NPCs, right foot taps rhythmically)
+		if npc_data.get("does_toe_tap", false) and is_stopped and not npc_data.get("has_limp", false):
+			npc_data["tap_clock"] = npc_data.get("tap_clock", 0.0) + delta
+			var tap_cycle := fmod(npc_data["tap_clock"], 8.0)
+			if tap_cycle < 2.0:
+				var rh := node.get_node_or_null("Model/RightHip")
+				if rh:
+					var tap := absf(sin(tap_cycle * 3.0 * TAU)) * 0.12
+					rh.rotation.x = lerpf(rh.rotation.x, -tap, 12.0 * delta)
+
+		# Phone thumb scroll (subtle elbow micro-oscillation while looking at phone)
+		if npc_data["has_phone"] and is_stopped:
+			var phone_re := node.get_node_or_null("Model/RightShoulder/RightElbow")
+			if phone_re:
+				npc_data["scroll_t"] = npc_data.get("scroll_t", 0.0) + delta
+				var scroll := sin(npc_data["scroll_t"] * 2.0 * TAU) * 0.05
+				phone_re.rotation.x = lerpf(phone_re.rotation.x, -0.7 + scroll, 6.0 * delta)
 
 		# Conversation gestures: active speaker raises arm emphatically
 		if npc_data.get("is_conversation", false):
@@ -1134,6 +1173,7 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		"does_greet": rng.randf() < 0.10,
 		"does_hand_rub": not has_umbrella and not has_phone and not has_newspaper and rng.randf() < 0.15,
 		"does_stretch": not has_umbrella and not has_phone and not has_newspaper and rng.randf() < 0.08,
+		"does_toe_tap": not is_jogger and rng.randf() < 0.08,
 	})
 
 func _add_pivot(parent: Node3D, pivot_name: String, pos: Vector3) -> Node3D:
