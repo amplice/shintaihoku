@@ -3521,28 +3521,38 @@ func _generate_antenna_arrays() -> void:
 			)
 			ant.set_surface_override_material(0, pole_mat)
 			add_child(ant)
-			# 40% get a blinking red tip
-			if rng.randf() < 0.4:
+			# 50% get a blinking tip light (red or white, varied patterns)
+			if rng.randf() < 0.5:
 				var tip := MeshInstance3D.new()
 				var tip_mesh := SphereMesh.new()
 				tip_mesh.radius = 0.06
 				tip_mesh.height = 0.12
 				tip.mesh = tip_mesh
 				tip.position = ant.position + Vector3(0, ant_h * 0.5, 0)
-				var red := Color(1.0, 0.05, 0.0)
-				tip.set_surface_override_material(0, _make_ps1_material(red, true, red, 3.0))
+				# 70% red, 30% white
+				var is_white := rng.randf() < 0.3
+				var tip_col := Color(1.0, 0.95, 0.9) if is_white else Color(1.0, 0.05, 0.0)
+				tip.set_surface_override_material(0, _make_ps1_material(tip_col, true, tip_col, 3.0))
 				add_child(tip)
 				var tip_light := OmniLight3D.new()
-				tip_light.light_color = red
-				tip_light.light_energy = 0.8
-				tip_light.omni_range = 2.0
+				tip_light.light_color = tip_col
+				tip_light.light_energy = 1.0 if is_white else 0.8
+				tip_light.omni_range = 2.5 if is_white else 2.0
 				tip_light.shadow_enabled = false
 				tip_light.position = tip.position
 				add_child(tip_light)
+				# Varied blink styles
+				var pattern_roll := rng.randi_range(0, 2)
+				var blink_style := "blink"
+				if pattern_roll == 1:
+					blink_style = "double_flash"
+				elif pattern_roll == 2:
+					blink_style = "slow_pulse"
 				flickering_lights.append({
 					"node": tip_light, "mesh": tip,
-					"base_energy": 0.8, "phase": rng.randf() * TAU,
-					"speed": rng.randf_range(2.0, 4.0), "style": "blink",
+					"base_energy": tip_light.light_energy,
+					"phase": rng.randf() * TAU,
+					"speed": rng.randf_range(2.0, 4.0), "style": blink_style,
 				})
 
 func _generate_laundry_lines() -> void:
@@ -4734,6 +4744,25 @@ func _process(_delta: float) -> void:
 			var mesh_node = data["mesh"]
 			if mesh_node and is_instance_valid(mesh_node):
 				(mesh_node as MeshInstance3D).visible = dropout > 0.1
+		elif style == "double_flash":
+			# Aviation double-flash: two quick blinks then pause
+			var df_cycle := fmod(time * speed * 0.5 + phase, 3.0)
+			var on_val := 0.0
+			if df_cycle < 0.08:
+				on_val = 1.0
+			elif df_cycle > 0.2 and df_cycle < 0.28:
+				on_val = 1.0
+			light.light_energy = base * on_val
+			var df_mesh = data["mesh"]
+			if df_mesh and is_instance_valid(df_mesh):
+				(df_mesh as MeshInstance3D).visible = on_val > 0.0
+		elif style == "slow_pulse":
+			# Slow sinusoidal glow
+			var pulse := (sin(time * speed * 0.3 + phase) + 1.0) * 0.5
+			light.light_energy = base * pulse
+			var sp_mesh = data["mesh"]
+			if sp_mesh and is_instance_valid(sp_mesh):
+				(sp_mesh as MeshInstance3D).visible = pulse > 0.1
 		elif style == "stutter":
 			# Rapid on-off stutter
 			var stut := sin(time * speed * 8.0 + phase) * sin(time * speed * 5.3 + phase * 2.1)

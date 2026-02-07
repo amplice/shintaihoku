@@ -181,6 +181,37 @@ func _process(delta: float) -> void:
 				head_node.rotation.y = lerpf(head_node.rotation.y, 0.0, 2.0 * delta)
 				head_node.rotation.x = lerpf(head_node.rotation.x, 0.0, 2.0 * delta)
 
+		# Conversation gestures: active speaker raises arm emphatically
+		if npc_data.get("is_conversation", false):
+			npc_data["gesture_timer"] = npc_data.get("gesture_timer", 0.0) + delta
+			var gt: float = npc_data["gesture_timer"]
+			var is_gesturing: bool = npc_data.get("gesture_active", false)
+			# Switch who's talking every 3-5 seconds
+			if gt > 4.0:
+				npc_data["gesture_timer"] = 0.0
+				npc_data["gesture_active"] = not is_gesturing
+				is_gesturing = not is_gesturing
+			if is_gesturing and dist < 80.0:
+				var rs2 := node.get_node_or_null("Model/RightShoulder")
+				if rs2:
+					# Emphatic arm wave: forward + slight oscillation
+					var wave := sin(gt * 3.5) * 0.2
+					rs2.rotation.x = lerpf(rs2.rotation.x, -0.6 + wave, 4.0 * delta)
+					rs2.rotation.z = lerpf(rs2.rotation.z, -0.3, 3.0 * delta)
+				# Slight head nod while talking
+				if head_node and is_instance_valid(head_node) and head_node.is_inside_tree():
+					var nod := sin(gt * 2.5) * 0.08
+					head_node.rotation.x = lerpf(head_node.rotation.x, nod, 3.0 * delta)
+			elif not is_gesturing and dist < 80.0:
+				# Listener: slight head movement (occasional nod)
+				if head_node and is_instance_valid(head_node) and head_node.is_inside_tree():
+					var listen_nod := sin(gt * 1.5) * 0.05
+					head_node.rotation.x = lerpf(head_node.rotation.x, listen_nod - 0.05, 2.0 * delta)
+				var rs3 := node.get_node_or_null("Model/RightShoulder")
+				if rs3:
+					rs3.rotation.x = lerpf(rs3.rotation.x, 0.0, 3.0 * delta)
+					rs3.rotation.z = lerpf(rs3.rotation.z, 0.0, 3.0 * delta)
+
 	# Update umbrella rain patter audio
 	_update_umbrella_audio(cam_pos)
 
@@ -564,4 +595,7 @@ func _spawn_conversation_groups(_rng: RandomNumberGenerator) -> void:
 				"has_umbrella": false,
 				"has_phone": false,
 				"phone_light": null,
+				"is_conversation": true,
+				"gesture_timer": group_rng.randf_range(0.0, 3.0),
+				"gesture_active": gi == 0,  # first NPC starts gesturing
 			})

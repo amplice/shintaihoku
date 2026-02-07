@@ -37,6 +37,10 @@ var crow_count: int = 0
 var crow_max: int = 0
 var crow_gap_timer: float = 0.0
 var crow_pitch: float = 1.0
+var train_timer: float = 0.0
+var train_phase: float = 0.0
+var train_active: bool = false
+var train_pitch: float = 1.0
 var rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
@@ -166,6 +170,19 @@ func _process(delta: float) -> void:
 	if crow_active:
 		crow_phase += delta
 
+	# Distant train/monorail horn
+	train_timer -= delta
+	if train_timer <= 0.0 and not train_active:
+		train_timer = rng.randf_range(40.0, 80.0)
+		train_active = true
+		train_phase = 0.0
+		train_pitch = rng.randf_range(0.9, 1.1)
+
+	if train_active:
+		train_phase += delta
+		if train_phase > 3.0:
+			train_active = false
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -215,6 +232,24 @@ func _fill_hum_buffer() -> void:
 			if crow_phase > 0.1:
 				crow_raw *= 0.7
 			sample += crow_raw
+		# Add distant train horn (low mournful two-tone)
+		if train_active:
+			var train_env := 1.0
+			# Fade in over 0.3s, sustain, fade out over 0.5s
+			if train_phase < 0.3:
+				train_env = train_phase / 0.3
+			elif train_phase > 2.5:
+				train_env = (3.0 - train_phase) / 0.5
+			# Two-tone chord (minor second, mournful)
+			var horn1 := sin(t * 180.0 * train_pitch * TAU) * 0.3
+			var horn2 := sin(t * 190.0 * train_pitch * TAU) * 0.25
+			var horn3 := sin(t * 360.0 * train_pitch * TAU) * 0.08  # octave overtone
+			# Doppler-like pitch bend at tail end
+			var pitch_bend := 1.0
+			if train_phase > 2.0:
+				pitch_bend = 1.0 - (train_phase - 2.0) * 0.03
+			var horn_sample := (horn1 + horn2 + horn3) * train_env * pitch_bend * 0.06
+			sample += horn_sample
 		# Add distant thunder rumble (low-pass filtered noise burst)
 		if thunder_active:
 			var thunder_env := (1.0 - thunder_phase / 3.5) * (1.0 - thunder_phase / 3.5)
