@@ -10,7 +10,7 @@ const JUMP_VELOCITY = 7.0
 const BASE_FOV = 70.0
 const SPRINT_FOV = 80.0
 const FOV_LERP_SPEED = 6.0
-const BOB_FREQUENCY = 10.0
+const BOB_FREQUENCY = 5.0
 const BOB_AMPLITUDE = 0.03
 const BOB_SPRINT_MULT = 1.4
 const CROUCH_SPEED_MULT = 0.6
@@ -327,10 +327,13 @@ func _physics_process(delta: float) -> void:
 			var streak_ab := 0.8 + sin(streak_rain.rain_time * 3.0) * 0.4 * rain_intensity
 			crt_material.set_shader_parameter("aberration_amount", lerpf(0.8, streak_ab, 4.0 * delta))
 
-	# Turn momentum lean (decay toward 0)
+	# Turn momentum lean (sprint only, decay toward 0)
+	if not is_sprinting:
+		turn_lean = lerpf(turn_lean, 0.0, 12.0 * delta)
 	turn_lean = clampf(turn_lean, -0.04, 0.04)
 	turn_lean = lerpf(turn_lean, 0.0, 6.0 * delta)
-	camera_pivot.rotation.z += turn_lean
+	if is_sprinting:
+		camera_pivot.rotation.z += turn_lean
 
 	# Corner lean/peek (Q/E)
 	lean_direction = 0.0
@@ -652,7 +655,7 @@ func _build_humanoid_model() -> void:
 	var tail_mat := ShaderMaterial.new()
 	tail_mat.shader = ps1_shader
 	tail_mat.set_shader_parameter("albedo_color", jacket_color)
-	tail_mat.set_shader_parameter("vertex_snap_intensity", 4.0)
+	tail_mat.set_shader_parameter("vertex_snap_intensity", 1.0)
 	tail_mat.set_shader_parameter("color_depth", 12.0)
 	tail_mat.set_shader_parameter("fog_color", Color(0.05, 0.03, 0.1, 1.0))
 	tail_mat.set_shader_parameter("fog_distance", 100.0)
@@ -709,7 +712,7 @@ func _add_body_part(parent: Node3D, part_name: String, mesh: Mesh, pos: Vector3,
 	var mat := ShaderMaterial.new()
 	mat.shader = ps1_shader
 	mat.set_shader_parameter("albedo_color", color)
-	mat.set_shader_parameter("vertex_snap_intensity", 4.0)
+	mat.set_shader_parameter("vertex_snap_intensity", 1.0)
 	mat.set_shader_parameter("color_depth", 12.0)
 	mat.set_shader_parameter("fog_color", Color(0.05, 0.03, 0.1, 1.0))
 	mat.set_shader_parameter("fog_distance", 100.0)

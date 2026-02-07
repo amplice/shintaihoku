@@ -14,7 +14,7 @@ height = 1.8
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_player"]
 shader = ExtResource("2_shader")
 shader_parameter/albedo_color = Color(0.15, 0.15, 0.2, 1)
-shader_parameter/vertex_snap_intensity = 4.0
+shader_parameter/vertex_snap_intensity = 1.0
 shader_parameter/color_depth = 12.0
 shader_parameter/fog_color = Color(0.02, 0.02, 0.08, 1)
 shader_parameter/fog_distance = 80.0

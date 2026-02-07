@@ -4,7 +4,7 @@ shader_type spatial;
 render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_lambert, specular_disabled;
 
 uniform vec4 albedo_color : source_color = vec4(0.4, 0.4, 0.45, 1.0);
-uniform float vertex_snap_intensity : hint_range(1.0, 10.0, 0.5) = 3.0;
+uniform float vertex_snap_intensity : hint_range(1.0, 10.0, 0.5) = 1.0;
 uniform float color_depth : hint_range(2.0, 32.0, 1.0) = 15.0;
 uniform vec4 fog_color : source_color = vec4(0.02, 0.02, 0.08, 1.0);
 uniform float fog_distance : hint_range(10.0, 200.0, 1.0) = 60.0;

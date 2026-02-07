@@ -1475,7 +1475,7 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		var handle_mat := ShaderMaterial.new()
 		handle_mat.shader = ps1_shader
 		handle_mat.set_shader_parameter("albedo_color", handle_color)
-		handle_mat.set_shader_parameter("vertex_snap_intensity", 4.0)
+		handle_mat.set_shader_parameter("vertex_snap_intensity", 1.0)
 		handle_mat.set_shader_parameter("color_depth", 12.0)
 		handle_mat.set_shader_parameter("fog_color", Color(0.05, 0.03, 0.1, 1.0))
 		handle_mat.set_shader_parameter("fog_distance", 100.0)
@@ -1494,7 +1494,7 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		var canopy_mat := ShaderMaterial.new()
 		canopy_mat.shader = ps1_shader
 		canopy_mat.set_shader_parameter("albedo_color", canopy_tint)
-		canopy_mat.set_shader_parameter("vertex_snap_intensity", 4.0)
+		canopy_mat.set_shader_parameter("vertex_snap_intensity", 1.0)
 		canopy_mat.set_shader_parameter("color_depth", 12.0)
 		canopy_mat.set_shader_parameter("fog_color", Color(0.05, 0.03, 0.1, 1.0))
 		canopy_mat.set_shader_parameter("fog_distance", 100.0)
@@ -1518,7 +1518,7 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		var phone_mat := ShaderMaterial.new()
 		phone_mat.shader = ps1_shader
 		phone_mat.set_shader_parameter("albedo_color", phone_color * 0.3)
-		phone_mat.set_shader_parameter("vertex_snap_intensity", 4.0)
+		phone_mat.set_shader_parameter("vertex_snap_intensity", 1.0)
 		phone_mat.set_shader_parameter("color_depth", 12.0)
 		phone_mat.set_shader_parameter("fog_color", Color(0.05, 0.03, 0.1, 1.0))
 		phone_mat.set_shader_parameter("fog_distance", 100.0)
@@ -1553,7 +1553,7 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		var paper_mat := ShaderMaterial.new()
 		paper_mat.shader = ps1_shader
 		paper_mat.set_shader_parameter("albedo_color", Color(0.85, 0.82, 0.75))
-		paper_mat.set_shader_parameter("vertex_snap_intensity", 4.0)
+		paper_mat.set_shader_parameter("vertex_snap_intensity", 1.0)
 		paper_mat.set_shader_parameter("color_depth", 12.0)
 		paper_mat.set_shader_parameter("fog_color", Color(0.05, 0.03, 0.1, 1.0))
 		paper_mat.set_shader_parameter("fog_distance", 100.0)
@@ -1865,7 +1865,7 @@ func _add_body_part(parent: Node3D, part_name: String, mesh: Mesh, pos: Vector3,
 	var mat := ShaderMaterial.new()
 	mat.shader = ps1_shader
 	mat.set_shader_parameter("albedo_color", color)
-	mat.set_shader_parameter("vertex_snap_intensity", 4.0)
+	mat.set_shader_parameter("vertex_snap_intensity", 1.0)
 	mat.set_shader_parameter("color_depth", 12.0)
 	mat.set_shader_parameter("fog_color", Color(0.05, 0.03, 0.1, 1.0))
 	mat.set_shader_parameter("fog_distance", 100.0)

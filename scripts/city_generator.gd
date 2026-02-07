@@ -201,7 +201,7 @@ func _make_ps1_material(color: Color, is_emissive: bool = false,
 	var mat := ShaderMaterial.new()
 	mat.shader = ps1_shader
 	mat.set_shader_parameter("albedo_color", color)
-	mat.set_shader_parameter("vertex_snap_intensity", 4.0)
+	mat.set_shader_parameter("vertex_snap_intensity", 1.0)
 	mat.set_shader_parameter("color_depth", 12.0)
 	mat.set_shader_parameter("fog_color", Color(0.05, 0.03, 0.1, 1.0))
 	mat.set_shader_parameter("fog_distance", 100.0)
@@ -7022,4 +7022,3 @@ func _generate_gutter_overflow() -> void:
 			stream.draw_pass_1 = s_mesh
 			add_child(stream)
 			overflow_count += 1
-

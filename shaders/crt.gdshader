@@ -1,7 +1,7 @@
 shader_type canvas_item;
 
 // CRT/PS1 post-processing: scanlines, vignette, chromatic aberration, noise grain, speed blur
-uniform float scanline_intensity : hint_range(0.0, 1.0) = 0.08;
+uniform float scanline_intensity : hint_range(0.0, 1.0) = 0.0;
 uniform float scanline_frequency : hint_range(100.0, 800.0) = 300.0;
 uniform float vignette_intensity : hint_range(0.0, 1.0) = 0.3;
 uniform float aberration_amount : hint_range(0.0, 5.0) = 0.8;
