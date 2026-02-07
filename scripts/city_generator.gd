@@ -160,6 +160,8 @@ func _ready() -> void:
 	_generate_alleys()
 	_generate_pigeon_flocks()
 	_generate_rooftop_gardens()
+	_generate_scattered_papers()
+	_generate_facade_stripes()
 	_setup_neon_flicker()
 	_setup_color_shift_signs()
 	print("CityGenerator: generation complete, total children=", get_child_count())
@@ -5907,3 +5909,69 @@ func _generate_rooftop_gardens() -> void:
 		planter.position = Vector3(mi.position.x, roof_y + 0.15, mi.position.z)
 		planter.set_surface_override_material(0, _make_ps1_material(Color(0.15, 0.12, 0.08)))
 		add_child(planter)
+
+func _generate_scattered_papers() -> void:
+	# Flat quads on ground simulating scattered newspapers/flyers
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7800
+	for _i in range(18):
+		var gx := rng.randi_range(-grid_size + 1, grid_size - 1)
+		var gz := rng.randi_range(-grid_size + 1, grid_size - 1)
+		var stride := block_size + street_width
+		var px := gx * stride + rng.randf_range(-block_size * 0.4, block_size * 0.5 + street_width)
+		var pz := gz * stride + rng.randf_range(-block_size * 0.4, block_size * 0.5 + street_width)
+		var paper := MeshInstance3D.new()
+		var paper_mesh := QuadMesh.new()
+		paper_mesh.size = Vector2(rng.randf_range(0.2, 0.4), rng.randf_range(0.25, 0.45))
+		paper.mesh = paper_mesh
+		paper.position = Vector3(px, 0.02, pz)
+		paper.rotation.x = -PI * 0.5  # lay flat
+		paper.rotation.y = rng.randf_range(0, TAU)
+		# Slight crumple tilt
+		paper.rotation.z = rng.randf_range(-0.15, 0.15)
+		var color_idx := rng.randi_range(0, 3)
+		var pcol := Color(0.65, 0.62, 0.55)  # aged newspaper
+		if color_idx == 1: pcol = Color(0.7, 0.5, 0.3)    # manila
+		elif color_idx == 2: pcol = Color(0.5, 0.48, 0.42) # gray paper
+		elif color_idx == 3: pcol = Color(0.75, 0.7, 0.6)  # cream
+		paper.set_surface_override_material(0, _make_ps1_material(pcol * 0.5))
+		paper.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(paper)
+
+func _generate_facade_stripes() -> void:
+	# Horizontal stripe details on building facades for architectural variety
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7900
+	for child in get_children():
+		if not child is MeshInstance3D:
+			continue
+		var mi := child as MeshInstance3D
+		if not mi.mesh is BoxMesh:
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		if bsize.y < 12.0:
+			continue
+		if rng.randf() > 0.20:
+			continue
+		var num_stripes := rng.randi_range(2, 4)
+		var stripe_color_offset := rng.randf_range(-0.08, 0.08)
+		for _s in range(num_stripes):
+			var stripe_y := mi.position.y + rng.randf_range(-bsize.y * 0.35, bsize.y * 0.35)
+			# Front face stripe
+			var stripe := MeshInstance3D.new()
+			var smesh := BoxMesh.new()
+			smesh.size = Vector3(bsize.x + 0.02, rng.randf_range(0.15, 0.3), 0.05)
+			stripe.mesh = smesh
+			stripe.position = Vector3(mi.position.x, stripe_y, mi.position.z + bsize.z * 0.51)
+			var base_dark := 0.35 + stripe_color_offset
+			stripe.set_surface_override_material(0,
+				_make_ps1_material(Color(base_dark, base_dark, base_dark + 0.03)))
+			stripe.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			add_child(stripe)
+			# Back face stripe
+			var stripe_b := MeshInstance3D.new()
+			stripe_b.mesh = smesh
+			stripe_b.position = Vector3(mi.position.x, stripe_y, mi.position.z - bsize.z * 0.51)
+			stripe_b.set_surface_override_material(0, stripe.get_surface_override_material(0))
+			stripe_b.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			add_child(stripe_b)
