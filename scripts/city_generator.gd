@@ -84,6 +84,9 @@ func _ready() -> void:
 	_generate_fire_hydrants()
 	_generate_water_towers()
 	_generate_satellite_dishes()
+	_generate_roof_access_doors()
+	_generate_rain_gutters()
+	_generate_parking_meters()
 	_setup_neon_flicker()
 	print("CityGenerator: generation complete, total children=", get_child_count())
 
@@ -796,6 +799,16 @@ func _generate_puddles() -> void:
 				puddle.set_surface_override_material(0,
 					_make_ps1_material(puddle_col * 0.08, true, puddle_col, rng.randf_range(0.8, 1.5)))
 				add_child(puddle)
+				# Subtle ground glow from puddle reflecting neon
+				if rng.randf() < 0.35:
+					var puddle_glow := OmniLight3D.new()
+					puddle_glow.light_color = puddle_col
+					puddle_glow.light_energy = rng.randf_range(0.3, 0.8)
+					puddle_glow.omni_range = maxf(puddle_w, puddle_d) * 0.8
+					puddle_glow.omni_attenuation = 2.0
+					puddle_glow.shadow_enabled = false
+					puddle_glow.position = Vector3(px, 0.1, pz)
+					add_child(puddle_glow)
 
 func _generate_steam_vents() -> void:
 	var rng := RandomNumberGenerator.new()
@@ -1478,6 +1491,33 @@ func _generate_fire_escapes() -> void:
 			rail.position = Vector3(face * (bsize.x * 0.5 + 1.45), floor_y + 0.5, platform_z)
 			rail.set_surface_override_material(0, railing_mat)
 			mi.add_child(rail)
+
+			# Bottom ladder from ground to first platform
+			if f == 1:
+				var ladder_h := floor_y + bsize.y * 0.5
+				# Two side rails
+				for lr in [-0.2, 0.2]:
+					var l_rail := MeshInstance3D.new()
+					var lr_mesh := BoxMesh.new()
+					lr_mesh.size = Vector3(0.04, ladder_h, 0.04)
+					l_rail.mesh = lr_mesh
+					l_rail.position = Vector3(face * (bsize.x * 0.5 + 0.75) + lr, -bsize.y * 0.5 + ladder_h * 0.5, platform_z)
+					l_rail.set_surface_override_material(0, railing_mat)
+					mi.add_child(l_rail)
+				# Rungs
+				var num_rungs := int(ladder_h / 0.35)
+				for r in range(num_rungs):
+					var rung := MeshInstance3D.new()
+					var rung_mesh := BoxMesh.new()
+					rung_mesh.size = Vector3(0.4, 0.03, 0.04)
+					rung.mesh = rung_mesh
+					rung.position = Vector3(
+						face * (bsize.x * 0.5 + 0.75),
+						-bsize.y * 0.5 + r * 0.35 + 0.2,
+						platform_z
+					)
+					rung.set_surface_override_material(0, metal_mat)
+					mi.add_child(rung)
 
 			# Diagonal stair to next floor (angled box)
 			if f < num_floors - 1:
@@ -2640,6 +2680,33 @@ func _generate_chain_link_fences() -> void:
 				post.position = fence_pos + post_offset
 				post.set_surface_override_material(0, _make_ps1_material(Color(0.4, 0.4, 0.45)))
 				add_child(post)
+			# Barbed wire coil on top (40% of fences)
+			if rng.randf() < 0.4:
+				var wire_mat := _make_ps1_material(Color(0.35, 0.32, 0.3))
+				var num_coils := int(fence_len / 0.6)
+				for c in range(num_coils):
+					var coil := MeshInstance3D.new()
+					var coil_mesh := BoxMesh.new()
+					coil_mesh.size = Vector3(0.12, 0.15, 0.12)
+					coil.mesh = coil_mesh
+					var t := float(c) / float(num_coils)
+					var coil_pos: Vector3
+					if along_x:
+						coil_pos = Vector3(
+							fence_pos.x - fence_len * 0.5 + t * fence_len,
+							fence_pos.y + fence_h * 0.5 + 0.1 + sin(t * 20.0) * 0.06,
+							fence_pos.z + cos(t * 20.0) * 0.08
+						)
+					else:
+						coil_pos = Vector3(
+							fence_pos.x + cos(t * 20.0) * 0.08,
+							fence_pos.y + fence_h * 0.5 + 0.1 + sin(t * 20.0) * 0.06,
+							fence_pos.z - fence_len * 0.5 + t * fence_len
+						)
+					coil.position = coil_pos
+					coil.rotation = Vector3(t * 3.0, t * 2.0, t * 1.5)
+					coil.set_surface_override_material(0, wire_mat)
+					add_child(coil)
 
 func _generate_trash_bags() -> void:
 	var rng := RandomNumberGenerator.new()
@@ -2941,6 +3008,155 @@ func _generate_satellite_dishes() -> void:
 		arm.set_surface_override_material(0, _make_ps1_material(Color(0.4, 0.4, 0.45)))
 		dish_parent.add_child(arm)
 		add_child(dish_parent)
+
+func _generate_roof_access_doors() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 3700
+	for child in get_children():
+		if not (child is MeshInstance3D):
+			continue
+		var mi := child as MeshInstance3D
+		if not (mi.mesh is BoxMesh):
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		if bsize.y < 15.0:
+			continue
+		if rng.randf() > 0.30:
+			continue
+		var door_struct := Node3D.new()
+		var dx := rng.randf_range(-bsize.x * 0.25, bsize.x * 0.25)
+		var dz := rng.randf_range(-bsize.z * 0.25, bsize.z * 0.25)
+		door_struct.position = Vector3(
+			mi.position.x + dx,
+			mi.position.y + bsize.y * 0.5,
+			mi.position.z + dz
+		)
+		# Enclosure walls
+		var enclosure := MeshInstance3D.new()
+		var enc_mesh := BoxMesh.new()
+		enc_mesh.size = Vector3(2.0, 2.8, 2.0)
+		enclosure.mesh = enc_mesh
+		enclosure.position = Vector3(0, 1.4, 0)
+		enclosure.set_surface_override_material(0, _make_ps1_material(Color(0.25, 0.25, 0.28)))
+		door_struct.add_child(enclosure)
+		# Door (darker rectangle on one face)
+		var door := MeshInstance3D.new()
+		var door_mesh := BoxMesh.new()
+		door_mesh.size = Vector3(0.9, 2.0, 0.04)
+		door.mesh = door_mesh
+		door.position = Vector3(0, 1.0, 1.02)
+		door.set_surface_override_material(0, _make_ps1_material(Color(0.15, 0.15, 0.18)))
+		door_struct.add_child(door)
+		# Small roof on top
+		var door_roof := MeshInstance3D.new()
+		var dr_mesh := BoxMesh.new()
+		dr_mesh.size = Vector3(2.2, 0.1, 2.2)
+		door_roof.mesh = dr_mesh
+		door_roof.position = Vector3(0, 2.85, 0)
+		door_roof.set_surface_override_material(0, _make_ps1_material(Color(0.2, 0.2, 0.22)))
+		door_struct.add_child(door_roof)
+		add_child(door_struct)
+
+func _generate_rain_gutters() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 3800
+	var gutter_mat := _make_ps1_material(Color(0.3, 0.3, 0.33))
+	for child in get_children():
+		if not (child is MeshInstance3D):
+			continue
+		var mi := child as MeshInstance3D
+		if not (mi.mesh is BoxMesh):
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		if bsize.y < 8.0:
+			continue
+		if rng.randf() > 0.15:
+			continue
+		var face := rng.randi_range(0, 1)  # 0 = +x face, 1 = +z face
+		# Horizontal gutter at roofline
+		var gutter := MeshInstance3D.new()
+		var g_mesh := BoxMesh.new()
+		if face == 0:
+			g_mesh.size = Vector3(0.08, 0.08, bsize.z * 0.9)
+			gutter.position = Vector3(bsize.x * 0.5 + 0.04, bsize.y * 0.5 - 0.1, 0)
+		else:
+			g_mesh.size = Vector3(bsize.x * 0.9, 0.08, 0.08)
+			gutter.position = Vector3(0, bsize.y * 0.5 - 0.1, bsize.z * 0.5 + 0.04)
+		gutter.mesh = g_mesh
+		gutter.set_surface_override_material(0, gutter_mat)
+		mi.add_child(gutter)
+		# Vertical downspout from gutter to ground
+		var spout := MeshInstance3D.new()
+		var s_mesh := BoxMesh.new()
+		s_mesh.size = Vector3(0.06, bsize.y, 0.06)
+		spout.mesh = s_mesh
+		if face == 0:
+			var spout_z := rng.randf_range(-bsize.z * 0.35, bsize.z * 0.35)
+			spout.position = Vector3(bsize.x * 0.5 + 0.04, 0, spout_z)
+		else:
+			var spout_x := rng.randf_range(-bsize.x * 0.35, bsize.x * 0.35)
+			spout.position = Vector3(spout_x, 0, bsize.z * 0.5 + 0.04)
+		spout.set_surface_override_material(0, gutter_mat)
+		mi.add_child(spout)
+
+func _generate_parking_meters() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 3900
+	var cell_stride := block_size + street_width
+	var meter_pole_mat := _make_ps1_material(Color(0.35, 0.35, 0.38))
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			if rng.randf() > 0.12:
+				continue
+			var cell_x := gx * cell_stride
+			var cell_z := gz * cell_stride
+			var num_meters := rng.randi_range(1, 3)
+			for _m in range(num_meters):
+				var side := rng.randi_range(0, 3)
+				var mx: float
+				var mz: float
+				match side:
+					0:
+						mx = cell_x + block_size * 0.5 + 1.2
+						mz = cell_z + rng.randf_range(-block_size * 0.3, block_size * 0.3)
+					1:
+						mx = cell_x - block_size * 0.5 - 1.2
+						mz = cell_z + rng.randf_range(-block_size * 0.3, block_size * 0.3)
+					2:
+						mx = cell_x + rng.randf_range(-block_size * 0.3, block_size * 0.3)
+						mz = cell_z + block_size * 0.5 + 1.2
+					_:
+						mx = cell_x + rng.randf_range(-block_size * 0.3, block_size * 0.3)
+						mz = cell_z - block_size * 0.5 - 1.2
+				var meter := Node3D.new()
+				meter.position = Vector3(mx, 0, mz)
+				# Pole
+				var pole := MeshInstance3D.new()
+				var pole_mesh := BoxMesh.new()
+				pole_mesh.size = Vector3(0.05, 1.1, 0.05)
+				pole.mesh = pole_mesh
+				pole.position = Vector3(0, 0.55, 0)
+				pole.set_surface_override_material(0, meter_pole_mat)
+				meter.add_child(pole)
+				# Head (payment box)
+				var head := MeshInstance3D.new()
+				var head_mesh := BoxMesh.new()
+				head_mesh.size = Vector3(0.15, 0.25, 0.12)
+				head.mesh = head_mesh
+				head.position = Vector3(0, 1.2, 0)
+				head.set_surface_override_material(0, _make_ps1_material(Color(0.4, 0.4, 0.42)))
+				meter.add_child(head)
+				# Small screen (faint emissive)
+				var screen := MeshInstance3D.new()
+				var scr_mesh := BoxMesh.new()
+				scr_mesh.size = Vector3(0.1, 0.08, 0.02)
+				screen.mesh = scr_mesh
+				screen.position = Vector3(0, 1.25, 0.07)
+				var scr_col := Color(0.2, 0.8, 0.2)
+				screen.set_surface_override_material(0,
+					_make_ps1_material(scr_col, true, scr_col, 1.0))
+				meter.add_child(screen)
+				add_child(meter)
 
 func _setup_neon_flicker() -> void:
 	# Register existing neon sign lights for flickering
