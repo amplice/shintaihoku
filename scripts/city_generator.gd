@@ -188,6 +188,7 @@ func _ready() -> void:
 	_setup_neon_flicker()
 	_setup_color_shift_signs()
 	_generate_chimney_smoke()
+	_generate_fluorescent_tubes()
 	print("CityGenerator: generation complete, total children=", get_child_count())
 
 func _make_ps1_material(color: Color, is_emissive: bool = false,
@@ -6711,3 +6712,46 @@ func _generate_chimney_smoke() -> void:
 			smoke.draw_pass_1 = sm_mesh
 			add_child(smoke)
 			count += 1
+
+func _generate_fluorescent_tubes() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 9400
+	var stride := block_size + street_width
+	var tube_count := 0
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			if tube_count >= 15:
+				break
+			if rng.randf() > 0.10:
+				continue
+			var bx := gx * stride + rng.randf_range(2.0, block_size - 2.0)
+			var bz := gz * stride + rng.randf_range(-1.0, 1.0)  # near building edge/street
+			var tube_y := rng.randf_range(3.0, 5.5)
+			# Tube mesh (long thin box)
+			var tube := MeshInstance3D.new()
+			var tube_mesh := BoxMesh.new()
+			tube_mesh.size = Vector3(1.8, 0.06, 0.06)
+			tube.mesh = tube_mesh
+			tube.position = Vector3(bx, tube_y, bz)
+			var tube_col := Color(0.85, 0.9, 1.0) if rng.randf() < 0.7 else Color(1.0, 0.95, 0.8)
+			tube.material_override = _make_ps1_material(tube_col * 0.5, true, tube_col, 3.0)
+			add_child(tube)
+			# Light underneath
+			var tube_light := OmniLight3D.new()
+			tube_light.position = Vector3(bx, tube_y - 0.1, bz)
+			tube_light.light_color = tube_col
+			tube_light.light_energy = 1.5
+			tube_light.omni_range = 4.0
+			tube_light.shadow_enabled = false
+			add_child(tube_light)
+			# Register for flickering (50% flicker, 50% steady)
+			if rng.randf() < 0.5:
+				flickering_lights.append({
+					"node": tube_light,
+					"base_energy": 1.5,
+					"phase": rng.randf() * TAU,
+					"speed": rng.randf_range(8.0, 20.0),
+					"style": "buzz",
+					"mesh": tube,
+				})
+			tube_count += 1

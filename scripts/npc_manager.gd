@@ -584,6 +584,15 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 			_add_body_part(model, "Bag", BoxMesh.new(), Vector3(-0.28, 0.85, 0.05),
 				Color(0.15, 0.12, 0.08), Vector3(0.08, 0.25, 0.2))
 
+	# Glowing wristwatch (8% of NPCs)
+	if rng.randf() < 0.08:
+		var watch_col_idx := rng.randi_range(0, 1)
+		var watch_col := Color(0.0, 0.8, 0.4) if watch_col_idx == 0 else Color(0.3, 0.6, 1.0)
+		var left_lower := left_elbow.get_node_or_null("LeftLowerArm")
+		if left_lower:
+			_add_body_part(left_lower, "Watch", BoxMesh.new(), Vector3(0.05, -0.08, 0.06),
+				watch_col * 0.3, Vector3(0.04, 0.03, 0.06), true, watch_col, 2.0)
+
 	# Boots (20% of NPCs, adds ground-level detail)
 	if rng.randf() < 0.20:
 		var boot_color := Color(0.08, 0.06, 0.05)
@@ -602,6 +611,22 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		# Hood draped behind/over head
 		_add_body_part(model, "Hood", BoxMesh.new(), Vector3(0, 1.6, -0.12),
 			jacket_color * 1.1, Vector3(0.4, 0.25, 0.22))
+
+	# Earbuds (5% of NPCs - tiny white dots on ears)
+	if rng.randf() < 0.05:
+		var bud_col := Color(0.9, 0.9, 0.95)
+		_add_body_part(model, "EarbudL", BoxMesh.new(), Vector3(-0.18, 1.55, 0),
+			bud_col * 0.5, Vector3(0.04, 0.04, 0.04), true, bud_col, 1.5)
+		_add_body_part(model, "EarbudR", BoxMesh.new(), Vector3(0.18, 1.55, 0),
+			bud_col * 0.5, Vector3(0.04, 0.04, 0.04), true, bud_col, 1.5)
+
+	# Cigarette glow (6% of NPCs - orange dot near mouth)
+	if rng.randf() < 0.06:
+		var cig_col := Color(1.0, 0.5, 0.1)
+		var right_lower := right_elbow.get_node_or_null("RightLowerArm")
+		if right_lower:
+			_add_body_part(right_lower, "Cigarette", BoxMesh.new(), Vector3(-0.04, -0.12, 0.08),
+				cig_col * 0.3, Vector3(0.02, 0.02, 0.06), true, cig_col, 2.5)
 
 	# Foot splash particles (wet ground)
 	var npc_splash := GPUParticles3D.new()

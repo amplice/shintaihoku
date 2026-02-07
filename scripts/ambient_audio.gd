@@ -135,6 +135,19 @@ var chime_active: bool = false
 var chime_duration: float = 2.0
 var chime_notes: Array[float] = []
 var chime_note_idx: int = 0
+var gunshot_timer: float = 0.0
+var gunshot_phase: float = 0.0
+var gunshot_active: bool = false
+var gunshot_count: int = 0
+var gunshot_max: int = 0
+var gunshot_gap_timer: float = 0.0
+var gunshot_reverb: float = 0.0
+var bell_timer: float = 0.0
+var bell_phase: float = 0.0
+var bell_active: bool = false
+var bell_count: int = 0
+var bell_max: int = 0
+var bell_gap_timer: float = 0.0
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -591,6 +604,48 @@ func _process(delta: float) -> void:
 		if chime_phase > chime_duration:
 			chime_active = false
 
+	# Distant gunshots (very rare)
+	gunshot_timer -= delta
+	if gunshot_timer <= 0.0 and not gunshot_active:
+		gunshot_timer = rng.randf_range(180.0, 400.0)
+		gunshot_active = true
+		gunshot_count = 0
+		gunshot_max = rng.randi_range(1, 3)
+		gunshot_gap_timer = 0.0
+
+	if gunshot_active:
+		gunshot_gap_timer -= delta
+		if gunshot_gap_timer <= 0.0 and gunshot_count < gunshot_max:
+			gunshot_phase = 0.0
+			gunshot_count += 1
+			gunshot_gap_timer = rng.randf_range(0.3, 0.6)
+		if gunshot_count >= gunshot_max and gunshot_phase > 0.5:
+			gunshot_active = false
+
+	if gunshot_active:
+		gunshot_phase += delta
+
+	# Distant temple/church bell toll (very rare)
+	bell_timer -= delta
+	if bell_timer <= 0.0 and not bell_active:
+		bell_timer = rng.randf_range(200.0, 400.0)
+		bell_active = true
+		bell_count = 0
+		bell_max = rng.randi_range(1, 3)
+		bell_gap_timer = 0.0
+
+	if bell_active:
+		bell_gap_timer -= delta
+		if bell_gap_timer <= 0.0 and bell_count < bell_max:
+			bell_phase = 0.0
+			bell_count += 1
+			bell_gap_timer = rng.randf_range(1.5, 2.5)
+		if bell_count >= bell_max and bell_phase > 2.0:
+			bell_active = false
+
+	if bell_active:
+		bell_phase += delta
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -972,6 +1027,36 @@ func _fill_hum_buffer() -> void:
 			bell += sin(t * cm_freq * 2.76 * TAU) * 0.1  # inharmonic partial
 			bell += sin(t * cm_freq * 5.4 * TAU) * 0.04  # high shimmer
 			sample += bell * cm_env * 0.015
+		# Distant gunshot (sharp crack + reverb tail)
+		if gunshot_active and gunshot_phase < 0.5:
+			if gunshot_phase < 0.02:
+				# Sharp crack: wideband noise burst
+				var gs_env := (1.0 - gunshot_phase / 0.02)
+				gs_env = gs_env * gs_env * gs_env
+				var gs_crack := rng.randf_range(-1.0, 1.0) * 0.5
+				gs_crack += sin(t * 1800.0 * TAU) * 0.2
+				sample += gs_crack * gs_env * 0.04
+			# Reverb tail: filtered decay
+			if gunshot_phase > 0.01 and gunshot_phase < 0.5:
+				var rv_env := maxf(0.0, (0.5 - gunshot_phase) / 0.49)
+				rv_env = rv_env * rv_env
+				var rv_noise := rng.randf_range(-1.0, 1.0)
+				gunshot_reverb = gunshot_reverb * 0.92 + rv_noise * 0.08
+				sample += gunshot_reverb * rv_env * 0.025
+		# Distant temple/church bell toll (deep resonant ring)
+		if bell_active and bell_phase < 2.0:
+			var bl_env := 1.0
+			if bell_phase < 0.01:
+				bl_env = bell_phase / 0.01
+			else:
+				bl_env = maxf(0.0, (2.0 - bell_phase) / 1.99)
+			bl_env = bl_env * bl_env  # squared for bell decay
+			# Deep bell: fundamental ~220Hz + inharmonic partials
+			var bl_tone := sin(t * 220.0 * TAU) * 0.3
+			bl_tone += sin(t * 220.0 * 2.76 * TAU) * 0.12  # inharmonic
+			bl_tone += sin(t * 220.0 * 5.4 * TAU) * 0.04   # high shimmer
+			bl_tone += sin(t * 110.0 * TAU) * 0.15          # sub-octave
+			sample += bl_tone * bl_env * 0.02
 		# Distant crowd murmur (band-limited noise, 200-800Hz band)
 		var murmur_noise := rng.randf_range(-1.0, 1.0)
 		murmur_filter1 = murmur_filter1 * 0.85 + murmur_noise * 0.15
