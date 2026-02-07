@@ -54,6 +54,7 @@ var impact_aberration: float = 0.0  # chromatic aberration from hard landing
 var accent_stripe_mat: ShaderMaterial = null  # for glow pulse
 var accent_pulse_time: float = 0.0
 var turn_lean: float = 0.0  # camera lean from turning
+var head_node: Node3D = null  # for head look direction
 
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
@@ -153,6 +154,10 @@ func _physics_process(delta: float) -> void:
 	var horiz_speed := Vector2(velocity.x, velocity.z).length()
 	if anim:
 		anim.update(delta, horiz_speed)
+
+	# Head follows camera pitch slightly
+	if head_node:
+		head_node.rotation.x = lerpf(head_node.rotation.x, camera_rotation_x * 0.3, 8.0 * delta)
 
 	# Coat tail sway based on speed
 	if coat_tail:
@@ -315,6 +320,7 @@ func _build_humanoid_model() -> void:
 	_add_body_part(model, "Head", SphereMesh.new(), Vector3(0, 1.55, 0), skin_color)
 	(model.get_node("Head").mesh as SphereMesh).radius = 0.18
 	(model.get_node("Head").mesh as SphereMesh).height = 0.36
+	head_node = model.get_node_or_null("Head")
 
 	# Torso
 	_add_body_part(model, "Torso", BoxMesh.new(), Vector3(0, 1.1, 0), jacket_color,

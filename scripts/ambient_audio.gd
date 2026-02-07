@@ -184,6 +184,13 @@ var laughter_phase: float = 0.0
 var laughter_active: bool = false
 var laughter_duration: float = 1.0
 var laughter_filter: float = 0.0
+var brake_timer: float = 0.0
+var brake_phase: float = 0.0
+var brake_active: bool = false
+var brake_duration: float = 1.0
+var gate_timer: float = 0.0
+var gate_phase: float = 0.0
+var gate_active: bool = false
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -779,6 +786,31 @@ func _process(delta: float) -> void:
 			if firework_flash_light:
 				firework_flash_light.light_energy = 0.0
 
+	# Distant squealing brakes
+	brake_timer -= delta
+	if brake_timer <= 0.0 and not brake_active:
+		brake_timer = rng.randf_range(50.0, 100.0)
+		brake_active = true
+		brake_phase = 0.0
+		brake_duration = rng.randf_range(0.5, 1.5)
+
+	if brake_active:
+		brake_phase += delta
+		if brake_phase > brake_duration:
+			brake_active = false
+
+	# Distant metal gate slam
+	gate_timer -= delta
+	if gate_timer <= 0.0 and not gate_active:
+		gate_timer = rng.randf_range(60.0, 120.0)
+		gate_active = true
+		gate_phase = 0.0
+
+	if gate_active:
+		gate_phase += delta
+		if gate_phase > 0.15:
+			gate_active = false
+
 	# Distant foghorn
 	foghorn_timer -= delta
 	if foghorn_timer <= 0.0 and not foghorn_active:
@@ -1208,6 +1240,29 @@ func _fill_hum_buffer() -> void:
 			bell += sin(t * cm_freq * 2.76 * TAU) * 0.1  # inharmonic partial
 			bell += sin(t * cm_freq * 5.4 * TAU) * 0.04  # high shimmer
 			sample += bell * cm_env * 0.015
+		# Distant squealing brakes (descending high-pitched screech)
+		if brake_active:
+			var bk_env := 1.0
+			if brake_phase < 0.05:
+				bk_env = brake_phase / 0.05
+			elif brake_phase > brake_duration - 0.1:
+				bk_env = maxf(0.0, (brake_duration - brake_phase) / 0.1)
+			# Descending pitch: 1500Hz -> 800Hz
+			var bk_progress := clampf(brake_phase / brake_duration, 0.0, 1.0)
+			var bk_freq := 1500.0 - bk_progress * 700.0
+			var bk_tone := sin(t * bk_freq * TAU) * 0.2
+			bk_tone += sin(t * bk_freq * 1.5 * TAU) * 0.08
+			var bk_noise := rng.randf_range(-1.0, 1.0) * 0.15
+			sample += (bk_tone + bk_noise) * bk_env * 0.02
+		# Distant metal gate slam (single resonant clang)
+		if gate_active and gate_phase < 0.12:
+			var gt_env := (1.0 - gate_phase / 0.12)
+			gt_env = gt_env * gt_env * gt_env
+			var gt_tone := sin(t * 280.0 * TAU) * 0.3
+			gt_tone += sin(t * 560.0 * TAU) * 0.15
+			gt_tone += sin(t * 840.0 * TAU) * 0.05
+			var gt_noise := rng.randf_range(-1.0, 1.0) * 0.25
+			sample += (gt_tone + gt_noise) * gt_env * 0.03
 		# Distant foghorn (deep mournful blast)
 		if foghorn_active:
 			var fh_env := 1.0
