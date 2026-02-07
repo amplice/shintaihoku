@@ -262,6 +262,11 @@ var steam_phase: float = 0.0
 var steam_active: bool = false
 var steam_duration: float = 2.0
 var steam_filter: float = 0.0
+var pipe_timer: float = 0.0
+var pipe_phase: float = 0.0
+var pipe_active: bool = false
+var pipe_duration: float = 2.5
+var pipe_pitch: float = 1.0
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -1147,6 +1152,20 @@ func _process(delta: float) -> void:
 		if steam_phase > steam_duration:
 			steam_active = false
 
+	# Water pipe groan (deep metallic groan from underground)
+	pipe_timer -= delta
+	if pipe_timer <= 0.0 and not pipe_active:
+		pipe_timer = rng.randf_range(60.0, 150.0)
+		pipe_active = true
+		pipe_phase = 0.0
+		pipe_duration = rng.randf_range(2.0, 3.5)
+		pipe_pitch = rng.randf_range(0.8, 1.2)
+
+	if pipe_active:
+		pipe_phase += delta
+		if pipe_phase > pipe_duration:
+			pipe_active = false
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -1981,6 +2000,23 @@ func _fill_hum_buffer() -> void:
 			var hiss := steam_filter * 0.5
 			hiss += sin(t * 4000.0 * TAU) * steam_filter * 0.25  # resonance
 			sample += hiss * st_env * 0.008
+
+		# Water pipe groan (deep metallic resonance from underground)
+		if pipe_active:
+			var pp_env := 0.0
+			if pipe_phase < 0.3:
+				pp_env = pipe_phase / 0.3
+			elif pipe_phase < pipe_duration - 0.8:
+				pp_env = 1.0 - (pipe_phase - 0.3) * 0.1  # slow fade
+			else:
+				pp_env = maxf(0.0, (pipe_duration - pipe_phase) / 0.8)
+			pp_env = maxf(0.0, pp_env)
+			var pp_base := sin(t * 45.0 * pipe_pitch * TAU) * 0.4
+			pp_base += sin(t * 90.0 * pipe_pitch * TAU) * 0.25  # 2nd harmonic
+			pp_base += sin(t * 135.0 * pipe_pitch * TAU) * 0.15  # 3rd harmonic
+			var pp_bend := sin(pipe_phase * 1.5) * 0.1  # slow pitch wobble
+			pp_base += sin(t * (45.0 + pp_bend * 10.0) * pipe_pitch * TAU) * 0.1
+			sample += pp_base * pp_env * 0.006
 
 		# Distant crowd murmur (band-limited noise, 200-800Hz band)
 		var murmur_noise := rng.randf_range(-1.0, 1.0)

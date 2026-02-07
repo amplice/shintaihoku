@@ -72,6 +72,8 @@ var land_fov_dip: float = 0.0  # landing FOV snap effect
 var catch_breath_timer: float = 0.0  # heavier breathing after sustained sprint
 var rain_drip_timer: float = 0.0  # rain droplet on camera lens
 var rain_drip_flash: float = 0.0  # current drip noise intensity
+var shadow_flicker_timer: float = 0.0  # peripheral shadow pulse timer
+var shadow_flicker_amount: float = 0.0  # current flicker vignette boost
 
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
@@ -346,6 +348,14 @@ func _physics_process(delta: float) -> void:
 				target_vignette = lerpf(0.3, 0.5, (tod_val - 17.0) / 4.0)  # dusk transition
 			elif tod_val < 7.0:
 				target_vignette = lerpf(0.5, 0.3, (tod_val - 5.0) / 2.0)  # dawn transition
+		# Peripheral shadow flicker (rare subliminal vignette pulse at night)
+		shadow_flicker_timer -= delta
+		if shadow_flicker_timer <= 0.0:
+			shadow_flicker_timer = randf_range(30.0, 60.0)
+			if target_vignette > 0.4:  # only at night/dusk
+				shadow_flicker_amount = 0.25
+		shadow_flicker_amount = maxf(0.0, shadow_flicker_amount - delta * 0.8)
+		target_vignette += shadow_flicker_amount
 		var cur_vig = crt_material.get_shader_parameter("vignette_intensity")
 		var cur_vig_f: float = cur_vig if cur_vig != null else 0.3
 		crt_material.set_shader_parameter("vignette_intensity", lerpf(cur_vig_f, target_vignette, 2.0 * delta))

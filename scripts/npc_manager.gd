@@ -297,6 +297,21 @@ func _process(delta: float) -> void:
 						target_rot = -0.8 + (cycle - 1.5) * 0.8  # lower
 					rs.rotation.x = lerpf(rs.rotation.x, target_rot, 5.0 * delta)
 
+		# Cigarette ash flick (40% of smoking NPCs, quick wrist flick when stopped)
+		if npc_data.get("does_cig_flick", false) and is_stopped:
+			npc_data["flick_clock"] = npc_data.get("flick_clock", 0.0) + delta
+			var flick_cycle := fmod(npc_data["flick_clock"], 20.0)
+			if flick_cycle > 18.0 and flick_cycle < 18.8:
+				var re := node.get_node_or_null("Model/RightShoulder/RightElbow")
+				if re and is_instance_valid(re) and re.is_inside_tree():
+					var ft := flick_cycle - 18.0
+					var flick_rot := 0.0
+					if ft < 0.15:
+						flick_rot = (ft / 0.15) * -0.5  # quick forward snap
+					elif ft < 0.3:
+						flick_rot = -0.5 * ((0.3 - ft) / 0.15)  # snap back
+					re.rotation.z = lerpf(re.rotation.z, flick_rot, 12.0 * delta)
+
 		# Phone glow: only visible when stopped, arm raises to check
 		if npc_data["has_phone"]:
 			var pl: OmniLight3D = npc_data["phone_light"]
@@ -592,6 +607,22 @@ func _process(delta: float) -> void:
 						look_side = -0.6 * ((2.0 - shop_cycle) / 0.5)  # return
 					head_node.rotation.y = lerpf(head_node.rotation.y, look_side, 5.0 * delta)
 
+		# Nervous hand clench (5% of walking NPCs, periodic fist clench)
+		if npc_data.get("does_hand_clench", false) and not is_stopped:
+			npc_data["clench_clock"] = npc_data.get("clench_clock", 0.0) + delta
+			var clench_cycle := fmod(npc_data["clench_clock"], 16.0)
+			if clench_cycle < 2.0:
+				var le := node.get_node_or_null("Model/LeftShoulder/LeftElbow")
+				if le and is_instance_valid(le) and le.is_inside_tree():
+					var clench_rot := 0.0
+					if clench_cycle < 0.4:
+						clench_rot = (clench_cycle / 0.4) * 0.2
+					elif clench_cycle < 1.5:
+						clench_rot = 0.2
+					else:
+						clench_rot = 0.2 * ((2.0 - clench_cycle) / 0.5)
+					le.rotation.z = lerpf(le.rotation.z, clench_rot, 6.0 * delta)
+
 		# NPC-to-NPC greeting nod (when two NPCs pass within 2m, opposite directions)
 		npc_data["nod_cooldown"] = maxf(0.0, npc_data.get("nod_cooldown", 0.0) - delta)
 		if not is_stopped and npc_data["nod_cooldown"] <= 0.0 and dist < 60.0:
@@ -626,6 +657,18 @@ func _process(delta: float) -> void:
 				else:
 					npc_data["nod_t"] = -1.0
 				head_node.rotation.x = lerpf(head_node.rotation.x, nod_angle, 10.0 * delta)
+
+		# Umbrella tilt in wind (umbrella-carrying NPCs tilt toward wind direction)
+		if npc_data.get("has_umbrella", false):
+			var umbrella_node := node.get_node_or_null("Model/Umbrella")
+			if umbrella_node and is_instance_valid(umbrella_node):
+				var rain_node := get_node_or_null("../Rain")
+				var wind_val: float = 0.0
+				if rain_node and "wind_x" in rain_node:
+					wind_val = rain_node.wind_x
+				var tilt_z := clampf(wind_val * 0.08, -0.35, 0.35)
+				umbrella_node.rotation.z = lerpf(umbrella_node.rotation.z, tilt_z, 2.0 * delta)
+				umbrella_node.rotation.x = lerpf(umbrella_node.rotation.x, abs(wind_val) * 0.03, 2.0 * delta)
 
 		# Hand rub for warmth (15% of idle NPCs, both arms forward, slight rub oscillation)
 		if npc_data.get("does_hand_rub", false) and is_stopped and not npc_data["smoke"] and not npc_data.get("arms_crossed", false):
@@ -1518,6 +1561,8 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		"does_chin_rest": not has_phone and not has_newspaper and not has_umbrella and rng.randf() < 0.07,
 		"does_pocket_pat": not has_umbrella and rng.randf() < 0.05,
 		"does_window_shop": rng.randf() < 0.15,
+		"does_hand_clench": rng.randf() < 0.05,
+		"does_cig_flick": smoke_particles != null and rng.randf() < 0.40,
 		"nod_cooldown": 0.0,
 		"last_cell_x": -999,
 		"last_cell_z": -999,
