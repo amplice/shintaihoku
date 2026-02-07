@@ -12,6 +12,7 @@ extends Node3D
 
 var ps1_shader: Shader
 var neon_font: Font
+var flickering_lights: Array[Dictionary] = []  # [{node, base_energy, phase, speed, style}]
 var neon_colors: Array[Color] = [
 	Color(1.0, 0.05, 0.4),   # hot magenta
 	Color(0.0, 0.9, 1.0),    # cyan
@@ -46,6 +47,9 @@ func _ready() -> void:
 	_generate_street_lights()
 	_generate_puddles()
 	_generate_steam_vents()
+	_generate_skyline()
+	_generate_rooftop_details()
+	_setup_neon_flicker()
 	print("CityGenerator: generation complete, total children=", get_child_count())
 
 func _make_ps1_material(color: Color, is_emissive: bool = false,
@@ -784,3 +788,230 @@ func _generate_steam_vents() -> void:
 			steam.draw_pass_1 = mesh
 
 			add_child(steam)
+
+func _generate_skyline() -> void:
+	# Ring of tall dark silhouette buildings beyond the playable grid
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 456
+	var cell_stride := block_size + street_width
+	var inner_edge := grid_size * cell_stride + street_width
+	var outer_edge := inner_edge + 120.0
+	var skyline_mat := _make_ps1_material(Color(0.03, 0.02, 0.05))
+
+	# Place buildings around all four sides
+	for side in range(4):
+		var num_buildings := rng.randi_range(20, 35)
+		for _b in range(num_buildings):
+			var bh := rng.randf_range(30.0, 90.0)
+			var bw := rng.randf_range(8.0, 25.0)
+			var bd := rng.randf_range(8.0, 20.0)
+			var dist := rng.randf_range(inner_edge + 5.0, outer_edge)
+			var lateral := rng.randf_range(-outer_edge, outer_edge)
+
+			var bpos := Vector3.ZERO
+			match side:
+				0: bpos = Vector3(lateral, bh * 0.5, dist)    # north
+				1: bpos = Vector3(lateral, bh * 0.5, -dist)   # south
+				2: bpos = Vector3(dist, bh * 0.5, lateral)    # east
+				3: bpos = Vector3(-dist, bh * 0.5, lateral)   # west
+
+			var mi := MeshInstance3D.new()
+			var box := BoxMesh.new()
+			box.size = Vector3(bw, bh, bd)
+			mi.mesh = box
+			mi.position = bpos
+			mi.set_surface_override_material(0, skyline_mat)
+			add_child(mi)
+
+			# Scattered dim windows on skyline buildings (30% get windows)
+			if rng.randf() < 0.3:
+				var num_wins := rng.randi_range(3, 8)
+				for _w in range(num_wins):
+					var win := MeshInstance3D.new()
+					var quad := QuadMesh.new()
+					quad.size = Vector2(1.0, 1.2)
+					win.mesh = quad
+					var wy := rng.randf_range(-bh * 0.3, bh * 0.3)
+					# Pick the face closest to the player (facing inward)
+					match side:
+						0:
+							win.position = Vector3(rng.randf_range(-bw * 0.4, bw * 0.4), wy, -bd * 0.51)
+							win.rotation.y = PI
+						1:
+							win.position = Vector3(rng.randf_range(-bw * 0.4, bw * 0.4), wy, bd * 0.51)
+						2:
+							win.position = Vector3(-bw * 0.51, wy, rng.randf_range(-bd * 0.4, bd * 0.4))
+							win.rotation.y = -PI * 0.5
+						3:
+							win.position = Vector3(bw * 0.51, wy, rng.randf_range(-bd * 0.4, bd * 0.4))
+							win.rotation.y = PI * 0.5
+					var wc := neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
+					win.set_surface_override_material(0,
+						_make_ps1_material(wc * 0.15, true, wc, rng.randf_range(1.0, 2.5)))
+					mi.add_child(win)
+
+func _generate_rooftop_details() -> void:
+	# Add water tanks, antennas, and AC units to building rooftops
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 567
+	var tank_mat := _make_ps1_material(Color(0.25, 0.22, 0.2))
+	var metal_mat := _make_ps1_material(Color(0.3, 0.3, 0.32))
+	var red_light_color := Color(1.0, 0.0, 0.0)
+	var red_mat := _make_ps1_material(red_light_color * 0.3, true, red_light_color, 3.0)
+
+	# Iterate through city buildings (direct children that are MeshInstance3D with BoxMesh)
+	for child in get_children():
+		if not child is MeshInstance3D:
+			continue
+		var mi := child as MeshInstance3D
+		if not mi.mesh is BoxMesh:
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		# Only add rooftop details to buildings tall enough
+		if bsize.y < 15.0:
+			continue
+
+		var roof_y := bsize.y * 0.5  # top of building (local coords)
+
+		# Water tank (40% of tall buildings)
+		if rng.randf() < 0.4:
+			var tank := MeshInstance3D.new()
+			var tank_mesh := CylinderMesh.new()
+			tank_mesh.top_radius = rng.randf_range(0.8, 1.5)
+			tank_mesh.bottom_radius = tank_mesh.top_radius
+			tank_mesh.height = rng.randf_range(1.5, 2.5)
+			tank.mesh = tank_mesh
+			var tx := rng.randf_range(-bsize.x * 0.3, bsize.x * 0.3)
+			var tz := rng.randf_range(-bsize.z * 0.3, bsize.z * 0.3)
+			tank.position = Vector3(tx, roof_y + tank_mesh.height * 0.5, tz)
+			tank.set_surface_override_material(0, tank_mat)
+			mi.add_child(tank)
+
+			# Tank legs (4 thin cylinders)
+			for lx in [-0.5, 0.5]:
+				for lz in [-0.5, 0.5]:
+					var leg := MeshInstance3D.new()
+					var leg_mesh := CylinderMesh.new()
+					leg_mesh.top_radius = 0.05
+					leg_mesh.bottom_radius = 0.05
+					leg_mesh.height = 1.2
+					leg.mesh = leg_mesh
+					leg.position = Vector3(tx + lx * tank_mesh.top_radius * 0.7, roof_y + 0.6, tz + lz * tank_mesh.top_radius * 0.7)
+					leg.set_surface_override_material(0, metal_mat)
+					mi.add_child(leg)
+
+		# Antenna with blinking red light (50% of tall buildings)
+		if rng.randf() < 0.5:
+			var antenna_height := rng.randf_range(3.0, 6.0)
+			var ax := rng.randf_range(-bsize.x * 0.3, bsize.x * 0.3)
+			var az := rng.randf_range(-bsize.z * 0.3, bsize.z * 0.3)
+
+			# Antenna pole
+			var pole := MeshInstance3D.new()
+			var pole_mesh := CylinderMesh.new()
+			pole_mesh.top_radius = 0.03
+			pole_mesh.bottom_radius = 0.05
+			pole_mesh.height = antenna_height
+			pole.mesh = pole_mesh
+			pole.position = Vector3(ax, roof_y + antenna_height * 0.5, az)
+			pole.set_surface_override_material(0, metal_mat)
+			mi.add_child(pole)
+
+			# Red blinking light at top
+			var blinker := MeshInstance3D.new()
+			var blinker_mesh := SphereMesh.new()
+			blinker_mesh.radius = 0.1
+			blinker_mesh.height = 0.2
+			blinker.mesh = blinker_mesh
+			blinker.position = Vector3(ax, roof_y + antenna_height + 0.1, az)
+			blinker.set_surface_override_material(0, red_mat)
+			mi.add_child(blinker)
+
+			# Red OmniLight
+			var red_light := OmniLight3D.new()
+			red_light.light_color = red_light_color
+			red_light.light_energy = 1.5
+			red_light.omni_range = 5.0
+			red_light.omni_attenuation = 1.5
+			red_light.shadow_enabled = false
+			red_light.position = blinker.position
+			mi.add_child(red_light)
+
+			# Register for blinking
+			flickering_lights.append({
+				"node": red_light,
+				"mesh": blinker,
+				"base_energy": 1.5,
+				"phase": rng.randf() * TAU,
+				"speed": rng.randf_range(1.5, 3.0),
+				"style": "blink",
+			})
+
+		# AC unit / vent box (35% of buildings)
+		if rng.randf() < 0.35:
+			var ac := MeshInstance3D.new()
+			var ac_mesh := BoxMesh.new()
+			ac_mesh.size = Vector3(rng.randf_range(1.0, 2.0), rng.randf_range(0.6, 1.0), rng.randf_range(0.8, 1.5))
+			ac.mesh = ac_mesh
+			var acx := rng.randf_range(-bsize.x * 0.35, bsize.x * 0.35)
+			var acz := rng.randf_range(-bsize.z * 0.35, bsize.z * 0.35)
+			ac.position = Vector3(acx, roof_y + ac_mesh.size.y * 0.5, acz)
+			ac.set_surface_override_material(0, metal_mat)
+			mi.add_child(ac)
+
+func _setup_neon_flicker() -> void:
+	# Register existing neon sign lights for flickering
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 678
+	# Walk through all children recursively looking for OmniLight3D nodes
+	# that are children of Label3D or neon sign meshes
+	_collect_neon_lights(self, rng)
+
+func _collect_neon_lights(node: Node, rng: RandomNumberGenerator) -> void:
+	for child in node.get_children():
+		if child is OmniLight3D:
+			var light := child as OmniLight3D
+			# Only flicker neon-colored lights (not street lights or interiors)
+			var is_neon := false
+			for nc in neon_colors:
+				if light.light_color.is_equal_approx(nc):
+					is_neon = true
+					break
+			if is_neon and rng.randf() < 0.15:  # 15% of neon lights flicker
+				flickering_lights.append({
+					"node": light,
+					"mesh": null,
+					"base_energy": light.light_energy,
+					"phase": rng.randf() * TAU,
+					"speed": rng.randf_range(3.0, 12.0),
+					"style": "flicker",
+				})
+		_collect_neon_lights(child, rng)
+
+func _process(_delta: float) -> void:
+	var time := Time.get_ticks_msec() / 1000.0
+	for data in flickering_lights:
+		var light: OmniLight3D = data["node"]
+		if not is_instance_valid(light):
+			continue
+		var phase: float = data["phase"]
+		var speed: float = data["speed"]
+		var base: float = data["base_energy"]
+		var style: String = data["style"]
+
+		if style == "blink":
+			# Slow blink on/off for antenna lights
+			var val := sin(time * speed + phase)
+			var on := 1.0 if val > 0.0 else 0.0
+			light.light_energy = base * on
+			var mesh_node = data["mesh"]
+			if mesh_node and is_instance_valid(mesh_node):
+				(mesh_node as MeshInstance3D).visible = val > 0.0
+		else:
+			# Neon flicker -- rapid random-ish pulsing
+			var flick := sin(time * speed + phase) * sin(time * speed * 1.7 + phase * 0.5)
+			# Occasionally go fully dark for a frame (sputtering)
+			var sputter := 1.0
+			if sin(time * speed * 3.0 + phase * 2.0) > 0.92:
+				sputter = 0.1
+			light.light_energy = base * (0.5 + 0.5 * flick) * sputter
