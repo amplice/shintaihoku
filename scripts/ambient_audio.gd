@@ -191,6 +191,16 @@ var brake_duration: float = 1.0
 var gate_timer: float = 0.0
 var gate_phase: float = 0.0
 var gate_active: bool = false
+var crash_timer: float = 0.0
+var crash_phase: float = 0.0
+var crash_active: bool = false
+var crash_duration: float = 1.5
+var rat_timer: float = 0.0
+var rat_phase: float = 0.0
+var rat_active: bool = false
+var rat_count: int = 0
+var rat_max: int = 0
+var rat_gap_timer: float = 0.0
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -851,6 +861,41 @@ func _process(delta: float) -> void:
 		if dumpster_phase > dumpster_duration:
 			dumpster_active = false
 
+	# Distant car crash (rare)
+	crash_timer -= delta
+	if crash_timer <= 0.0 and not crash_active:
+		crash_timer = rng.randf_range(200.0, 400.0)
+		crash_active = true
+		crash_phase = 0.0
+		crash_duration = rng.randf_range(1.2, 2.0)
+
+	if crash_active:
+		crash_phase += delta
+		if crash_phase > crash_duration:
+			crash_active = false
+
+	# Rat squeaking
+	rat_timer -= delta
+	if rat_timer <= 0.0 and not rat_active:
+		rat_timer = rng.randf_range(40.0, 80.0)
+		rat_active = true
+		rat_phase = 0.0
+		rat_count = 0
+		rat_max = rng.randi_range(2, 4)
+		rat_gap_timer = 0.0
+
+	if rat_active:
+		rat_gap_timer -= delta
+		if rat_gap_timer <= 0.0 and rat_count < rat_max:
+			rat_phase = 0.0
+			rat_count += 1
+			rat_gap_timer = rng.randf_range(0.08, 0.15)
+		if rat_count >= rat_max and rat_phase > 0.06:
+			rat_active = false
+
+	if rat_active:
+		rat_phase += delta
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -1421,6 +1466,56 @@ func _fill_hum_buffer() -> void:
 			bl_tone += sin(t * 220.0 * 5.4 * TAU) * 0.04   # high shimmer
 			bl_tone += sin(t * 110.0 * TAU) * 0.15          # sub-octave
 			sample += bl_tone * bl_env * 0.02
+		# Distant car crash (tire screech + metal crunch + glass)
+		if crash_active:
+			if crash_phase < 0.4:
+				# Tire screech (descending high-pitched squeal)
+				var sc_env := 1.0
+				if crash_phase < 0.03:
+					sc_env = crash_phase / 0.03
+				sc_env *= maxf(0.0, 1.0 - crash_phase / 0.4)
+				var sc_freq := 2000.0 - crash_phase * 3000.0  # rapid descent
+				var sc_tone := sin(t * sc_freq * TAU) * 0.2
+				sc_tone += sin(t * sc_freq * 1.3 * TAU) * 0.1
+				var sc_noise := rng.randf_range(-1.0, 1.0) * 0.25
+				sample += (sc_tone + sc_noise) * sc_env * 0.03
+			if crash_phase > 0.35 and crash_phase < 0.55:
+				# Metal crunch impact
+				var cr_local := crash_phase - 0.35
+				var cr_env := maxf(0.0, 1.0 - cr_local / 0.2)
+				cr_env = cr_env * cr_env * cr_env
+				var cr_tone := sin(t * 150.0 * TAU) * 0.3
+				cr_tone += sin(t * 340.0 * TAU) * 0.2
+				cr_tone += sin(t * 680.0 * TAU) * 0.1
+				var cr_noise := rng.randf_range(-1.0, 1.0) * 0.5
+				sample += (cr_tone + cr_noise) * cr_env * 0.04
+			if crash_phase > 0.5 and crash_phase < crash_duration:
+				# Glass shatter tail
+				var gl_local := crash_phase - 0.5
+				var gl_dur := crash_duration - 0.5
+				var gl_env := maxf(0.0, 1.0 - gl_local / gl_dur)
+				gl_env = gl_env * gl_env
+				# High tinkling noise
+				var gl_noise := rng.randf_range(-1.0, 1.0)
+				var gl_tone := sin(t * 4500.0 * TAU) * 0.08
+				gl_tone += sin(t * 6200.0 * TAU) * 0.04
+				# Gated sparkle effect
+				var gl_gate := 1.0 if absf(gl_noise) > 0.5 else 0.0
+				sample += (gl_tone + gl_noise * 0.15) * gl_env * gl_gate * 0.02
+		# Rat squeaking (rapid high-pitched chirps)
+		if rat_active and rat_phase < 0.06:
+			var rt_env := 1.0
+			if rat_phase < 0.005:
+				rt_env = rat_phase / 0.005
+			else:
+				rt_env = maxf(0.0, 1.0 - (rat_phase - 0.005) / 0.055)
+			rt_env = rt_env * rt_env
+			# Very high squeaky tones with fast vibrato
+			var rt_vib := sin(rat_phase * 45.0 * TAU) * 200.0
+			var rt_freq := rng.randf_range(3000.0, 4000.0) + rt_vib
+			var rt_tone := sin(t * rt_freq * TAU) * 0.15
+			rt_tone += sin(t * rt_freq * 1.6 * TAU) * 0.06
+			sample += rt_tone * rt_env * 0.015
 		# Distant crowd murmur (band-limited noise, 200-800Hz band)
 		var murmur_noise := rng.randf_range(-1.0, 1.0)
 		murmur_filter1 = murmur_filter1 * 0.85 + murmur_noise * 0.15

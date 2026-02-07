@@ -149,6 +149,20 @@ func _process(delta: float) -> void:
 			if le:
 				le.rotation.x = lerpf(le.rotation.x, -0.3, 8.0 * delta)
 
+		# Limp override (right leg shorter stride, slight body bob)
+		if npc_data.get("has_limp", false) and not is_stopped:
+			var rh := node.get_node_or_null("Model/RightHip")
+			if rh:
+				rh.rotation.x *= 0.4  # reduced right leg swing
+			var rk := node.get_node_or_null("Model/RightHip/RightKnee")
+			if rk:
+				rk.rotation.x *= 0.5
+			# Bob up/down on the bad leg
+			var mdl := node.get_node_or_null("Model")
+			if mdl:
+				var limp_bob := sin(anim.walk_cycle) * 0.04
+				mdl.position.y = lerpf(mdl.position.y, limp_bob, 10.0 * delta)
+
 		# Track footstep triggers via walk cycle zero-crossing
 		if current_speed > 0.5:
 			var cur_sign := signf(sin(anim.walk_cycle))
@@ -633,9 +647,17 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 	# Hoodie (8% of NPCs without hats)
 	var has_hat := model.get_node_or_null("Hat") != null
 	if not has_hat and rng.randf() < 0.08:
-		# Hood draped behind/over head
-		_add_body_part(model, "Hood", BoxMesh.new(), Vector3(0, 1.6, -0.12),
-			jacket_color * 1.1, Vector3(0.4, 0.25, 0.22))
+		if rng.randf() < 0.5:
+			# Hood UP - pulled over head, shadowing face
+			_add_body_part(model, "Hood", BoxMesh.new(), Vector3(0, 1.68, 0.0),
+				jacket_color * 0.9, Vector3(0.42, 0.2, 0.35))
+			# Front brim overhang
+			_add_body_part(model, "HoodBrim", BoxMesh.new(), Vector3(0, 1.62, 0.14),
+				jacket_color * 0.85, Vector3(0.36, 0.06, 0.1))
+		else:
+			# Hood draped behind/over head (down)
+			_add_body_part(model, "Hood", BoxMesh.new(), Vector3(0, 1.6, -0.12),
+				jacket_color * 1.1, Vector3(0.4, 0.25, 0.22))
 
 	# Cybernetic glowing eyes (3% of NPCs)
 	if rng.randf() < 0.03:
@@ -710,6 +732,7 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		"phone_light": phone_light,
 		"splash": npc_splash,
 		"pocket_hand": not has_umbrella and rng.randf() < 0.30,
+		"has_limp": rng.randf() < 0.05,
 	})
 
 func _add_pivot(parent: Node3D, pivot_name: String, pos: Vector3) -> Node3D:
