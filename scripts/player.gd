@@ -192,6 +192,11 @@ func _physics_process(delta: float) -> void:
 
 	var is_sprinting := Input.is_key_pressed(KEY_SHIFT) and horiz_speed > 1.0
 
+	# Sprint model lean (body leans forward when running)
+	if model_node:
+		var model_lean_target := 0.1 if is_sprinting else 0.0
+		model_node.rotation.x = lerpf(model_node.rotation.x, model_lean_target, 6.0 * delta)
+
 	# Sprint + jump FOV effect
 	var target_fov := SPRINT_FOV if is_sprinting else BASE_FOV
 	if not is_on_floor():
@@ -327,6 +332,12 @@ func _physics_process(delta: float) -> void:
 		var cur_vig = crt_material.get_shader_parameter("vignette_intensity")
 		var cur_vig_f: float = cur_vig if cur_vig != null else 0.3
 		crt_material.set_shader_parameter("vignette_intensity", lerpf(cur_vig_f, target_vignette, 2.0 * delta))
+
+	# Wet lens effect: more noise grain when looking down at puddle level
+	if crt_material:
+		var down_factor := clampf(-camera_rotation_x - 0.3, 0.0, 0.5) * 2.0  # 0-1 based on how much we look down
+		var wet_noise := lerpf(0.02, 0.05, down_factor)
+		crt_material.set_shader_parameter("noise_intensity", lerpf(0.02, wet_noise, 3.0 * delta))
 
 	# Interaction prompt (proximity + look direction NPC detection)
 	if interact_label:

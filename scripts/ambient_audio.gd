@@ -244,6 +244,10 @@ var gust_phase: float = 0.0
 var gust_active: bool = false
 var gust_duration: float = 3.0
 var gust_filter: float = 0.0
+var car_alarm_timer: float = 0.0
+var car_alarm_phase: float = 0.0
+var car_alarm_active: bool = false
+var car_alarm_duration: float = 4.0
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -1077,6 +1081,19 @@ func _process(delta: float) -> void:
 		if gust_phase > gust_duration:
 			gust_active = false
 
+	# Distant car alarm (alternating two-tone)
+	car_alarm_timer -= delta
+	if car_alarm_timer <= 0.0 and not car_alarm_active:
+		car_alarm_timer = rng.randf_range(90.0, 180.0)
+		car_alarm_active = true
+		car_alarm_phase = 0.0
+		car_alarm_duration = rng.randf_range(3.0, 5.0)
+
+	if car_alarm_active:
+		car_alarm_phase += delta
+		if car_alarm_phase > car_alarm_duration:
+			car_alarm_active = false
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -1844,6 +1861,22 @@ func _fill_hum_buffer() -> void:
 			var whoosh := gust_filter * 0.6
 			whoosh += sin(t * 80.0 * TAU) * gust_filter * 0.2  # resonant hum
 			sample += whoosh * gust_env * gust_env * 0.02
+
+		# Distant car alarm (alternating 800Hz/600Hz two-tone at 2Hz switch)
+		if car_alarm_active:
+			var ca_env := 0.0
+			if car_alarm_phase < 0.3:
+				ca_env = car_alarm_phase / 0.3
+			elif car_alarm_phase < car_alarm_duration - 0.5:
+				ca_env = 1.0
+			else:
+				ca_env = (car_alarm_duration - car_alarm_phase) / 0.5
+			ca_env = maxf(0.0, ca_env)
+			var tone_switch := fmod(car_alarm_phase * 2.0, 1.0)
+			var freq := 800.0 if tone_switch < 0.5 else 600.0
+			var alarm_tone := sin(t * freq * TAU) * 0.6
+			alarm_tone += sin(t * freq * 2.0 * TAU) * 0.2  # harmonic
+			sample += alarm_tone * ca_env * 0.006
 
 		# Distant crowd murmur (band-limited noise, 200-800Hz band)
 		var murmur_noise := rng.randf_range(-1.0, 1.0)

@@ -646,6 +646,43 @@ func _process(delta: float) -> void:
 					frs.rotation.x = lerpf(frs.rotation.x, reach, 6.0 * delta)
 					fre.rotation.x = lerpf(fre.rotation.x, bend, 6.0 * delta)
 
+		# Head tilt idle (10% of stopped NPCs, periodic sideways tilt)
+		if npc_data.get("does_head_tilt", false) and is_stopped:
+			if head_node and is_instance_valid(head_node) and head_node.is_inside_tree():
+				npc_data["tilt_clock"] = npc_data.get("tilt_clock", 0.0) + delta
+				var tilt_cycle := fmod(npc_data["tilt_clock"], 10.0)
+				var tilt_target := 0.0
+				if tilt_cycle < 0.5:
+					tilt_target = (tilt_cycle / 0.5) * 0.15
+				elif tilt_cycle < 2.5:
+					tilt_target = 0.15
+				elif tilt_cycle < 3.0:
+					tilt_target = 0.15 * ((3.0 - tilt_cycle) / 0.5)
+				head_node.rotation.z = lerpf(head_node.rotation.z, tilt_target, 4.0 * delta)
+
+		# Shoulder roll gesture (6% of stopped NPCs, periodic roll)
+		if npc_data.get("does_shoulder_roll", false) and is_stopped:
+			npc_data["roll_clock"] = npc_data.get("roll_clock", 0.0) + delta
+			var roll_cycle := fmod(npc_data["roll_clock"], 15.0)
+			if roll_cycle < 1.0:
+				var ls_roll := node.get_node_or_null("Model/LeftShoulder")
+				var rs_roll := node.get_node_or_null("Model/RightShoulder")
+				if ls_roll and rs_roll:
+					var rise := 0.0
+					var back := 0.0
+					if roll_cycle < 0.3:
+						rise = (roll_cycle / 0.3) * -0.15
+					elif roll_cycle < 0.6:
+						rise = -0.15
+						back = ((roll_cycle - 0.3) / 0.3) * 0.1
+					else:
+						rise = -0.15 * ((1.0 - roll_cycle) / 0.4)
+						back = 0.1 * ((1.0 - roll_cycle) / 0.4)
+					ls_roll.rotation.x = lerpf(ls_roll.rotation.x, rise, 8.0 * delta)
+					ls_roll.rotation.z = lerpf(ls_roll.rotation.z, back, 6.0 * delta)
+					rs_roll.rotation.x = lerpf(rs_roll.rotation.x, rise, 8.0 * delta)
+					rs_roll.rotation.z = lerpf(rs_roll.rotation.z, -back, 6.0 * delta)
+
 		# Sigh trigger (10% of idle NPCs, sets flag for audio pool to pick up)
 		if npc_data.get("does_sigh", false) and is_stopped:
 			npc_data["sigh_cd"] = npc_data.get("sigh_cd", 0.0) - delta
@@ -1327,6 +1364,8 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		"swing_mult": rng.randf_range(0.7, 1.3),
 		"does_sigh": rng.randf() < 0.10,
 		"does_sleeve_fidget": not has_umbrella and not has_phone and not has_newspaper and rng.randf() < 0.08,
+		"does_head_tilt": not has_phone and not has_newspaper and rng.randf() < 0.10,
+		"does_shoulder_roll": rng.randf() < 0.06,
 		"last_cell_x": -999,
 		"last_cell_z": -999,
 	})
