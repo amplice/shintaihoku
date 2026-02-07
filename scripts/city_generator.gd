@@ -74,6 +74,10 @@ func _ready() -> void:
 	_generate_street_furniture()
 	_generate_construction_zones()
 	_generate_drain_grates()
+	_generate_building_setbacks()
+	_generate_exposed_pipes()
+	_generate_security_cameras()
+	_generate_awning_lights()
 	_setup_neon_flicker()
 	print("CityGenerator: generation complete, total children=", get_child_count())
 
@@ -2315,6 +2319,262 @@ func _generate_drain_grates() -> void:
 						cell_z + block_size * 0.5 + 2.1
 					)
 				add_child(grate)
+
+func _generate_building_setbacks() -> void:
+	# Add tiered upper sections to tall buildings (setback architecture)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 2700
+
+	for child in get_children():
+		if not child is MeshInstance3D:
+			continue
+		var mi := child as MeshInstance3D
+		if not mi.mesh is BoxMesh:
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		if bsize.y < 22.0 or rng.randf() > 0.25:  # 25% of tall buildings
+			continue
+
+		# Add a narrower upper tier
+		var tier_w := bsize.x * rng.randf_range(0.5, 0.75)
+		var tier_d := bsize.z * rng.randf_range(0.5, 0.75)
+		var tier_h := rng.randf_range(5.0, 12.0)
+		var roof_y := bsize.y * 0.5
+
+		var tier := MeshInstance3D.new()
+		var tier_mesh := BoxMesh.new()
+		tier_mesh.size = Vector3(tier_w, tier_h, tier_d)
+		tier.mesh = tier_mesh
+		tier.position = Vector3(0, roof_y + tier_h * 0.5, 0)
+		var darkness := rng.randf_range(0.25, 0.45)
+		tier.set_surface_override_material(0,
+			_make_ps1_material(Color(darkness, darkness, darkness + 0.05)))
+		mi.add_child(tier)
+
+		# A few windows on the upper tier
+		var num_wins := rng.randi_range(2, 6)
+		for _w in range(num_wins):
+			var win := MeshInstance3D.new()
+			var quad := QuadMesh.new()
+			quad.size = Vector2(1.0, 1.2)
+			win.mesh = quad
+			var wy := rng.randf_range(-tier_h * 0.3, tier_h * 0.3)
+			var face := rng.randi_range(0, 3)
+			match face:
+				0:
+					win.position = Vector3(rng.randf_range(-tier_w * 0.3, tier_w * 0.3), wy, tier_d * 0.51)
+				1:
+					win.position = Vector3(rng.randf_range(-tier_w * 0.3, tier_w * 0.3), wy, -tier_d * 0.51)
+					win.rotation.y = PI
+				2:
+					win.position = Vector3(tier_w * 0.51, wy, rng.randf_range(-tier_d * 0.3, tier_d * 0.3))
+					win.rotation.y = PI * 0.5
+				3:
+					win.position = Vector3(-tier_w * 0.51, wy, rng.randf_range(-tier_d * 0.3, tier_d * 0.3))
+					win.rotation.y = -PI * 0.5
+			var wc := neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
+			win.set_surface_override_material(0,
+				_make_ps1_material(wc * 0.2, true, wc, rng.randf_range(2.0, 4.0)))
+			tier.add_child(win)
+
+		# Ledge at the setback (horizontal strip)
+		var ledge := MeshInstance3D.new()
+		var ledge_mesh := BoxMesh.new()
+		ledge_mesh.size = Vector3(bsize.x + 0.3, 0.15, bsize.z + 0.3)
+		ledge.mesh = ledge_mesh
+		ledge.position = Vector3(0, roof_y + 0.075, 0)
+		ledge.set_surface_override_material(0,
+			_make_ps1_material(Color(darkness * 0.8, darkness * 0.8, darkness * 0.8 + 0.03)))
+		mi.add_child(ledge)
+
+func _generate_exposed_pipes() -> void:
+	# Vertical and horizontal pipes on building walls
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 2800
+	var pipe_mat := _make_ps1_material(Color(0.22, 0.22, 0.2))
+
+	for child in get_children():
+		if not child is MeshInstance3D:
+			continue
+		var mi := child as MeshInstance3D
+		if not mi.mesh is BoxMesh:
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		if bsize.y < 12.0 or rng.randf() > 0.2:  # 20% of buildings
+			continue
+
+		var num_pipes := rng.randi_range(1, 3)
+		for _p in range(num_pipes):
+			var face := rng.randi_range(0, 3)
+			var pipe_height := bsize.y * rng.randf_range(0.5, 0.9)
+
+			# Vertical pipe
+			var pipe := MeshInstance3D.new()
+			var pipe_mesh := CylinderMesh.new()
+			pipe_mesh.top_radius = 0.04
+			pipe_mesh.bottom_radius = 0.04
+			pipe_mesh.height = pipe_height
+			pipe.mesh = pipe_mesh
+			pipe.set_surface_override_material(0, pipe_mat)
+
+			var pipe_y := -bsize.y * 0.5 + pipe_height * 0.5
+			match face:
+				0:
+					pipe.position = Vector3(rng.randf_range(-bsize.x * 0.3, bsize.x * 0.3),
+						pipe_y, bsize.z * 0.51)
+				1:
+					pipe.position = Vector3(rng.randf_range(-bsize.x * 0.3, bsize.x * 0.3),
+						pipe_y, -bsize.z * 0.51)
+				2:
+					pipe.position = Vector3(bsize.x * 0.51, pipe_y,
+						rng.randf_range(-bsize.z * 0.3, bsize.z * 0.3))
+				3:
+					pipe.position = Vector3(-bsize.x * 0.51, pipe_y,
+						rng.randf_range(-bsize.z * 0.3, bsize.z * 0.3))
+			mi.add_child(pipe)
+
+			# Horizontal elbow at top (short horizontal segment)
+			var elbow := MeshInstance3D.new()
+			var elbow_mesh := CylinderMesh.new()
+			elbow_mesh.top_radius = 0.04
+			elbow_mesh.bottom_radius = 0.04
+			elbow_mesh.height = 0.4
+			elbow.mesh = elbow_mesh
+			elbow.rotation.z = PI * 0.5
+			elbow.position = pipe.position + Vector3(0, pipe_height * 0.5 - 0.1, 0)
+			elbow.set_surface_override_material(0, pipe_mat)
+			mi.add_child(elbow)
+
+func _generate_security_cameras() -> void:
+	# Small camera boxes on building corners
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 2900
+	var cam_mat := _make_ps1_material(Color(0.15, 0.15, 0.18))
+	var red_col := Color(1.0, 0.0, 0.0)
+	var led_mat := _make_ps1_material(red_col * 0.3, true, red_col, 2.0)
+
+	for child in get_children():
+		if not child is MeshInstance3D:
+			continue
+		var mi := child as MeshInstance3D
+		if not mi.mesh is BoxMesh:
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		if bsize.y < 10.0 or rng.randf() > 0.2:  # 20% of buildings
+			continue
+
+		var cam_y := rng.randf_range(bsize.y * 0.1, bsize.y * 0.35)
+		var corner := rng.randi_range(0, 3)
+
+		var camera_node := Node3D.new()
+		match corner:
+			0: camera_node.position = Vector3(bsize.x * 0.5, cam_y, bsize.z * 0.5)
+			1: camera_node.position = Vector3(-bsize.x * 0.5, cam_y, bsize.z * 0.5)
+			2: camera_node.position = Vector3(bsize.x * 0.5, cam_y, -bsize.z * 0.5)
+			3: camera_node.position = Vector3(-bsize.x * 0.5, cam_y, -bsize.z * 0.5)
+
+		# Mount bracket
+		var bracket := MeshInstance3D.new()
+		var bracket_mesh := BoxMesh.new()
+		bracket_mesh.size = Vector3(0.15, 0.08, 0.4)
+		bracket.mesh = bracket_mesh
+		bracket.position = Vector3(0, 0, 0.15)
+		bracket.set_surface_override_material(0, cam_mat)
+		camera_node.add_child(bracket)
+
+		# Camera body
+		var body := MeshInstance3D.new()
+		var body_mesh := BoxMesh.new()
+		body_mesh.size = Vector3(0.12, 0.1, 0.2)
+		body.mesh = body_mesh
+		body.position = Vector3(0, -0.05, 0.35)
+		body.set_surface_override_material(0, cam_mat)
+		camera_node.add_child(body)
+
+		# Red LED
+		var led := MeshInstance3D.new()
+		var led_mesh := SphereMesh.new()
+		led_mesh.radius = 0.025
+		led_mesh.height = 0.05
+		led.mesh = led_mesh
+		led.position = Vector3(0, -0.02, 0.46)
+		led.set_surface_override_material(0, led_mat)
+		camera_node.add_child(led)
+
+		mi.add_child(camera_node)
+
+		# Register LED for blinking
+		var led_light := OmniLight3D.new()
+		led_light.light_color = red_col
+		led_light.light_energy = 0.5
+		led_light.omni_range = 2.0
+		led_light.omni_attenuation = 1.5
+		led_light.shadow_enabled = false
+		led_light.position = led.position
+		camera_node.add_child(led_light)
+
+		flickering_lights.append({
+			"node": led_light,
+			"mesh": led,
+			"base_energy": 0.5,
+			"phase": rng.randf() * TAU,
+			"speed": rng.randf_range(2.0, 4.0),
+			"style": "blink",
+		})
+
+func _generate_awning_lights() -> void:
+	# Add flickering fluorescent tubes under storefront awnings
+	# We iterate through the Node3D storefront buildings looking for awning meshes
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 3000
+	var tube_color := Color(1.0, 0.95, 0.85)
+
+	for child in get_children():
+		if not child is Node3D:
+			continue
+		# Storefronts are Node3D (not MeshInstance3D)
+		if child is MeshInstance3D:
+			continue
+		# Check if this has an OmniLight3D child (storefronts have interior lights)
+		var has_interior_light := false
+		for sub in child.get_children():
+			if sub is OmniLight3D:
+				has_interior_light = true
+				break
+		if not has_interior_light or rng.randf() > 0.5:
+			continue
+
+		# Add a fluorescent tube under the awning area
+		var tube := MeshInstance3D.new()
+		var tube_mesh := BoxMesh.new()
+		tube_mesh.size = Vector3(1.5, 0.04, 0.04)
+		tube.mesh = tube_mesh
+		# Position: try to find the awning position, or use a reasonable default
+		tube.position = Vector3(0, 3.2, child.position.z + 0.5) if child.position.z > 0 else Vector3(0, 3.2, 0.5)
+		# Use local coordinates relative to the storefront
+		tube.position = Vector3(0, 2.8, 0)
+		tube.set_surface_override_material(0,
+			_make_ps1_material(tube_color * 0.3, true, tube_color, 3.0))
+		child.add_child(tube)
+
+		var tube_light := OmniLight3D.new()
+		tube_light.light_color = tube_color
+		tube_light.light_energy = 2.0
+		tube_light.omni_range = 5.0
+		tube_light.omni_attenuation = 1.5
+		tube_light.shadow_enabled = false
+		tube_light.position = tube.position
+		child.add_child(tube_light)
+
+		# Register for buzzing flicker
+		flickering_lights.append({
+			"node": tube_light,
+			"mesh": tube,
+			"base_energy": 2.0,
+			"phase": rng.randf() * TAU,
+			"speed": rng.randf_range(10.0, 18.0),
+			"style": "buzz",
+		})
 
 func _setup_neon_flicker() -> void:
 	# Register existing neon sign lights for flickering
