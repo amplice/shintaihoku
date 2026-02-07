@@ -88,9 +88,17 @@ func _ready() -> void:
 	lightning_light.shadow_enabled = false
 	add_child(lightning_light)
 
+var rain_intensity_time: float = 0.0
+
 func _process(delta: float) -> void:
 	_fill_rain_buffer()
 	_fill_hum_buffer()
+
+	# Sync rain audio volume with intensity cycle (~60s period, matching rain.gd)
+	rain_intensity_time += delta
+	var rain_intensity := 0.5 + 0.5 * sin(rain_intensity_time * 0.1)
+	if rain_player:
+		rain_player.volume_db = -18.0 + rain_intensity * 8.0  # -18dB to -10dB
 
 	# Occasional siren
 	siren_timer -= delta

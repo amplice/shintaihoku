@@ -41,6 +41,7 @@ var breath_fog: GPUParticles3D
 var breath_timer: float = 0.0
 var compass_label: Label
 var crt_material: ShaderMaterial
+var interact_label: Label
 var is_crouching: bool = false
 var crouch_lerp: float = 1.0  # 1.0 = standing, CROUCH_HEIGHT = crouched
 var model_node: Node3D = null
@@ -58,6 +59,7 @@ func _ready() -> void:
 	_setup_sprint_streaks()
 	_setup_breath_fog()
 	_setup_compass_hud()
+	_setup_interaction_prompt()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
@@ -176,6 +178,27 @@ func _physics_process(delta: float) -> void:
 			var minutes := int((tod - float(hours)) * 60.0)
 			time_str = "  %02d:%02d" % [hours, minutes]
 		compass_label.text = "SHINTAIHOKU  [ %s %d° ]%s" % [directions[idx], int(heading), time_str]
+
+	# Interaction prompt (proximity + look direction NPC detection)
+	if interact_label:
+		var npc_mgr := get_node_or_null("../NpcManager")
+		var show_prompt := false
+		if npc_mgr:
+			var cam_forward := -camera.global_transform.basis.z
+			var cam_pos := camera.global_position
+			for npc_child in npc_mgr.get_children():
+				if not npc_child is Node3D:
+					continue
+				var npc_pos := (npc_child as Node3D).global_position + Vector3(0, 1.0, 0)
+				var to_npc := npc_pos - cam_pos
+				var dist_to := to_npc.length()
+				if dist_to > 5.0 or dist_to < 0.5:
+					continue
+				var dot := cam_forward.dot(to_npc.normalized())
+				if dot > 0.85:  # within ~30 degree cone
+					show_prompt = true
+					break
+		interact_label.visible = show_prompt
 
 	# Head bob (smooth amplitude transition)
 	var target_bob_amp := 0.0
@@ -458,6 +481,21 @@ func _setup_breath_fog() -> void:
 	breath_fog.draw_pass_1 = fog_mesh
 	breath_fog.position = Vector3(0, -0.2, -0.5)
 	camera.add_child(breath_fog)
+
+func _setup_interaction_prompt() -> void:
+	# HUD label for NPC interaction
+	var hud := CanvasLayer.new()
+	hud.layer = 5
+	add_child(hud)
+	interact_label = Label.new()
+	interact_label.text = "[ E ] TALK"
+	interact_label.add_theme_font_size_override("font_size", 16)
+	interact_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.4, 0.8))
+	interact_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	interact_label.set_anchors_preset(Control.PRESET_CENTER)
+	interact_label.position.y = 30
+	interact_label.visible = false
+	hud.add_child(interact_label)
 
 func _setup_crt_overlay() -> void:
 	var crt_shader_path := "res://shaders/crt.gdshader"

@@ -49,6 +49,8 @@ var radio_positions: Array[Vector3] = []
 var radio_rng := RandomNumberGenerator.new()
 var stray_cats: Array[Dictionary] = []  # [{node, home_pos, fleeing, flee_dir}]
 var steam_bursts: Array[Dictionary] = []  # [{particles, timer, interval}]
+var boot_time: float = 0.0
+var boot_complete: bool = false
 
 var neon_colors: Array[Color] = [
 	Color(1.0, 0.05, 0.4),   # hot magenta
@@ -4820,6 +4822,12 @@ func _collect_neon_lights(node: Node, rng: RandomNumberGenerator) -> void:
 func _process(_delta: float) -> void:
 	var time := Time.get_ticks_msec() / 1000.0
 
+	# Neon boot-up sequence (first 5 seconds)
+	if not boot_complete:
+		boot_time += _delta
+		if boot_time > 5.0:
+			boot_complete = true
+
 	# Neon flickering and antenna blinking
 	for data in flickering_lights:
 		var light: OmniLight3D = data["node"]
@@ -4829,6 +4837,20 @@ func _process(_delta: float) -> void:
 		var speed: float = data["speed"]
 		var base: float = data["base_energy"]
 		var style: String = data["style"]
+
+		# Boot-up: lights stay off until their distance-based delay passes
+		if not boot_complete:
+			var light_dist := light.global_position.length()
+			var delay := clampf(light_dist * 0.03, 0.0, 4.5)
+			if boot_time < delay:
+				light.light_energy = 0.0
+				var boot_mesh = data.get("mesh")
+				if boot_mesh and is_instance_valid(boot_mesh):
+					(boot_mesh as MeshInstance3D).visible = false
+				var boot_label = data.get("label")
+				if boot_label and is_instance_valid(boot_label):
+					(boot_label as Label3D).modulate.a = 0.0
+				continue
 
 		if style == "blink":
 			var val := sin(time * speed + phase)
@@ -5578,6 +5600,16 @@ func _generate_building_entrances() -> void:
 		door_light.shadow_enabled = false
 		door_light.position = door_pos + Vector3(0, 1.8, 0)
 		child.add_child(door_light)
+		# 30% of entrance lights flicker
+		if rng.randf() < 0.3:
+			var flick_style := "buzz" if not light_warm else "flicker"
+			flickering_lights.append({
+				"node": door_light, "mesh": null,
+				"base_energy": door_light.light_energy,
+				"phase": rng.randf() * TAU,
+				"speed": rng.randf_range(8.0, 15.0),
+				"style": flick_style,
+			})
 		# Small emissive light fixture above door
 		var fixture := MeshInstance3D.new()
 		var fix_mesh := BoxMesh.new()
