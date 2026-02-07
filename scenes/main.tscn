@@ -2,14 +2,16 @@
 
 [ext_resource type="PackedScene" path="res://scenes/player.tscn" id="1_player"]
 [ext_resource type="Script" uid="uid://dfdwmc4wyrnb2" path="res://scripts/city_generator.gd" id="2_city"]
+[ext_resource type="Script" uid="uid://b2jb01f0e028f" path="res://scripts/traffic_manager.gd" id="4_jyhfs"]
 [ext_resource type="Script" uid="uid://di30rr43ftdre" path="res://scripts/rain.gd" id="4_rain"]
+[ext_resource type="Script" uid="uid://bvb3k74h4djre" path="res://scripts/day_night_cycle.gd" id="5_tbgi4"]
 
 [sub_resource type="Environment" id="Environment_1"]
 background_mode = 1
 background_color = Color(0.01, 0.01, 0.03, 1)
 ambient_light_source = 1
 ambient_light_color = Color(0.15, 0.1, 0.22, 1)
-ambient_light_energy = 4.0
+ambient_light_energy = 5.0
 tonemap_mode = 2
 tonemap_white = 6.0
 glow_enabled = true
@@ -24,7 +26,7 @@ fog_density = 0.02
 fog_height = 30.0
 fog_height_density = 0.05
 volumetric_fog_enabled = true
-volumetric_fog_density = 0.03
+volumetric_fog_density = 0.015
 volumetric_fog_albedo = Color(0.06, 0.03, 0.1, 1)
 volumetric_fog_emission = Color(0.02, 0.01, 0.04, 1)
 volumetric_fog_length = 100.0
@@ -79,3 +81,9 @@ visibility_aabb = AABB(-35, -20, -35, 70, 40, 70)
 process_material = SubResource("ParticleProcessMaterial_rain")
 draw_pass_1 = SubResource("BoxMesh_raindrop")
 script = ExtResource("4_rain")
+
+[node name="TrafficManager" type="Node3D" parent="." unique_id=804635043]
+script = ExtResource("4_jyhfs")
+
+[node name="DayNightCycle" type="Node3D" parent="." unique_id=1427776041]
+script = ExtResource("5_tbgi4")

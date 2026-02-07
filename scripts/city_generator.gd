@@ -11,6 +11,7 @@ extends Node3D
 @export var max_width: float = 14.0
 
 var ps1_shader: Shader
+var neon_font: Font
 var neon_colors: Array[Color] = [
 	Color(1.0, 0.05, 0.4),   # hot magenta
 	Color(0.0, 0.9, 1.0),    # cyan
@@ -20,8 +21,25 @@ var neon_colors: Array[Color] = [
 	Color(1.0, 0.0, 0.1),    # red
 ]
 
+# Kanji/compound words for neon signs
+const NEON_TEXTS: Array[String] = [
+	"龍", "夜", "雨", "影", "薬局", "酒場", "警察",
+	"刀", "鬼", "闇", "霧", "星", "風", "火",
+	"電脳", "未来", "危険", "禁止", "出口", "入口",
+	"歌舞伎", "新宿", "渋谷", "秋葉原", "新体北",
+	"ラーメン", "カラオケ", "ホテル", "バー", "クラブ",
+	"サイバー", "ネオン", "パチンコ",
+]
+
 func _ready() -> void:
 	ps1_shader = load("res://shaders/ps1.gdshader")
+	# Load CJK font for kanji neon signs
+	var font_path := "res://fonts/NotoSansJP-Bold.ttf"
+	if ResourceLoader.exists(font_path):
+		neon_font = load(font_path)
+	else:
+		neon_font = null
+		print("CityGenerator: CJK font not found, using quad-only neon signs")
 	print("CityGenerator: starting generation with grid_size=", grid_size)
 	_generate_city()
 	_generate_cars()
@@ -36,7 +54,7 @@ func _make_ps1_material(color: Color, is_emissive: bool = false,
 	mat.set_shader_parameter("color_depth", 12.0)
 	mat.set_shader_parameter("fog_color", Color(0.05, 0.03, 0.1, 1.0))
 	mat.set_shader_parameter("fog_distance", 100.0)
-	mat.set_shader_parameter("fog_density", 0.8)
+	mat.set_shader_parameter("fog_density", 0.3)
 	if is_emissive:
 		mat.set_shader_parameter("emissive", true)
 		mat.set_shader_parameter("emission_color", emit_color)
@@ -169,6 +187,27 @@ func _create_storefront(pos: Vector3, size: Vector3, rng: RandomNumberGenerator)
 	interior_light.position = Vector3(0, half_h - 1.0, 0)
 	building.add_child(interior_light)
 
+	# Door spill light -- warm light that spills out onto the street
+	var spill_light := OmniLight3D.new()
+	spill_light.light_color = Color(1.0, 0.85, 0.6)
+	spill_light.light_energy = 3.0
+	spill_light.omni_range = 8.0
+	spill_light.omni_attenuation = 1.5
+	spill_light.shadow_enabled = false
+	spill_light.position = Vector3(0, -half_h + door_height * 0.5, half_d + 1.0)
+	building.add_child(spill_light)
+
+	# Emissive awning above door -- thin neon-colored box as visual beacon
+	var awning_col := neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
+	var awning := MeshInstance3D.new()
+	var awning_mesh := BoxMesh.new()
+	awning_mesh.size = Vector3(door_width + 1.0, 0.12, 0.8)
+	awning.mesh = awning_mesh
+	awning.position = Vector3(0, -half_h + door_height + 0.15, half_d + 0.3)
+	awning.set_surface_override_material(0,
+		_make_ps1_material(awning_col * 0.5, true, awning_col, 4.0))
+	building.add_child(awning)
+
 	# Counter along back wall (70% chance)
 	if rng.randf() < 0.7:
 		var counter_w := w * 0.6
@@ -189,34 +228,55 @@ func _create_storefront(pos: Vector3, size: Vector3, rng: RandomNumberGenerator)
 				_add_wall(building, Vector3(table_x + lx, -half_h + 0.2, table_z + lz),
 					Vector3(0.08, 0.4, 0.08), table_mat)
 
-	# Collision for the whole structure (walls act as collision)
-	# We already have collision on each wall piece from _add_wall
-
 	add_child(building)
 
 	# Windows on exterior side faces
 	_add_storefront_windows(building, size, rng)
 
-	# Neon sign above door
+	# Neon sign above door -- storefronts always use text if font available
 	if rng.randf() < 0.8:
 		var neon_col := neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
-		var sign_mesh := MeshInstance3D.new()
-		var quad := QuadMesh.new()
-		quad.size = Vector2(rng.randf_range(1.5, 3.0), rng.randf_range(0.5, 1.0))
-		sign_mesh.mesh = quad
-		sign_mesh.position = Vector3(0, -half_h + door_height + 0.8, half_d + 0.05)
-		sign_mesh.set_surface_override_material(0,
-			_make_ps1_material(neon_col * 0.5, true, neon_col, rng.randf_range(3.0, 5.0)))
-		building.add_child(sign_mesh)
+		if neon_font:
+			# Text sign for storefront (shop name)
+			var label := Label3D.new()
+			label.text = NEON_TEXTS[rng.randi_range(0, NEON_TEXTS.size() - 1)]
+			label.font = neon_font
+			label.font_size = rng.randi_range(48, 72)
+			label.pixel_size = 0.01
+			label.modulate = neon_col
+			label.outline_modulate = neon_col * 0.6
+			label.outline_size = 8
+			label.position = Vector3(0, -half_h + door_height + 0.8, half_d + 0.08)
+			label.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+			building.add_child(label)
 
-		var sign_light := OmniLight3D.new()
-		sign_light.light_color = neon_col
-		sign_light.light_energy = 2.0
-		sign_light.omni_range = 6.0
-		sign_light.omni_attenuation = 1.5
-		sign_light.shadow_enabled = false
-		sign_light.position = Vector3(0, 0, 0.5)
-		sign_mesh.add_child(sign_light)
+			var sign_light := OmniLight3D.new()
+			sign_light.light_color = neon_col
+			sign_light.light_energy = 2.5
+			sign_light.omni_range = 6.0
+			sign_light.omni_attenuation = 1.5
+			sign_light.shadow_enabled = false
+			sign_light.position = Vector3(0, 0, 0.5)
+			label.add_child(sign_light)
+		else:
+			# Fallback quad sign
+			var sign_mesh := MeshInstance3D.new()
+			var quad := QuadMesh.new()
+			quad.size = Vector2(rng.randf_range(1.5, 3.0), rng.randf_range(0.5, 1.0))
+			sign_mesh.mesh = quad
+			sign_mesh.position = Vector3(0, -half_h + door_height + 0.8, half_d + 0.05)
+			sign_mesh.set_surface_override_material(0,
+				_make_ps1_material(neon_col * 0.5, true, neon_col, rng.randf_range(3.0, 5.0)))
+			building.add_child(sign_mesh)
+
+			var sign_light := OmniLight3D.new()
+			sign_light.light_color = neon_col
+			sign_light.light_energy = 2.0
+			sign_light.omni_range = 6.0
+			sign_light.omni_attenuation = 1.5
+			sign_light.shadow_enabled = false
+			sign_light.position = Vector3(0, 0, 0.5)
+			sign_mesh.add_child(sign_light)
 
 func _add_wall(parent: Node3D, pos: Vector3, wall_size: Vector3, mat: ShaderMaterial) -> void:
 	var mi := MeshInstance3D.new()
@@ -260,7 +320,7 @@ func _add_storefront_windows(building: Node3D, size: Vector3, rng: RandomNumberG
 				win.rotation.y = PI * 0.5 if face > 0 else -PI * 0.5
 				var wc := cold_color if rng.randf() > 0.5 else window_color
 				win.set_surface_override_material(0,
-					_make_ps1_material(wc * 0.3, true, wc, rng.randf_range(1.5, 3.5)))
+					_make_ps1_material(wc * 0.3, true, wc, rng.randf_range(2.5, 5.0)))
 				building.add_child(win)
 
 func _add_windows(building: MeshInstance3D, size: Vector3, rng: RandomNumberGenerator) -> void:
@@ -288,7 +348,7 @@ func _add_windows(building: MeshInstance3D, size: Vector3, rng: RandomNumberGene
 
 				var wc := cold_color if rng.randf() > 0.5 else window_color
 				win.set_surface_override_material(0,
-					_make_ps1_material(wc * 0.3, true, wc, rng.randf_range(1.5, 3.5)))
+					_make_ps1_material(wc * 0.3, true, wc, rng.randf_range(2.5, 5.0)))
 				building.add_child(win)
 
 	# Windows on side faces (X axis)
@@ -313,63 +373,93 @@ func _add_windows(building: MeshInstance3D, size: Vector3, rng: RandomNumberGene
 
 				var wc := cold_color if rng.randf() > 0.5 else window_color
 				win.set_surface_override_material(0,
-					_make_ps1_material(wc * 0.3, true, wc, rng.randf_range(1.5, 3.5)))
+					_make_ps1_material(wc * 0.3, true, wc, rng.randf_range(2.5, 5.0)))
 				building.add_child(win)
 
 func _add_neon_sign(building: MeshInstance3D, size: Vector3, rng: RandomNumberGenerator) -> void:
-	var sign_mesh := MeshInstance3D.new()
-	var quad := QuadMesh.new()
-	var sign_w := rng.randf_range(2.0, 5.0)
-	var sign_h := rng.randf_range(0.8, 2.0)
-	quad.size = Vector2(sign_w, sign_h)
-	sign_mesh.mesh = quad
+	var neon_col := neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
+	var use_text := neon_font != null and rng.randf() < 0.5
 
-	# Place on a random face
+	# Determine face placement
 	var face_choice := rng.randi_range(0, 3)
+	var sign_pos := Vector3.ZERO
+	var sign_rot_y := 0.0
 	match face_choice:
 		0:  # front
-			sign_mesh.position = Vector3(
+			sign_pos = Vector3(
 				rng.randf_range(-size.x * 0.3, size.x * 0.3),
 				rng.randf_range(-size.y * 0.1, size.y * 0.2),
 				size.z * 0.502
 			)
 		1:  # back
-			sign_mesh.position = Vector3(
+			sign_pos = Vector3(
 				rng.randf_range(-size.x * 0.3, size.x * 0.3),
 				rng.randf_range(-size.y * 0.1, size.y * 0.2),
 				-size.z * 0.502
 			)
-			sign_mesh.rotation.y = PI
+			sign_rot_y = PI
 		2:  # right
-			sign_mesh.position = Vector3(
+			sign_pos = Vector3(
 				size.x * 0.502,
 				rng.randf_range(-size.y * 0.1, size.y * 0.2),
 				rng.randf_range(-size.z * 0.3, size.z * 0.3)
 			)
-			sign_mesh.rotation.y = PI * 0.5
+			sign_rot_y = PI * 0.5
 		3:  # left
-			sign_mesh.position = Vector3(
+			sign_pos = Vector3(
 				-size.x * 0.502,
 				rng.randf_range(-size.y * 0.1, size.y * 0.2),
 				rng.randf_range(-size.z * 0.3, size.z * 0.3)
 			)
-			sign_mesh.rotation.y = -PI * 0.5
+			sign_rot_y = -PI * 0.5
 
-	var neon_col := neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
-	sign_mesh.set_surface_override_material(0,
-		_make_ps1_material(neon_col * 0.5, true, neon_col, rng.randf_range(3.0, 6.0)))
+	if use_text:
+		# Label3D text sign with kanji
+		var label := Label3D.new()
+		label.text = NEON_TEXTS[rng.randi_range(0, NEON_TEXTS.size() - 1)]
+		label.font = neon_font
+		label.font_size = rng.randi_range(48, 96)
+		label.pixel_size = 0.01
+		label.modulate = neon_col
+		label.outline_modulate = neon_col * 0.6
+		label.outline_size = 8
+		label.position = sign_pos
+		label.rotation.y = sign_rot_y
+		label.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+		building.add_child(label)
 
-	# Add OmniLight3D near the neon sign for local glow
-	var light := OmniLight3D.new()
-	light.light_color = neon_col
-	light.light_energy = rng.randf_range(1.5, 3.0)
-	light.omni_range = rng.randf_range(6.0, 12.0)
-	light.omni_attenuation = 1.5
-	light.shadow_enabled = false
-	light.position = Vector3(0, 0, 0.5)
-	sign_mesh.add_child(light)
+		var light := OmniLight3D.new()
+		light.light_color = neon_col
+		light.light_energy = rng.randf_range(1.5, 3.0)
+		light.omni_range = rng.randf_range(6.0, 12.0)
+		light.omni_attenuation = 1.5
+		light.shadow_enabled = false
+		light.position = Vector3(0, 0, 0.5)
+		label.add_child(light)
+	else:
+		# Quad sign (original behavior)
+		var sign_mesh := MeshInstance3D.new()
+		var quad := QuadMesh.new()
+		var sign_w := rng.randf_range(2.0, 5.0)
+		var sign_h := rng.randf_range(0.8, 2.0)
+		quad.size = Vector2(sign_w, sign_h)
+		sign_mesh.mesh = quad
+		sign_mesh.position = sign_pos
+		sign_mesh.rotation.y = sign_rot_y
 
-	building.add_child(sign_mesh)
+		sign_mesh.set_surface_override_material(0,
+			_make_ps1_material(neon_col * 0.5, true, neon_col, rng.randf_range(3.0, 6.0)))
+
+		var light := OmniLight3D.new()
+		light.light_color = neon_col
+		light.light_energy = rng.randf_range(1.5, 3.0)
+		light.omni_range = rng.randf_range(6.0, 12.0)
+		light.omni_attenuation = 1.5
+		light.shadow_enabled = false
+		light.position = Vector3(0, 0, 0.5)
+		sign_mesh.add_child(light)
+
+		building.add_child(sign_mesh)
 
 func _generate_cars() -> void:
 	var rng := RandomNumberGenerator.new()
@@ -391,16 +481,16 @@ func _generate_cars() -> void:
 			var cell_x := gx * cell_stride
 			var cell_z := gz * cell_stride
 
-			# Cars along +Z edge of block (street runs along Z)
-			if rng.randf() < 0.6:
+			# Cars along +Z edge of block (street runs along Z) -- reduced from 0.6 to 0.3
+			if rng.randf() < 0.3:
 				var num_cars := rng.randi_range(1, 2)
 				for c in range(num_cars):
 					var car_z := cell_z + rng.randf_range(-block_size * 0.3, block_size * 0.3)
 					var car_x := cell_x + block_size * 0.5 + street_width * 0.25
 					_create_car(Vector3(car_x, 0, car_z), 0.0, car_colors, rng)
 
-			# Cars along +X edge of block (street runs along X)
-			if rng.randf() < 0.6:
+			# Cars along +X edge of block (street runs along X) -- reduced from 0.6 to 0.3
+			if rng.randf() < 0.3:
 				var num_cars := rng.randi_range(1, 2)
 				for c in range(num_cars):
 					var car_x := cell_x + rng.randf_range(-block_size * 0.3, block_size * 0.3)

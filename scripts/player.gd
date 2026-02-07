@@ -13,6 +13,7 @@ const JUMP_VELOCITY = 7.0
 
 var camera_rotation_x: float = -0.3  # slight downward angle
 var ps1_shader: Shader
+var anim: HumanoidAnimation
 
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
@@ -58,6 +59,11 @@ func _physics_process(delta: float) -> void:
 
 	move_and_slide()
 
+	# Drive walk animation
+	var horiz_speed := Vector2(velocity.x, velocity.z).length()
+	if anim:
+		anim.update(delta, horiz_speed)
+
 func _build_humanoid_model() -> void:
 	# Remove the old capsule mesh from the scene
 	var old_mesh := get_node_or_null("MeshInstance3D")
@@ -90,31 +96,50 @@ func _build_humanoid_model() -> void:
 	_add_body_part(model, "Hips", BoxMesh.new(), Vector3(0, 0.75, 0), pants_color,
 		Vector3(0.45, 0.2, 0.25))
 
-	# Left upper arm
-	_add_body_part(model, "LeftUpperArm", BoxMesh.new(), Vector3(-0.32, 1.15, 0), jacket_color,
-		Vector3(0.13, 0.3, 0.13))
-	# Left lower arm
-	_add_body_part(model, "LeftLowerArm", BoxMesh.new(), Vector3(-0.32, 0.85, 0), skin_color,
-		Vector3(0.12, 0.3, 0.12))
-	# Right upper arm
-	_add_body_part(model, "RightUpperArm", BoxMesh.new(), Vector3(0.32, 1.15, 0), jacket_color,
-		Vector3(0.13, 0.3, 0.13))
-	# Right lower arm
-	_add_body_part(model, "RightLowerArm", BoxMesh.new(), Vector3(0.32, 0.85, 0), skin_color,
-		Vector3(0.12, 0.3, 0.12))
+	# === PIVOT-BASED ARMS ===
+	# Left arm
+	var left_shoulder := _add_pivot(model, "LeftShoulder", Vector3(-0.32, 1.3, 0))
+	_add_body_part(left_shoulder, "LeftUpperArm", BoxMesh.new(), Vector3(0, -0.15, 0),
+		jacket_color, Vector3(0.13, 0.3, 0.13))
+	var left_elbow := _add_pivot(left_shoulder, "LeftElbow", Vector3(0, -0.3, 0))
+	_add_body_part(left_elbow, "LeftLowerArm", BoxMesh.new(), Vector3(0, -0.15, 0),
+		skin_color, Vector3(0.12, 0.3, 0.12))
 
-	# Left upper leg
-	_add_body_part(model, "LeftUpperLeg", BoxMesh.new(), Vector3(-0.12, 0.5, 0), pants_color,
-		Vector3(0.15, 0.33, 0.15))
-	# Left lower leg
-	_add_body_part(model, "LeftLowerLeg", BoxMesh.new(), Vector3(-0.12, 0.17, 0), pants_color,
-		Vector3(0.14, 0.33, 0.14))
-	# Right upper leg
-	_add_body_part(model, "RightUpperLeg", BoxMesh.new(), Vector3(0.12, 0.5, 0), pants_color,
-		Vector3(0.15, 0.33, 0.15))
-	# Right lower leg
-	_add_body_part(model, "RightLowerLeg", BoxMesh.new(), Vector3(0.12, 0.17, 0), pants_color,
-		Vector3(0.14, 0.33, 0.14))
+	# Right arm
+	var right_shoulder := _add_pivot(model, "RightShoulder", Vector3(0.32, 1.3, 0))
+	_add_body_part(right_shoulder, "RightUpperArm", BoxMesh.new(), Vector3(0, -0.15, 0),
+		jacket_color, Vector3(0.13, 0.3, 0.13))
+	var right_elbow := _add_pivot(right_shoulder, "RightElbow", Vector3(0, -0.3, 0))
+	_add_body_part(right_elbow, "RightLowerArm", BoxMesh.new(), Vector3(0, -0.15, 0),
+		skin_color, Vector3(0.12, 0.3, 0.12))
+
+	# === PIVOT-BASED LEGS ===
+	# Left leg
+	var left_hip := _add_pivot(model, "LeftHip", Vector3(-0.12, 0.65, 0))
+	_add_body_part(left_hip, "LeftUpperLeg", BoxMesh.new(), Vector3(0, -0.17, 0),
+		pants_color, Vector3(0.15, 0.33, 0.15))
+	var left_knee := _add_pivot(left_hip, "LeftKnee", Vector3(0, -0.33, 0))
+	_add_body_part(left_knee, "LeftLowerLeg", BoxMesh.new(), Vector3(0, -0.17, 0),
+		pants_color, Vector3(0.14, 0.33, 0.14))
+
+	# Right leg
+	var right_hip := _add_pivot(model, "RightHip", Vector3(0.12, 0.65, 0))
+	_add_body_part(right_hip, "RightUpperLeg", BoxMesh.new(), Vector3(0, -0.17, 0),
+		pants_color, Vector3(0.15, 0.33, 0.15))
+	var right_knee := _add_pivot(right_hip, "RightKnee", Vector3(0, -0.33, 0))
+	_add_body_part(right_knee, "RightLowerLeg", BoxMesh.new(), Vector3(0, -0.17, 0),
+		pants_color, Vector3(0.14, 0.33, 0.14))
+
+	# Setup animation controller
+	anim = HumanoidAnimation.new()
+	anim.setup(model)
+
+func _add_pivot(parent: Node3D, pivot_name: String, pos: Vector3) -> Node3D:
+	var pivot := Node3D.new()
+	pivot.name = pivot_name
+	pivot.position = pos
+	parent.add_child(pivot)
+	return pivot
 
 func _add_body_part(parent: Node3D, part_name: String, mesh: Mesh, pos: Vector3,
 		color: Color, box_size: Vector3 = Vector3.ZERO, is_emissive: bool = false,
@@ -134,7 +159,7 @@ func _add_body_part(parent: Node3D, part_name: String, mesh: Mesh, pos: Vector3,
 	mat.set_shader_parameter("color_depth", 12.0)
 	mat.set_shader_parameter("fog_color", Color(0.05, 0.03, 0.1, 1.0))
 	mat.set_shader_parameter("fog_distance", 100.0)
-	mat.set_shader_parameter("fog_density", 0.8)
+	mat.set_shader_parameter("fog_density", 0.3)
 	if is_emissive:
 		mat.set_shader_parameter("emissive", true)
 		mat.set_shader_parameter("emission_color", emit_color)
