@@ -57,6 +57,7 @@ func _ready() -> void:
 	for i in range(num_npcs):
 		_spawn_npc(rng, i)
 
+	_spawn_conversation_groups(rng)
 	_setup_umbrella_audio()
 
 func _setup_umbrella_audio() -> void:
@@ -391,3 +392,92 @@ func _add_body_part(parent: Node3D, part_name: String, mesh: Mesh, pos: Vector3,
 	mi.set_surface_override_material(0, mat)
 
 	parent.add_child(mi)
+
+func _spawn_conversation_groups(_rng: RandomNumberGenerator) -> void:
+	# Spawn 3 groups of 2-3 NPCs standing together chatting
+	var group_rng := RandomNumberGenerator.new()
+	group_rng.seed = 8888
+	for _g in range(3):
+		var group_size := group_rng.randi_range(2, 3)
+		# Pick a random street intersection for the group
+		var gx := group_rng.randi_range(-grid_size + 1, grid_size - 2)
+		var gz := group_rng.randi_range(-grid_size + 1, grid_size - 2)
+		var center_x := gx * cell_stride + block_size * 0.5 + street_width * 0.3
+		var center_z := gz * cell_stride + block_size * 0.5 + street_width * 0.3
+		var center := Vector3(center_x, 0, center_z)
+
+		for gi in range(group_size):
+			var angle := (float(gi) / float(group_size)) * TAU
+			var offset := Vector3(cos(angle) * 0.8, 0, sin(angle) * 0.8)
+			var npc_pos := center + offset
+			# Face toward center
+			var face_angle := atan2(center.x - npc_pos.x, center.z - npc_pos.z)
+
+			var npc := Node3D.new()
+			npc.position = npc_pos
+			npc.rotation.y = face_angle
+
+			var model := Node3D.new()
+			model.name = "Model"
+			var height_scale := group_rng.randf_range(0.9, 1.1)
+			model.scale = Vector3(height_scale, height_scale, height_scale)
+			npc.add_child(model)
+
+			var skin_color := skin_colors[group_rng.randi_range(0, skin_colors.size() - 1)]
+			var jacket_color := jacket_colors[group_rng.randi_range(0, jacket_colors.size() - 1)]
+			var pants_color := Color(jacket_color.r * 0.8, jacket_color.g * 0.8, jacket_color.b * 0.8)
+			var accent := accent_colors[group_rng.randi_range(0, accent_colors.size() - 1)]
+
+			_add_body_part(model, "Head", SphereMesh.new(), Vector3(0, 1.55, 0), skin_color)
+			(model.get_node("Head").mesh as SphereMesh).radius = 0.18
+			(model.get_node("Head").mesh as SphereMesh).height = 0.36
+			_add_body_part(model, "Torso", BoxMesh.new(), Vector3(0, 1.1, 0), jacket_color,
+				Vector3(0.5, 0.55, 0.28))
+			_add_body_part(model, "AccentStripe", BoxMesh.new(), Vector3(0, 1.05, 0.141), accent,
+				Vector3(0.3, 0.06, 0.01), true, accent, 2.0)
+			_add_body_part(model, "Hips", BoxMesh.new(), Vector3(0, 0.75, 0), pants_color,
+				Vector3(0.45, 0.2, 0.25))
+
+			var ls := _add_pivot(model, "LeftShoulder", Vector3(-0.32, 1.3, 0))
+			_add_body_part(ls, "LeftUpperArm", BoxMesh.new(), Vector3(0, -0.15, 0),
+				jacket_color, Vector3(0.13, 0.3, 0.13))
+			var le := _add_pivot(ls, "LeftElbow", Vector3(0, -0.3, 0))
+			_add_body_part(le, "LeftLowerArm", BoxMesh.new(), Vector3(0, -0.15, 0),
+				skin_color, Vector3(0.12, 0.3, 0.12))
+			var rs := _add_pivot(model, "RightShoulder", Vector3(0.32, 1.3, 0))
+			_add_body_part(rs, "RightUpperArm", BoxMesh.new(), Vector3(0, -0.15, 0),
+				jacket_color, Vector3(0.13, 0.3, 0.13))
+			var re := _add_pivot(rs, "RightElbow", Vector3(0, -0.3, 0))
+			_add_body_part(re, "RightLowerArm", BoxMesh.new(), Vector3(0, -0.15, 0),
+				skin_color, Vector3(0.12, 0.3, 0.12))
+			var lh := _add_pivot(model, "LeftHip", Vector3(-0.12, 0.65, 0))
+			_add_body_part(lh, "LeftUpperLeg", BoxMesh.new(), Vector3(0, -0.17, 0),
+				pants_color, Vector3(0.15, 0.33, 0.15))
+			var lk := _add_pivot(lh, "LeftKnee", Vector3(0, -0.33, 0))
+			_add_body_part(lk, "LeftLowerLeg", BoxMesh.new(), Vector3(0, -0.17, 0),
+				pants_color, Vector3(0.14, 0.33, 0.14))
+			var rh := _add_pivot(model, "RightHip", Vector3(0.12, 0.65, 0))
+			_add_body_part(rh, "RightUpperLeg", BoxMesh.new(), Vector3(0, -0.17, 0),
+				pants_color, Vector3(0.15, 0.33, 0.15))
+			var rk := _add_pivot(rh, "RightKnee", Vector3(0, -0.33, 0))
+			_add_body_part(rk, "RightLowerLeg", BoxMesh.new(), Vector3(0, -0.17, 0),
+				pants_color, Vector3(0.14, 0.33, 0.14))
+
+			var anim := HumanoidAnimation.new()
+			anim.setup(model)
+			add_child(npc)
+
+			# Add to npcs array as permanently stopped
+			npcs.append({
+				"node": npc,
+				"speed": 0.0,
+				"base_speed": 0.0,
+				"axis": "x",
+				"direction": 0.0,
+				"anim": anim,
+				"stop_timer": 99999.0,
+				"stop_duration": 99999.0,
+				"is_stopped": true,
+				"smoke": null,
+				"has_umbrella": false,
+			})

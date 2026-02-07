@@ -29,6 +29,10 @@ var step_rng := RandomNumberGenerator.new()
 var last_step_sign: float = 1.0  # tracks bob_timer sin sign for step triggers
 var flashlight: SpotLight3D
 var foot_splash: GPUParticles3D
+var sprint_streaks: GPUParticles3D
+var was_on_floor: bool = true
+var shake_intensity: float = 0.0
+var shake_timer: float = 0.0
 
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
@@ -40,6 +44,7 @@ func _ready() -> void:
 	_setup_footstep_audio()
 	_setup_flashlight()
 	_setup_foot_splash()
+	_setup_sprint_streaks()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
@@ -65,6 +70,21 @@ func _physics_process(delta: float) -> void:
 	# Gravity
 	if not is_on_floor():
 		velocity.y -= GRAVITY * delta
+
+	# Landing screen shake
+	var fall_speed := absf(velocity.y)
+	if is_on_floor() and not was_on_floor and fall_speed > 3.0:
+		shake_intensity = clampf(fall_speed * 0.008, 0.01, 0.06)
+		shake_timer = 0.25
+	was_on_floor = is_on_floor()
+
+	# Apply shake decay
+	if shake_timer > 0.0:
+		shake_timer -= delta
+		var shake_amount := shake_intensity * (shake_timer / 0.25)
+		camera_pivot.rotation.z = sin(shake_timer * 40.0) * shake_amount
+	else:
+		camera_pivot.rotation.z = lerpf(camera_pivot.rotation.z, 0.0, 10.0 * delta)
 
 	# Jump
 	if is_on_floor() and Input.is_action_just_pressed("jump"):
@@ -95,6 +115,10 @@ func _physics_process(delta: float) -> void:
 	# Sprint FOV effect
 	var target_fov := SPRINT_FOV if is_sprinting else BASE_FOV
 	camera.fov = lerpf(camera.fov, target_fov, FOV_LERP_SPEED * delta)
+
+	# Sprint rain streaks
+	if sprint_streaks:
+		sprint_streaks.emitting = is_sprinting
 
 	# Head bob
 	if is_on_floor() and horiz_speed > 0.5:
@@ -307,6 +331,31 @@ func _setup_foot_splash() -> void:
 	foot_splash.draw_pass_1 = splash_mesh
 	foot_splash.position = Vector3(0, 0.05, 0)
 	add_child(foot_splash)
+
+func _setup_sprint_streaks() -> void:
+	sprint_streaks = GPUParticles3D.new()
+	sprint_streaks.amount = 20
+	sprint_streaks.lifetime = 0.15
+	sprint_streaks.emitting = false
+	sprint_streaks.visibility_aabb = AABB(Vector3(-5, -3, -5), Vector3(10, 6, 10))
+	var streak_mat := ParticleProcessMaterial.new()
+	streak_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	streak_mat.emission_box_extents = Vector3(1.5, 1.0, 0.3)
+	streak_mat.direction = Vector3(0, 0, 1)  # fly toward camera
+	streak_mat.spread = 10.0
+	streak_mat.initial_velocity_min = 15.0
+	streak_mat.initial_velocity_max = 25.0
+	streak_mat.gravity = Vector3.ZERO
+	streak_mat.scale_min = 0.01
+	streak_mat.scale_max = 0.03
+	streak_mat.color = Color(0.6, 0.65, 0.8, 0.2)
+	sprint_streaks.process_material = streak_mat
+	# Elongated mesh for streak look
+	var streak_mesh := BoxMesh.new()
+	streak_mesh.size = Vector3(0.01, 0.01, 0.15)
+	sprint_streaks.draw_pass_1 = streak_mesh
+	sprint_streaks.position = Vector3(0, 0, -2.0)
+	camera.add_child(sprint_streaks)
 
 func _setup_crt_overlay() -> void:
 	var crt_shader_path := "res://shaders/crt.gdshader"

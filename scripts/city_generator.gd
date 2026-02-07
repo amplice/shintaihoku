@@ -125,6 +125,7 @@ func _ready() -> void:
 	_generate_crosswalks()
 	_generate_aircraft_flyover()
 	_generate_neon_light_shafts()
+	_generate_distant_city_glow()
 	_setup_neon_flicker()
 	_setup_color_shift_signs()
 	print("CityGenerator: generation complete, total children=", get_child_count())
@@ -1100,7 +1101,11 @@ func _generate_sidewalks() -> void:
 	var curb_height := 0.15
 	var sidewalk_width := 2.0
 	var sidewalk_mat := _make_ps1_material(Color(0.12, 0.12, 0.14))
+	sidewalk_mat.set_shader_parameter("wet_surface", true)
+	sidewalk_mat.set_shader_parameter("wet_strength", 0.25)
 	var curb_mat := _make_ps1_material(Color(0.18, 0.18, 0.2))
+	curb_mat.set_shader_parameter("wet_surface", true)
+	curb_mat.set_shader_parameter("wet_strength", 0.2)
 
 	for gx in range(-grid_size, grid_size):
 		for gz in range(-grid_size, grid_size):
@@ -4641,3 +4646,41 @@ func _generate_neon_light_shafts() -> void:
 			_make_ps1_material(scol * 0.02, true, scol, 0.4))
 		shaft.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(shaft)
+
+func _generate_distant_city_glow() -> void:
+	# Ring of faint emissive walls at city boundary to simulate infinite city
+	var extent := grid_size * (block_size + street_width)
+	var glow_distance := extent + 10.0
+	var glow_height := 60.0
+	var glow_color := Color(0.15, 0.08, 0.12)
+	var warm_glow := Color(1.0, 0.5, 0.25)
+
+	# 4 walls (N, S, E, W) forming a boundary ring
+	var wall_positions := [
+		{"pos": Vector3(0, glow_height * 0.5, glow_distance), "size": Vector3(glow_distance * 2.0, glow_height, 2.0)},
+		{"pos": Vector3(0, glow_height * 0.5, -glow_distance), "size": Vector3(glow_distance * 2.0, glow_height, 2.0)},
+		{"pos": Vector3(glow_distance, glow_height * 0.5, 0), "size": Vector3(2.0, glow_height, glow_distance * 2.0)},
+		{"pos": Vector3(-glow_distance, glow_height * 0.5, 0), "size": Vector3(2.0, glow_height, glow_distance * 2.0)},
+	]
+	for wall_data in wall_positions:
+		var wall := MeshInstance3D.new()
+		var wall_mesh := BoxMesh.new()
+		wall_mesh.size = wall_data["size"]
+		wall.mesh = wall_mesh
+		wall.position = wall_data["pos"]
+		wall.set_surface_override_material(0,
+			_make_ps1_material(glow_color, true, warm_glow, 0.6))
+		wall.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(wall)
+
+	# Ground-level smog ring (horizontal plane at city boundary)
+	var smog := MeshInstance3D.new()
+	var smog_mesh := BoxMesh.new()
+	smog_mesh.size = Vector3(glow_distance * 3.0, 0.5, glow_distance * 3.0)
+	smog.mesh = smog_mesh
+	smog.position = Vector3(0, 5.0, 0)
+	var smog_color := Color(0.08, 0.04, 0.06)
+	smog.set_surface_override_material(0,
+		_make_ps1_material(smog_color, true, warm_glow * 0.3, 0.2))
+	smog.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(smog)

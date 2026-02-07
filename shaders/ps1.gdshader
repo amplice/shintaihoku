@@ -14,8 +14,11 @@ uniform vec4 emission_color : source_color = vec4(1.0, 0.0, 0.5, 1.0);
 uniform float emission_strength : hint_range(0.0, 10.0, 0.1) = 2.0;
 uniform sampler2D albedo_texture : source_color, filter_nearest, repeat_enable;
 uniform bool use_texture = false;
+uniform bool wet_surface = false;
+uniform float wet_strength : hint_range(0.0, 1.0, 0.05) = 0.3;
 
 varying float vertex_distance;
+varying vec3 world_normal;
 
 void vertex() {
 	// Transform to clip space
@@ -33,6 +36,9 @@ void vertex() {
 	// Calculate distance for fog
 	vec4 world_pos = MODEL_MATRIX * vec4(VERTEX, 1.0);
 	vertex_distance = length((VIEW_MATRIX * world_pos).xyz);
+
+	// Pass world normal for wet surface
+	world_normal = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
 }
 
 void fragment() {
@@ -55,5 +61,16 @@ void fragment() {
 	if (emissive) {
 		EMISSION = emission_color.rgb * emission_strength;
 		EMISSION = mix(EMISSION, vec3(0.0), fog_factor * 0.7);
+	}
+
+	// Wet surface: fake Fresnel specular shimmer
+	if (wet_surface) {
+		vec3 view_dir = normalize(VIEW);
+		float fresnel = 1.0 - abs(dot(view_dir, NORMAL));
+		fresnel = pow(fresnel, 3.0) * wet_strength;
+		// Add subtle blue-white sheen
+		EMISSION += vec3(0.4, 0.45, 0.6) * fresnel;
+		// Darken albedo slightly to simulate wet darkening
+		ALBEDO *= 0.85;
 	}
 }
