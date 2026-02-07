@@ -71,6 +71,9 @@ func _ready() -> void:
 	_generate_phone_booths()
 	_generate_wind_debris()
 	_generate_utility_boxes()
+	_generate_street_furniture()
+	_generate_construction_zones()
+	_generate_drain_grates()
 	_setup_neon_flicker()
 	print("CityGenerator: generation complete, total children=", get_child_count())
 
@@ -1161,11 +1164,13 @@ func _generate_vending_machines() -> void:
 				_make_ps1_material(vc * 0.3, true, vc, 3.0))
 			vm.add_child(panel)
 
-			# Track for blinking animation
+			# Track for blinking animation (pre-cached materials)
 			vending_screens.append({
 				"node": panel,
 				"phase": rng.randf() * TAU,
-				"color": vc,
+				"mat_bright": _make_ps1_material(vc * 0.3, true, vc, 4.0),
+				"mat_dim": _make_ps1_material(vc * 0.15, true, vc, 1.5),
+				"mat_off": _make_ps1_material(vc * 0.08, true, vc, 0.5),
 			})
 
 			# Small light
@@ -2124,6 +2129,193 @@ func _generate_utility_boxes() -> void:
 		box.set_surface_override_material(0, box_mat)
 		child.add_child(box)
 
+func _generate_street_furniture() -> void:
+	# Benches and newspaper stands on sidewalks
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 2400
+	var cell_stride := block_size + street_width
+	var bench_mat := _make_ps1_material(Color(0.15, 0.12, 0.08))
+	var metal_mat := _make_ps1_material(Color(0.2, 0.2, 0.22))
+	var news_mat := _make_ps1_material(Color(0.18, 0.22, 0.15))
+
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			var cell_x := gx * cell_stride
+			var cell_z := gz * cell_stride
+
+			# Bench (20% of blocks)
+			if rng.randf() < 0.2:
+				var side := rng.randi_range(0, 1)
+				var bx: float
+				var bz: float
+				var rot_y := 0.0
+				if side == 0:
+					bx = cell_x + block_size * 0.5 + 0.8
+					bz = cell_z + rng.randf_range(-block_size * 0.3, block_size * 0.3)
+					rot_y = PI * 0.5
+				else:
+					bx = cell_x + rng.randf_range(-block_size * 0.3, block_size * 0.3)
+					bz = cell_z + block_size * 0.5 + 0.8
+				var bench := Node3D.new()
+				bench.position = Vector3(bx, 0, bz)
+				bench.rotation.y = rot_y
+
+				# Seat
+				var seat := MeshInstance3D.new()
+				var seat_mesh := BoxMesh.new()
+				seat_mesh.size = Vector3(1.5, 0.06, 0.4)
+				seat.mesh = seat_mesh
+				seat.position = Vector3(0, 0.45, 0)
+				seat.set_surface_override_material(0, bench_mat)
+				bench.add_child(seat)
+
+				# Back
+				var back := MeshInstance3D.new()
+				var back_mesh := BoxMesh.new()
+				back_mesh.size = Vector3(1.5, 0.5, 0.04)
+				back.mesh = back_mesh
+				back.position = Vector3(0, 0.7, -0.18)
+				back.set_surface_override_material(0, bench_mat)
+				bench.add_child(back)
+
+				# Legs
+				for lx in [-0.6, 0.6]:
+					var leg := MeshInstance3D.new()
+					var leg_mesh := BoxMesh.new()
+					leg_mesh.size = Vector3(0.04, 0.45, 0.35)
+					leg.mesh = leg_mesh
+					leg.position = Vector3(lx, 0.225, 0)
+					leg.set_surface_override_material(0, metal_mat)
+					bench.add_child(leg)
+
+				add_child(bench)
+
+			# Newspaper stand (15% of blocks)
+			if rng.randf() < 0.15:
+				var side := rng.randi_range(0, 1)
+				var nx: float
+				var nz: float
+				if side == 0:
+					nx = cell_x + block_size * 0.5 + 1.5
+					nz = cell_z + rng.randf_range(-block_size * 0.2, block_size * 0.2)
+				else:
+					nx = cell_x + rng.randf_range(-block_size * 0.2, block_size * 0.2)
+					nz = cell_z + block_size * 0.5 + 1.5
+
+				var stand := MeshInstance3D.new()
+				var stand_mesh := BoxMesh.new()
+				stand_mesh.size = Vector3(0.5, 1.0, 0.4)
+				stand.mesh = stand_mesh
+				stand.position = Vector3(nx, 0.5, nz)
+				stand.set_surface_override_material(0, news_mat)
+				add_child(stand)
+
+func _generate_construction_zones() -> void:
+	# Orange barriers and traffic cones on some streets
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 2500
+	var cell_stride := block_size + street_width
+	var orange := Color(1.0, 0.5, 0.0)
+	var cone_mat := _make_ps1_material(orange * 0.8, true, orange, 1.0)
+	var barrier_mat := _make_ps1_material(orange * 0.4, true, orange, 1.5)
+	var stripe_mat := _make_ps1_material(Color(0.9, 0.9, 0.9) * 0.5, true,
+		Color(0.9, 0.9, 0.9), 0.5)
+
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			if rng.randf() > 0.1:  # 10% of blocks
+				continue
+			var cell_x := gx * cell_stride
+			var cell_z := gz * cell_stride
+
+			# Place at street edge
+			var cx := cell_x + block_size * 0.5 + street_width * 0.3
+			var cz := cell_z + rng.randf_range(-block_size * 0.2, block_size * 0.2)
+
+			# Barrier
+			var barrier := Node3D.new()
+			barrier.position = Vector3(cx, 0, cz)
+
+			var bar := MeshInstance3D.new()
+			var bar_mesh := BoxMesh.new()
+			bar_mesh.size = Vector3(2.0, 0.8, 0.15)
+			bar.mesh = bar_mesh
+			bar.position = Vector3(0, 0.8, 0)
+			bar.set_surface_override_material(0, barrier_mat)
+			barrier.add_child(bar)
+
+			# White reflective stripe
+			var stripe := MeshInstance3D.new()
+			var stripe_mesh := BoxMesh.new()
+			stripe_mesh.size = Vector3(2.0, 0.12, 0.16)
+			stripe.mesh = stripe_mesh
+			stripe.position = Vector3(0, 0.9, 0)
+			stripe.set_surface_override_material(0, stripe_mat)
+			barrier.add_child(stripe)
+
+			# Support legs
+			for lx in [-0.8, 0.8]:
+				var leg := MeshInstance3D.new()
+				var leg_mesh := BoxMesh.new()
+				leg_mesh.size = Vector3(0.06, 0.8, 0.3)
+				leg.mesh = leg_mesh
+				leg.position = Vector3(lx, 0.4, 0)
+				leg.set_surface_override_material(0, _make_ps1_material(Color(0.15, 0.15, 0.18)))
+				barrier.add_child(leg)
+
+			add_child(barrier)
+
+			# 2-4 traffic cones nearby
+			var num_cones := rng.randi_range(2, 4)
+			for _c in range(num_cones):
+				var cone := MeshInstance3D.new()
+				var cone_mesh := CylinderMesh.new()
+				cone_mesh.top_radius = 0.02
+				cone_mesh.bottom_radius = 0.12
+				cone_mesh.height = 0.5
+				cone.mesh = cone_mesh
+				cone.position = Vector3(
+					cx + rng.randf_range(-2.0, 2.0),
+					0.25,
+					cz + rng.randf_range(-1.5, 1.5)
+				)
+				cone.set_surface_override_material(0, cone_mat)
+				add_child(cone)
+
+func _generate_drain_grates() -> void:
+	# Metal grates along curbs for drainage
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 2600
+	var cell_stride := block_size + street_width
+	var grate_mat := _make_ps1_material(Color(0.12, 0.12, 0.1))
+
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			var cell_x := gx * cell_stride
+			var cell_z := gz * cell_stride
+			var num_grates := rng.randi_range(1, 3)
+			for _g in range(num_grates):
+				var side := rng.randi_range(0, 1)
+				var grate := MeshInstance3D.new()
+				var grate_mesh := BoxMesh.new()
+				grate_mesh.size = Vector3(0.6, 0.02, 0.4)
+				grate.mesh = grate_mesh
+				grate.set_surface_override_material(0, grate_mat)
+
+				if side == 0:
+					grate.position = Vector3(
+						cell_x + block_size * 0.5 + 2.1,
+						0.16,
+						cell_z + rng.randf_range(-block_size * 0.4, block_size * 0.4)
+					)
+				else:
+					grate.position = Vector3(
+						cell_x + rng.randf_range(-block_size * 0.4, block_size * 0.4),
+						0.16,
+						cell_z + block_size * 0.5 + 2.1
+					)
+				add_child(grate)
+
 func _setup_neon_flicker() -> void:
 	# Register existing neon sign lights for flickering
 	var rng := RandomNumberGenerator.new()
@@ -2231,18 +2423,17 @@ func _process(_delta: float) -> void:
 		var alpha := 0.35 + 0.15 * sin(time * speed * 0.7 + phase)
 		node.modulate.a = alpha
 
-	# Vending machine screen pulse
+	# Vending machine screen pulse (pre-cached materials)
 	for vs in vending_screens:
 		var screen: MeshInstance3D = vs["node"]
 		if not is_instance_valid(screen):
 			continue
 		var phase: float = vs["phase"]
-		var vc: Color = vs["color"]
-		# Slow brightness pulse with occasional quick "cursor blink"
-		var pulse := 0.7 + 0.3 * sin(time * 1.5 + phase)
-		var blink := 1.0
-		if sin(time * 4.0 + phase * 2.0) > 0.9:
-			blink = 0.3
-		var strength := 3.0 * pulse * blink
-		screen.set_surface_override_material(0,
-			_make_ps1_material(vc * 0.3 * pulse, true, vc, strength))
+		var pulse := sin(time * 1.5 + phase)
+		var is_blink := sin(time * 4.0 + phase * 2.0) > 0.9
+		if is_blink:
+			screen.set_surface_override_material(0, vs["mat_off"])
+		elif pulse > 0.0:
+			screen.set_surface_override_material(0, vs["mat_bright"])
+		else:
+			screen.set_surface_override_material(0, vs["mat_dim"])
