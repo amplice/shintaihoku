@@ -224,7 +224,9 @@ func _physics_process(delta: float) -> void:
 		camera.rotation.z = lerpf(camera.rotation.z, strafe_roll, 6.0 * delta)
 		camera.rotation.x = lerpf(camera.rotation.x, 0.03, 4.0 * delta)  # lean forward
 	elif not (shake_timer > 0.0):
-		camera.rotation.z = lerpf(camera.rotation.z, 0.0, 8.0 * delta)
+		# Subtle walk strafe tilt (weight-shift feel when walking sideways)
+		var walk_tilt := -input_dir.x * 0.01 if horiz_speed > 0.5 and not is_crouching else 0.0
+		camera.rotation.z = lerpf(camera.rotation.z, walk_tilt, 8.0 * delta)
 		var crouch_tilt := -0.05 if is_crouching else 0.0
 		camera.rotation.x = lerpf(camera.rotation.x, crouch_tilt, 6.0 * delta)
 

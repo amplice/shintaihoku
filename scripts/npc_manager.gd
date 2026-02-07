@@ -708,6 +708,39 @@ func _process(delta: float) -> void:
 					ls.rotation.x = lerpf(ls.rotation.x, 0.2 * blend, 4.0 * delta)
 					le.rotation.x = lerpf(le.rotation.x, -0.8 * blend, 4.0 * delta)
 
+		# Cross-body head scratch (5% of stopped, right hand reaches to left side of head)
+		if npc_data.get("does_cross_scratch", false) and is_stopped and not npc_data.get("arms_crossed", false):
+			npc_data["cscratch_clock"] = npc_data.get("cscratch_clock", 0.0) + delta
+			var cs_cycle := fmod(npc_data["cscratch_clock"], 18.0)
+			if cs_cycle < 2.0:
+				var rs := node.get_node_or_null("Model/RightShoulder")
+				var re := node.get_node_or_null("Model/RightShoulder/RightElbow")
+				if rs and re and is_instance_valid(rs) and is_instance_valid(re):
+					var cs_blend := 0.0
+					if cs_cycle < 0.4:
+						cs_blend = cs_cycle / 0.4
+					elif cs_cycle < 1.5:
+						cs_blend = 1.0
+					else:
+						cs_blend = (2.0 - cs_cycle) / 0.5
+					var scratch_osc := sin(npc_data["cscratch_clock"] * 10.0) * 0.04 * cs_blend
+					rs.rotation.x = lerpf(rs.rotation.x, -0.5 * cs_blend, 5.0 * delta)
+					rs.rotation.z = lerpf(rs.rotation.z, -0.3 * cs_blend, 5.0 * delta)
+					re.rotation.x = lerpf(re.rotation.x, (-1.0 + scratch_osc) * cs_blend, 5.0 * delta)
+
+		# Ankle roll while walking (4% of walking NPCs, subtle foot personality)
+		if npc_data.get("does_ankle_roll", false) and not is_stopped:
+			var lk := node.get_node_or_null("Model/LeftHip/LeftKnee")
+			var rk := node.get_node_or_null("Model/RightHip/RightKnee")
+			if lk and rk and is_instance_valid(lk) and is_instance_valid(rk):
+				var walk_phase: float = anim.walk_cycle if anim else 0.0
+				var left_ground := sin(walk_phase) > 0.3  # left foot planted
+				var right_ground := sin(walk_phase) < -0.3  # right foot planted
+				if left_ground:
+					lk.rotation.z = lerpf(lk.rotation.z, sin(walk_phase * 2.0) * 0.08, 4.0 * delta)
+				if right_ground:
+					rk.rotation.z = lerpf(rk.rotation.z, sin(walk_phase * 2.0 + PI) * 0.08, 4.0 * delta)
+
 		# Umbrella tilt in wind (umbrella-carrying NPCs tilt toward wind direction)
 		if npc_data.get("has_umbrella", false):
 			var umbrella_node := node.get_node_or_null("Model/Umbrella")
@@ -1616,6 +1649,8 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		"does_wall_lean": rng.randf() < 0.08,
 		"does_shuffle": rng.randf() < 0.10,
 		"does_hand_behind": not has_umbrella and not has_phone and not has_newspaper and rng.randf() < 0.06,
+		"does_cross_scratch": not has_umbrella and rng.randf() < 0.05,
+		"does_ankle_roll": rng.randf() < 0.04,
 		"nod_cooldown": 0.0,
 		"last_cell_x": -999,
 		"last_cell_z": -999,

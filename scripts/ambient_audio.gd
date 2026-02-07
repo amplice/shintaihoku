@@ -284,6 +284,14 @@ var trash_active: bool = false
 var trash_count: int = 0
 var trash_max: int = 0
 var trash_gap: float = 0.0
+var fluor_timer: float = 0.0
+var fluor_phase: float = 0.0
+var fluor_active: bool = false
+var fluor_duration: float = 3.0
+var fluor_dropout: float = 0.0
+var gate_timer: float = 0.0
+var gate_phase: float = 0.0
+var gate_active: bool = false
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -1245,6 +1253,35 @@ func _process(delta: float) -> void:
 		if trash_count >= trash_max and trash_phase > 0.3:
 			trash_active = false
 
+	# Fluorescent light flicker buzz (dying tube stutter)
+	fluor_timer -= delta
+	if fluor_timer <= 0.0 and not fluor_active:
+		fluor_timer = rng.randf_range(90.0, 180.0)
+		fluor_active = true
+		fluor_phase = 0.0
+		fluor_duration = rng.randf_range(2.0, 4.0)
+
+	if fluor_active:
+		fluor_phase += delta
+		# Random dropout gaps
+		fluor_dropout -= delta
+		if fluor_dropout <= 0.0:
+			fluor_dropout = rng.randf_range(0.02, 0.08)
+		if fluor_phase > fluor_duration:
+			fluor_active = false
+
+	# Metal gate creak (rusty hinge sweep)
+	gate_timer -= delta
+	if gate_timer <= 0.0 and not gate_active:
+		gate_timer = rng.randf_range(70.0, 140.0)
+		gate_active = true
+		gate_phase = 0.0
+
+	if gate_active:
+		gate_phase += delta
+		if gate_phase > 0.6:
+			gate_active = false
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -2156,6 +2193,40 @@ func _fill_hum_buffer() -> void:
 			tr_ring += sin(trash_phase * 1600.0 * TAU) * 0.25
 			tr_ring += rng.randf_range(-1.0, 1.0) * 0.3  # metallic noise
 			sample += tr_ring * tr_env * 0.007
+
+		# Fluorescent light flicker buzz (stuttering dying tube)
+		if fluor_active:
+			var fl_env := 0.0
+			if fluor_phase < 0.1:
+				fl_env = fluor_phase / 0.1
+			elif fluor_phase < fluor_duration - 0.3:
+				fl_env = 1.0
+			else:
+				fl_env = (fluor_duration - fluor_phase) / 0.3
+			fl_env = maxf(0.0, fl_env)
+			# Dropout: silence during gaps
+			var fl_gap := maxf(fluor_dropout, 0.01)
+			var fl_on := fmod(fluor_phase, fl_gap * 2.0) > fl_gap * 0.3
+			if fl_on:
+				var fl_buzz := sin(t * 120.0 * TAU) * 0.4
+				fl_buzz += sin(t * 240.0 * TAU) * 0.2
+				fl_buzz += rng.randf_range(-1.0, 1.0) * 0.15
+				sample += fl_buzz * fl_env * 0.004
+
+		# Metal gate creak (descending frequency sweep with resonance)
+		if gate_active:
+			var gk_env := 0.0
+			if gate_phase < 0.05:
+				gk_env = gate_phase / 0.05
+			elif gate_phase < 0.5:
+				gk_env = 1.0 - (gate_phase - 0.05) * 0.8
+			else:
+				gk_env = maxf(0.0, (0.6 - gate_phase) / 0.1)
+			var gk_freq := lerpf(600.0, 200.0, gate_phase / 0.6)  # descending sweep
+			var gk_tone := sin(t * gk_freq * TAU) * 0.4
+			gk_tone += sin(t * gk_freq * 2.0 * TAU) * 0.15  # metallic overtone
+			var gk_noise := rng.randf_range(-1.0, 1.0) * 0.2
+			sample += (gk_tone + gk_noise) * gk_env * 0.006
 
 		# Distant crowd murmur (band-limited noise, 200-800Hz band)
 		var murmur_noise := rng.randf_range(-1.0, 1.0)
