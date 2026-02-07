@@ -214,6 +214,11 @@ var ship_timer: float = 0.0
 var ship_phase: float = 0.0
 var ship_active: bool = false
 var ship_duration: float = 4.0
+var tvstatic_timer: float = 0.0
+var tvstatic_phase: float = 0.0
+var tvstatic_active: bool = false
+var tvstatic_duration: float = 0.5
+var tvstatic_filter: float = 0.0
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -951,6 +956,20 @@ func _process(delta: float) -> void:
 		if ship_phase > ship_duration:
 			ship_active = false
 
+	# Distant TV static burst (channel change)
+	tvstatic_timer -= delta
+	if tvstatic_timer <= 0.0 and not tvstatic_active:
+		tvstatic_timer = rng.randf_range(60.0, 120.0)
+		tvstatic_active = true
+		tvstatic_phase = 0.0
+		tvstatic_duration = rng.randf_range(0.3, 0.8)
+		tvstatic_filter = 0.0
+
+	if tvstatic_active:
+		tvstatic_phase += delta
+		if tvstatic_phase > tvstatic_duration:
+			tvstatic_active = false
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -1620,6 +1639,19 @@ func _fill_hum_buffer() -> void:
 			# Slight beating from detuned partial
 			sh_tone += sin(t * 57.0 * TAU) * 0.1
 			sample += sh_tone * sh_env * 0.025
+		# Distant TV static burst (bandpass noise, channel change)
+		if tvstatic_active:
+			var tv_env := 1.0
+			if tvstatic_phase < 0.03:
+				tv_env = tvstatic_phase / 0.03
+			elif tvstatic_phase > tvstatic_duration - 0.05:
+				tv_env = maxf(0.0, (tvstatic_duration - tvstatic_phase) / 0.05)
+			var tv_noise := rng.randf_range(-1.0, 1.0)
+			tvstatic_filter = tvstatic_filter * 0.5 + tv_noise * 0.5
+			# Bandpass 800-3000Hz: resonant peaks
+			var tv_bp := sin(t * 1200.0 * TAU) * tvstatic_filter * 0.2
+			tv_bp += sin(t * 2400.0 * TAU) * tvstatic_filter * 0.1
+			sample += tv_bp * tv_env * 0.02
 		# Distant crowd murmur (band-limited noise, 200-800Hz band)
 		var murmur_noise := rng.randf_range(-1.0, 1.0)
 		murmur_filter1 = murmur_filter1 * 0.85 + murmur_noise * 0.15

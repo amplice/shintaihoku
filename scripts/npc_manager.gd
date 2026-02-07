@@ -293,6 +293,38 @@ func _process(delta: float) -> void:
 						target_el = -1.0 * ((2.0 - scratch_cycle) / 0.4)
 					scratch_re.rotation.x = lerpf(scratch_re.rotation.x, target_el, 6.0 * delta)
 
+		# Arms crossed idle pose (12% of NPCs without accessories)
+		if npc_data.get("arms_crossed", false) and is_stopped and not npc_data["has_phone"] and not npc_data.get("has_newspaper", false) and not npc_data["smoke"] and not npc_data["has_umbrella"]:
+			var acls := node.get_node_or_null("Model/LeftShoulder")
+			var acrs := node.get_node_or_null("Model/RightShoulder")
+			var acle := node.get_node_or_null("Model/LeftShoulder/LeftElbow")
+			var acre := node.get_node_or_null("Model/RightShoulder/RightElbow")
+			if acls:
+				acls.rotation.x = lerpf(acls.rotation.x, -0.3, 4.0 * delta)
+			if acrs:
+				acrs.rotation.x = lerpf(acrs.rotation.x, -0.3, 4.0 * delta)
+			if acle:
+				acle.rotation.x = lerpf(acle.rotation.x, -1.2, 4.0 * delta)
+			if acre:
+				acre.rotation.x = lerpf(acre.rotation.x, -1.2, 4.0 * delta)
+
+		# Looking up at rain (5% of NPCs without umbrella, periodic when stopped)
+		if npc_data.get("looks_at_rain", false) and is_stopped and not npc_data["has_umbrella"]:
+			npc_data["rain_look_clock"] = npc_data.get("rain_look_clock", 0.0) + delta
+			var rlc: float = npc_data["rain_look_clock"]
+			var rain_look_cycle := fmod(rlc, 10.0)
+			if rain_look_cycle > 7.0 and rain_look_cycle < 9.5:
+				# Tilt head up to look at sky
+				var head := node.get_node_or_null("Model/Head")
+				if head:
+					var look_progress := (rain_look_cycle - 7.0) / 2.5
+					var look_up := 0.4
+					if look_progress < 0.2:
+						look_up = 0.4 * (look_progress / 0.2)
+					elif look_progress > 0.8:
+						look_up = 0.4 * ((1.0 - look_progress) / 0.2)
+					head.rotation.x = lerpf(head.rotation.x, look_up, 3.0 * delta)
+
 		# Head tracking: stopped NPCs look at player when nearby
 		# Also react to sprinting player passing by
 		var head_node := node.get_node_or_null("Model/Head")
@@ -855,6 +887,8 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		"has_newspaper": has_newspaper,
 		"does_shrug": rng.randf() < 0.15,
 		"does_scratch": rng.randf() < 0.10,
+		"arms_crossed": rng.randf() < 0.12,
+		"looks_at_rain": rng.randf() < 0.05,
 	})
 
 func _add_pivot(parent: Node3D, pivot_name: String, pos: Vector3) -> Node3D:

@@ -186,12 +186,14 @@ func _physics_process(delta: float) -> void:
 			target_fov -= 2.0  # descent: slight narrow
 	camera.fov = lerpf(camera.fov, target_fov, FOV_LERP_SPEED * delta)
 
-	# Sprint strafe camera roll
+	# Sprint strafe camera roll + forward lean
 	if is_sprinting and is_on_floor():
 		var strafe_roll := -input_dir.x * 0.025  # tilt into the turn
 		camera.rotation.z = lerpf(camera.rotation.z, strafe_roll, 6.0 * delta)
+		camera.rotation.x = lerpf(camera.rotation.x, 0.03, 4.0 * delta)  # lean forward
 	elif not (shake_timer > 0.0):
 		camera.rotation.z = lerpf(camera.rotation.z, 0.0, 8.0 * delta)
+		camera.rotation.x = lerpf(camera.rotation.x, 0.0, 6.0 * delta)
 
 	# Track sprint duration for breathing
 	if is_sprinting:
@@ -498,12 +500,21 @@ func _trigger_footstep(sprinting: bool) -> void:
 	_place_footprint()
 	if not step_playback:
 		return
+	# Surface detection: near storefront grid cells = tile/metal, otherwise concrete
+	var cell_stride := 28.0  # block_size(20) + street_width(8)
+	var gx := fmod(absf(global_position.x), cell_stride)
+	var gz := fmod(absf(global_position.z), cell_stride)
+	var near_storefront := gx < 3.0 or gx > cell_stride - 3.0 or gz < 3.0 or gz > cell_stride - 3.0
 	# Randomly vary between dry and wet footstep sounds
 	var is_wet := step_rng.randf() < 0.35  # 35% chance of splashy step
 	var num_samples := 800 if sprinting else 600
 	if is_wet:
 		num_samples = int(num_samples * 1.3)  # wet steps ring longer
+	if near_storefront:
+		num_samples = int(num_samples * 1.4)  # tile/metal rings longer
 	var pitch := step_rng.randf_range(0.7, 1.0) if sprinting else step_rng.randf_range(0.9, 1.3)
+	if near_storefront:
+		pitch *= 1.3  # higher pitch on tile
 	var volume := 0.35 if sprinting else 0.2
 	var phase := 0.0
 	var filter_state := 0.0
@@ -514,7 +525,12 @@ func _trigger_footstep(sprinting: bool) -> void:
 		var noise := step_rng.randf_range(-1.0, 1.0)
 		phase += pitch * 0.02
 		var sample: float
-		if is_wet:
+		if near_storefront and not is_wet:
+			# Tile/metal: resonant ring with less noise
+			var ring := sin(phase * 140.0 * TAU) * 0.4
+			ring += sin(phase * 280.0 * TAU) * 0.15
+			sample = (noise * 0.3 + ring * 0.7) * env * volume * 0.9
+		elif is_wet:
 			# Wet: more noise, higher pitch splash, less thump
 			var splash := noise * 0.85
 			var water_ring := sin(phase * 120.0 * TAU) * 0.15 * (1.0 - t)
