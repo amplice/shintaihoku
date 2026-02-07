@@ -82,6 +82,18 @@ var phone_timer: float = 0.0
 var phone_phase: float = 0.0
 var phone_active: bool = false
 var phone_duration: float = 2.5
+var drip_timer: float = 0.0
+var drip_phase: float = 0.0
+var drip_active: bool = false
+var pa_timer: float = 0.0
+var pa_phase: float = 0.0
+var pa_active: bool = false
+var pa_duration: float = 3.0
+var pa_filter: float = 0.0
+var alarm_timer: float = 0.0
+var alarm_phase: float = 0.0
+var alarm_active: bool = false
+var alarm_duration: float = 4.0
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -377,6 +389,45 @@ func _process(delta: float) -> void:
 		if bass_phase > bass_duration:
 			bass_active = false
 
+	# Water drip from awnings
+	drip_timer -= delta
+	if drip_timer <= 0.0 and not drip_active:
+		drip_timer = rng.randf_range(8.0, 20.0)
+		drip_active = true
+		drip_phase = 0.0
+
+	if drip_active:
+		drip_phase += delta
+		if drip_phase > 0.08:
+			drip_active = false
+
+	# Distant PA/megaphone announcement
+	pa_timer -= delta
+	if pa_timer <= 0.0 and not pa_active:
+		pa_timer = rng.randf_range(100.0, 180.0)
+		pa_active = true
+		pa_phase = 0.0
+		pa_duration = rng.randf_range(2.0, 4.0)
+		pa_filter = 0.0
+
+	if pa_active:
+		pa_phase += delta
+		if pa_phase > pa_duration:
+			pa_active = false
+
+	# Distant car alarm
+	alarm_timer -= delta
+	if alarm_timer <= 0.0 and not alarm_active:
+		alarm_timer = rng.randf_range(60.0, 150.0)
+		alarm_active = true
+		alarm_phase = 0.0
+		alarm_duration = rng.randf_range(3.0, 6.0)
+
+	if alarm_active:
+		alarm_phase += delta
+		if alarm_phase > alarm_duration:
+			alarm_active = false
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -594,6 +645,40 @@ func _fill_hum_buffer() -> void:
 			if radio_phase < 0.02 or (radio_phase > radio_duration - 0.02 and radio_phase < radio_duration):
 				squelch = rng.randf_range(-1.0, 1.0) * 0.3
 			sample += (formant1 + formant2 + squelch) * radio_env * 0.04
+		# Water drip (short high-freq ping with decay)
+		if drip_active and drip_phase < 0.06:
+			var drip_env := (1.0 - drip_phase / 0.06)
+			drip_env = drip_env * drip_env * drip_env  # cubic decay
+			var drip_tone := sin(t * 3200.0 * TAU) * 0.3
+			drip_tone += sin(t * 4800.0 * TAU) * 0.15
+			sample += drip_tone * drip_env * 0.025
+		# Distant PA/megaphone (filtered speech-like noise with syllable rhythm)
+		if pa_active:
+			var pa_env := 1.0
+			if pa_phase < 0.1:
+				pa_env = pa_phase / 0.1
+			elif pa_phase > pa_duration - 0.3:
+				pa_env = maxf(0.0, (pa_duration - pa_phase) / 0.3)
+			var pa_noise := rng.randf_range(-1.0, 1.0)
+			pa_filter = pa_filter * 0.5 + pa_noise * 0.5
+			# Formant resonances for speech-like quality
+			var f1 := sin(t * 500.0 * TAU) * pa_filter * 0.3
+			var f2 := sin(t * 1200.0 * TAU) * pa_filter * 0.2
+			var f3 := sin(t * 2400.0 * TAU) * pa_filter * 0.1
+			# Syllable rhythm (~3 per second)
+			var syllable := 0.6 + 0.4 * absf(sin(pa_phase * 3.0 * PI))
+			sample += (f1 + f2 + f3) * pa_env * syllable * 0.02
+		# Distant car alarm (oscillating two-tone beep)
+		if alarm_active:
+			var alarm_env := 0.8
+			if alarm_phase < 0.1:
+				alarm_env = alarm_phase / 0.1 * 0.8
+			elif alarm_phase > alarm_duration - 0.3:
+				alarm_env = maxf(0.0, (alarm_duration - alarm_phase) / 0.3) * 0.8
+			var alarm_toggle := sin(alarm_phase * 4.0 * TAU)
+			var alarm_freq := 800.0 if alarm_toggle > 0.0 else 1000.0
+			var alarm_tone := sin(t * alarm_freq * TAU) * 0.3
+			sample += alarm_tone * alarm_env * 0.02
 		# Distant crowd murmur (band-limited noise, 200-800Hz band)
 		var murmur_noise := rng.randf_range(-1.0, 1.0)
 		murmur_filter1 = murmur_filter1 * 0.85 + murmur_noise * 0.15

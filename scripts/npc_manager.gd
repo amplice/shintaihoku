@@ -19,6 +19,12 @@ const UMBRELLA_AUDIO_RANGE: float = 12.0
 var umbrella_pool: Array[Dictionary] = []
 var umbrella_rng := RandomNumberGenerator.new()
 
+# NPC footstep audio pool
+const NPC_STEP_POOL_SIZE: int = 2
+const NPC_STEP_RANGE: float = 12.0
+var npc_step_pool: Array[Dictionary] = []
+var step_audio_rng := RandomNumberGenerator.new()
+
 # NPC outfit color palettes
 var jacket_colors: Array[Color] = [
 	Color(0.12, 0.12, 0.15),  # dark charcoal
@@ -59,6 +65,7 @@ func _ready() -> void:
 
 	_spawn_conversation_groups(rng)
 	_setup_umbrella_audio()
+	_setup_npc_step_audio()
 
 func _setup_umbrella_audio() -> void:
 	umbrella_rng.seed = 7890
@@ -132,6 +139,18 @@ func _process(delta: float) -> void:
 
 		# Update walk animation (only for visible NPCs)
 		anim.update(delta, current_speed)
+
+		# Track footstep triggers via walk cycle zero-crossing
+		if current_speed > 0.5:
+			var cur_sign := signf(sin(anim.walk_cycle))
+			var prev_sign: float = npc_data.get("step_sign", 1.0)
+			if cur_sign != prev_sign and cur_sign != 0.0:
+				npc_data["step_triggered"] = true
+			else:
+				npc_data["step_triggered"] = false
+			npc_data["step_sign"] = cur_sign
+		else:
+			npc_data["step_triggered"] = false
 
 		# Foot splash when walking
 		var splash: GPUParticles3D = npc_data.get("splash")
@@ -220,6 +239,9 @@ func _process(delta: float) -> void:
 	# Update umbrella rain patter audio
 	_update_umbrella_audio(cam_pos)
 
+	# Update NPC footstep positional audio
+	_update_npc_step_audio(cam_pos)
+
 func _update_umbrella_audio(cam_pos: Vector3) -> void:
 	# Find nearest umbrella NPCs to camera
 	var umbrella_npcs: Array[Dictionary] = []
@@ -258,6 +280,84 @@ func _update_umbrella_audio(cam_pos: Vector3) -> void:
 				slot["filter"] = filt
 		else:
 			# No umbrella NPC for this slot - silence
+			if playback:
+				var frames := playback.get_frames_available()
+				for _f in range(frames):
+					playback.push_frame(Vector2.ZERO)
+
+func _setup_npc_step_audio() -> void:
+	step_audio_rng.seed = 4567
+	for _i in range(NPC_STEP_POOL_SIZE):
+		var player := AudioStreamPlayer3D.new()
+		var gen := AudioStreamGenerator.new()
+		gen.mix_rate = 22050.0
+		gen.buffer_length = 0.1
+		player.stream = gen
+		player.volume_db = -22.0
+		player.max_distance = NPC_STEP_RANGE
+		player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+		player.unit_size = 4.0
+		add_child(player)
+		player.play()
+		npc_step_pool.append({
+			"player": player,
+			"generator": gen,
+			"playback": player.get_stream_playback(),
+			"burst_remaining": 0,
+			"burst_pitch": 1.0,
+			"burst_wet": false,
+			"filter": 0.0,
+		})
+
+func _update_npc_step_audio(cam_pos: Vector3) -> void:
+	# Find nearest walking visible NPCs
+	var walking_npcs: Array[Dictionary] = []
+	for npc_data in npcs:
+		if npc_data["is_stopped"]:
+			continue
+		var npc_node: Node3D = npc_data["node"]
+		if not npc_node.visible:
+			continue
+		var d := npc_node.global_position.distance_to(cam_pos)
+		if d < NPC_STEP_RANGE:
+			walking_npcs.append({"npc": npc_data, "dist": d})
+	walking_npcs.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["dist"] < b["dist"])
+
+	for i in range(NPC_STEP_POOL_SIZE):
+		var slot: Dictionary = npc_step_pool[i]
+		var player: AudioStreamPlayer3D = slot["player"]
+		var playback: AudioStreamGeneratorPlayback = slot["playback"]
+		if i < walking_npcs.size():
+			var npc_data: Dictionary = walking_npcs[i]["npc"]
+			var npc_node: Node3D = npc_data["node"]
+			player.global_position = npc_node.global_position + Vector3(0, 0.05, 0)
+			# Trigger footstep burst on walk cycle crossing
+			if npc_data.get("step_triggered", false):
+				slot["burst_remaining"] = 600
+				slot["burst_pitch"] = step_audio_rng.randf_range(0.8, 1.2)
+				slot["burst_wet"] = step_audio_rng.randf() < 0.4
+			# Fill buffer
+			if playback:
+				var frames := playback.get_frames_available()
+				var filt: float = slot["filter"]
+				for _f in range(frames):
+					var sample := 0.0
+					if slot["burst_remaining"] > 0:
+						var prog := 1.0 - float(slot["burst_remaining"]) / 600.0
+						var env := (1.0 - prog) * (1.0 - prog)
+						var noise := step_audio_rng.randf_range(-1.0, 1.0)
+						if slot["burst_wet"]:
+							var splash := noise * 0.8
+							filt = filt * 0.55 + splash * 0.45
+							sample = filt * env * 0.15
+						else:
+							var thump := sin(prog * 80.0 * slot["burst_pitch"] * TAU) * 0.5
+							sample = (noise * 0.5 + thump * 0.5) * env * 0.12
+						slot["burst_remaining"] -= 1
+					playback.push_frame(Vector2(sample, sample))
+				slot["filter"] = filt
+		else:
+			# No walking NPC for this slot - silence
 			if playback:
 				var frames := playback.get_frames_available()
 				for _f in range(frames):
