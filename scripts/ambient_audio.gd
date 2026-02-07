@@ -19,6 +19,13 @@ var thunder_timer: float = 0.0
 var thunder_phase: float = 0.0
 var thunder_active: bool = false
 var thunder_filter: float = 0.0
+var bark_timer: float = 0.0
+var bark_phase: float = 0.0
+var bark_active: bool = false
+var bark_count: int = 0
+var bark_max: int = 0
+var bark_gap_timer: float = 0.0
+var bark_pitch: float = 1.0
 var rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
@@ -76,6 +83,28 @@ func _process(delta: float) -> void:
 		if thunder_phase > 3.5:
 			thunder_active = false
 
+	# Distant dog barking
+	bark_timer -= delta
+	if bark_timer <= 0.0 and not bark_active:
+		bark_timer = rng.randf_range(25.0, 70.0)
+		bark_active = true
+		bark_count = 0
+		bark_max = rng.randi_range(2, 5)
+		bark_gap_timer = 0.0
+		bark_pitch = rng.randf_range(0.8, 1.3)
+
+	if bark_active:
+		bark_gap_timer -= delta
+		if bark_gap_timer <= 0.0 and bark_count < bark_max:
+			bark_phase = 0.0
+			bark_count += 1
+			bark_gap_timer = rng.randf_range(0.2, 0.5)
+		if bark_count >= bark_max and bark_phase > 0.15:
+			bark_active = false
+
+	if bark_active:
+		bark_phase += delta
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -104,6 +133,13 @@ func _fill_hum_buffer() -> void:
 		if siren_active:
 			var siren_freq := 600.0 + sin(siren_phase * 1.5) * 200.0
 			sample += sin(t * siren_freq * TAU) * 0.08 * (1.0 - siren_phase / 4.0)
+		# Add distant dog bark (short noise burst with resonance)
+		if bark_active and bark_phase < 0.12:
+			var bark_env := (1.0 - bark_phase / 0.12) * (1.0 - bark_phase / 0.12)
+			var bark_noise := rng.randf_range(-1.0, 1.0)
+			var bark_tone := sin(t * 350.0 * bark_pitch * TAU) * 0.4
+			bark_tone += sin(t * 700.0 * bark_pitch * TAU) * 0.2
+			sample += (bark_noise * 0.3 + bark_tone) * bark_env * 0.06
 		# Add distant thunder rumble (low-pass filtered noise burst)
 		if thunder_active:
 			var thunder_env := (1.0 - thunder_phase / 3.5) * (1.0 - thunder_phase / 3.5)

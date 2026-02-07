@@ -24,6 +24,7 @@ var drone_light: OmniLight3D = null
 var pipe_arcs: Array[Dictionary] = []  # [{light, phase, speed}]
 var police_red_light: OmniLight3D = null
 var police_blue_light: OmniLight3D = null
+var hologram_projections: Array[Dictionary] = []  # [{mesh, light, phase, speed}]
 var neon_colors: Array[Color] = [
 	Color(1.0, 0.05, 0.4),   # hot magenta
 	Color(0.0, 0.9, 1.0),    # cyan
@@ -112,6 +113,9 @@ func _ready() -> void:
 	_generate_police_car()
 	_generate_car_rain_splashes()
 	_generate_haze_layers()
+	_generate_neon_reflections()
+	_generate_rooftop_exhaust()
+	_generate_hologram_projections()
 	_setup_neon_flicker()
 	_setup_color_shift_signs()
 	print("CityGenerator: generation complete, total children=", get_child_count())
@@ -4101,6 +4105,148 @@ func _generate_haze_layers() -> void:
 	smog.set_surface_override_material(0, smog_mat)
 	add_child(smog)
 
+func _generate_neon_reflections() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5900
+	# Collect reflection data first, then add children (avoid modifying array while iterating)
+	var reflections_to_add: Array[Dictionary] = []
+	var children_snapshot := get_children()
+	for raw_child in children_snapshot:
+		if not raw_child is Node3D:
+			continue
+		var child := raw_child as Node3D
+		for sub in child.get_children():
+			if not sub is OmniLight3D:
+				continue
+			var light := sub as OmniLight3D
+			var world_y := child.position.y + light.position.y
+			if world_y < 3.0 or world_y > 15.0:
+				continue
+			if light.light_energy < 1.0:
+				continue
+			if rng.randf() > 0.15:
+				continue
+			var ref_size := rng.randf_range(1.5, 3.5)
+			var rx := child.position.x + light.position.x
+			var rz := child.position.z + light.position.z
+			reflections_to_add.append({
+				"pos": Vector3(rx, 0.01, rz),
+				"size": ref_size,
+				"color": light.light_color,
+			})
+	for rd in reflections_to_add:
+		var ref := MeshInstance3D.new()
+		var ref_mesh := BoxMesh.new()
+		ref_mesh.size = Vector3(rd["size"], 0.02, rd["size"])
+		ref.mesh = ref_mesh
+		ref.position = rd["pos"]
+		var rcol: Color = rd["color"]
+		ref.set_surface_override_material(0,
+			_make_ps1_material(rcol * 0.15, true, rcol, 1.5))
+		add_child(ref)
+
+func _generate_rooftop_exhaust() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 6000
+	var exhaust_positions: Array[Vector3] = []
+	var children_snapshot := get_children()
+	for raw_child in children_snapshot:
+		if not raw_child is Node3D or raw_child is MeshInstance3D:
+			continue
+		var child := raw_child as Node3D
+		if child.position.y < 10.0:
+			continue
+		var has_ac_body := false
+		for sub in child.get_children():
+			if sub is MeshInstance3D and sub.mesh is BoxMesh:
+				var bs: Vector3 = (sub.mesh as BoxMesh).size
+				if bs.x > 0.8 and bs.x < 1.5 and bs.y > 0.5 and bs.y < 1.2:
+					has_ac_body = true
+					break
+		if not has_ac_body:
+			continue
+		if rng.randf() > 0.30:
+			continue
+		exhaust_positions.append(Vector3(child.position.x, child.position.y + 1.0, child.position.z))
+	for epos in exhaust_positions:
+		var exhaust := GPUParticles3D.new()
+		exhaust.position = epos
+		exhaust.amount = 5
+		exhaust.lifetime = 2.5
+		exhaust.visibility_aabb = AABB(Vector3(-2, -1, -2), Vector3(4, 5, 4))
+		var ex_mat := ParticleProcessMaterial.new()
+		ex_mat.direction = Vector3(0, 1, 0)
+		ex_mat.spread = 12.0
+		ex_mat.initial_velocity_min = 0.3
+		ex_mat.initial_velocity_max = 0.8
+		ex_mat.gravity = Vector3(0, 0.1, 0)
+		ex_mat.damping_min = 0.5
+		ex_mat.damping_max = 1.0
+		ex_mat.scale_min = 0.1
+		ex_mat.scale_max = 0.3
+		ex_mat.color = Color(0.5, 0.5, 0.55, 0.08)
+		exhaust.process_material = ex_mat
+		var ex_mesh := BoxMesh.new()
+		ex_mesh.size = Vector3(0.15, 0.15, 0.15)
+		exhaust.draw_pass_1 = ex_mesh
+		add_child(exhaust)
+
+func _generate_hologram_projections() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 6100
+	var holo_data: Array[Dictionary] = []
+	var children_snapshot := get_children()
+	for raw_child in children_snapshot:
+		if holo_data.size() >= 3:
+			break
+		if not raw_child is MeshInstance3D:
+			continue
+		var mi := raw_child as MeshInstance3D
+		if not mi.mesh is BoxMesh:
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		if bsize.y < 20.0 or bsize.x < 6.0:
+			continue
+		if rng.randf() > 0.03:
+			continue
+		var holo_col := neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
+		var px := mi.position.x
+		var py := mi.position.y - bsize.y * 0.5 + 8.0
+		var pz := mi.position.z + bsize.z * 0.5 + 3.0
+		holo_data.append({
+			"pos": Vector3(px, py, pz),
+			"color": holo_col,
+			"phase": rng.randf() * TAU,
+			"speed": rng.randf_range(0.5, 1.5),
+		})
+	for hd in holo_data:
+		var holo_col: Color = hd["color"]
+		var pos: Vector3 = hd["pos"]
+		var proj := MeshInstance3D.new()
+		var proj_mesh := BoxMesh.new()
+		proj_mesh.size = Vector3(4.0, 6.0, 0.05)
+		proj.mesh = proj_mesh
+		proj.position = pos
+		proj.rotation.x = -0.3
+		proj.set_surface_override_material(0,
+			_make_ps1_material(holo_col * 0.1, true, holo_col, 2.0))
+		add_child(proj)
+		var proj_light := OmniLight3D.new()
+		proj_light.light_color = holo_col
+		proj_light.light_energy = 2.0
+		proj_light.omni_range = 10.0
+		proj_light.omni_attenuation = 1.5
+		proj_light.shadow_enabled = false
+		proj_light.position = Vector3(pos.x, pos.y, pos.z + 1.0)
+		add_child(proj_light)
+		hologram_projections.append({
+			"mesh": proj,
+			"light": proj_light,
+			"phase": hd["phase"],
+			"speed": hd["speed"],
+			"base_hue": holo_col.h,
+		})
+
 func _setup_neon_flicker() -> void:
 	# Register existing neon sign lights for flickering
 	var rng := RandomNumberGenerator.new()
@@ -4301,3 +4447,20 @@ func _process(_delta: float) -> void:
 		else:
 			police_red_light.light_energy = 0.0
 			police_blue_light.light_energy = 0.0
+
+	# Hologram projection shimmer
+	for hp in hologram_projections:
+		var hp_mesh: MeshInstance3D = hp["mesh"]
+		var hp_light: OmniLight3D = hp["light"]
+		if not is_instance_valid(hp_mesh):
+			continue
+		var hp_phase: float = hp["phase"]
+		var hp_speed: float = hp["speed"]
+		var hp_base_hue: float = hp["base_hue"]
+		var hue := fmod(hp_base_hue + sin(time * hp_speed + hp_phase) * 0.1 + 0.5, 1.0)
+		var hcol := Color.from_hsv(hue, 0.8, 1.0)
+		hp_mesh.set_surface_override_material(0,
+			_make_ps1_material(hcol * 0.1, true, hcol, 2.0 + sin(time * 3.0 + hp_phase) * 0.5))
+		if is_instance_valid(hp_light):
+			hp_light.light_color = hcol
+			hp_light.light_energy = 2.0 + sin(time * 2.0 + hp_phase) * 0.8
