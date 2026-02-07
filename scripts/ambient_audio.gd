@@ -239,6 +239,11 @@ var cart_timer: float = 0.0
 var cart_phase: float = 0.0
 var cart_active: bool = false
 var cart_duration: float = 2.0
+var gust_timer: float = 0.0
+var gust_phase: float = 0.0
+var gust_active: bool = false
+var gust_duration: float = 3.0
+var gust_filter: float = 0.0
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -1059,6 +1064,19 @@ func _process(delta: float) -> void:
 		if cart_phase > cart_duration:
 			cart_active = false
 
+	# Wind gust whoosh
+	gust_timer -= delta
+	if gust_timer <= 0.0 and not gust_active:
+		gust_timer = rng.randf_range(30.0, 60.0)
+		gust_active = true
+		gust_phase = 0.0
+		gust_duration = rng.randf_range(2.0, 4.0)
+
+	if gust_active:
+		gust_phase += delta
+		if gust_phase > gust_duration:
+			gust_active = false
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -1810,6 +1828,22 @@ func _fill_hum_buffer() -> void:
 			# Wheel rumble (low noise)
 			var wheel := rng.randf_range(-1.0, 1.0) * 0.2
 			sample += (ping + wheel) * cart_env * 0.008
+
+		# Wind gust whoosh (low filtered noise swell)
+		if gust_active:
+			var gust_env := 0.0
+			if gust_phase < gust_duration * 0.3:
+				gust_env = gust_phase / (gust_duration * 0.3)
+			elif gust_phase < gust_duration * 0.5:
+				gust_env = 1.0
+			else:
+				gust_env = (gust_duration - gust_phase) / (gust_duration * 0.5)
+			gust_env = maxf(0.0, gust_env)
+			var gust_noise := rng.randf_range(-1.0, 1.0)
+			gust_filter = gust_filter * 0.88 + gust_noise * 0.12  # low-pass ~100Hz band
+			var whoosh := gust_filter * 0.6
+			whoosh += sin(t * 80.0 * TAU) * gust_filter * 0.2  # resonant hum
+			sample += whoosh * gust_env * gust_env * 0.02
 
 		# Distant crowd murmur (band-limited noise, 200-800Hz band)
 		var murmur_noise := rng.randf_range(-1.0, 1.0)

@@ -208,6 +208,30 @@ func _process(delta: float) -> void:
 			if mdl2:
 				mdl2.rotation.x = lerpf(mdl2.rotation.x, 0.0, 8.0 * delta)
 
+		# Walk body lean (forward lean + side sway when moving)
+		if not npc_data.get("is_jogger", false):
+			var mdl_lean := node.get_node_or_null("Model")
+			if mdl_lean:
+				if not is_stopped:
+					var fwd_lean := clampf(current_speed * 0.012, 0.02, 0.08)
+					var side_sway := sin(anim.walk_cycle) * 0.025
+					mdl_lean.rotation.x = lerpf(mdl_lean.rotation.x, fwd_lean, 6.0 * delta)
+					mdl_lean.rotation.z = lerpf(mdl_lean.rotation.z, side_sway, 8.0 * delta)
+				elif not npc_data.get("has_limp", false):
+					mdl_lean.rotation.x = lerpf(mdl_lean.rotation.x, 0.0, 4.0 * delta)
+					mdl_lean.rotation.z = lerpf(mdl_lean.rotation.z, 0.0, 4.0 * delta)
+
+		# Arm swing amplitude variation (per-NPC personality)
+		if not is_stopped:
+			var sm: float = npc_data.get("swing_mult", 1.0)
+			if sm != 1.0:
+				var ls_swing := node.get_node_or_null("Model/LeftShoulder")
+				var rs_swing := node.get_node_or_null("Model/RightShoulder")
+				if ls_swing and not npc_data.get("pocket_hand", false):
+					ls_swing.rotation.x *= sm
+				if rs_swing and not npc_data.get("smoke") and not npc_data.get("has_phone", false):
+					rs_swing.rotation.x *= sm
+
 		# Track footstep triggers via walk cycle zero-crossing
 		if current_speed > 0.5:
 			var cur_sign := signf(sin(anim.walk_cycle))
@@ -1174,6 +1198,7 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		"does_hand_rub": not has_umbrella and not has_phone and not has_newspaper and rng.randf() < 0.15,
 		"does_stretch": not has_umbrella and not has_phone and not has_newspaper and rng.randf() < 0.08,
 		"does_toe_tap": not is_jogger and rng.randf() < 0.08,
+		"swing_mult": rng.randf_range(0.7, 1.3),
 	})
 
 func _add_pivot(parent: Node3D, pivot_name: String, pos: Vector3) -> Node3D:

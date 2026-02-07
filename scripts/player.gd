@@ -147,6 +147,7 @@ func _physics_process(delta: float) -> void:
 	# Jump (can't jump while crouching)
 	if is_on_floor() and Input.is_action_just_pressed("jump") and not is_crouching:
 		velocity.y = JUMP_VELOCITY
+		_play_jump_grunt()
 
 	# Get input direction
 	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_backward")
@@ -536,7 +537,8 @@ func _setup_footstep_audio() -> void:
 	step_playback = step_player.get_stream_playback()
 
 func _trigger_footstep(sprinting: bool) -> void:
-	_place_footprint()
+	if not is_crouching:
+		_place_footprint()
 	if not step_playback:
 		return
 	# Surface detection: near storefront grid cells = tile/metal, otherwise concrete
@@ -547,14 +549,20 @@ func _trigger_footstep(sprinting: bool) -> void:
 	# Randomly vary between dry and wet footstep sounds
 	var is_wet := step_rng.randf() < 0.35  # 35% chance of splashy step
 	var num_samples := 800 if sprinting else 600
+	if is_crouching:
+		num_samples = 350  # shorter, lighter
 	if is_wet:
 		num_samples = int(num_samples * 1.3)  # wet steps ring longer
 	if near_storefront:
 		num_samples = int(num_samples * 1.4)  # tile/metal rings longer
 	var pitch := step_rng.randf_range(0.7, 1.0) if sprinting else step_rng.randf_range(0.9, 1.3)
+	if is_crouching:
+		pitch = step_rng.randf_range(1.2, 1.6)  # higher pitch = lighter taps
 	if near_storefront:
 		pitch *= 1.3  # higher pitch on tile
 	var volume := 0.35 if sprinting else 0.2
+	if is_crouching:
+		volume = 0.08  # very quiet sneaky steps
 	var phase := 0.0
 	var filter_state := 0.0
 	for i in range(num_samples):
@@ -605,6 +613,28 @@ func _play_echo_step() -> void:
 		var noise := step_rng.randf_range(-1.0, 1.0)
 		var ring := sin(t * pitch * 180.0 * TAU * 0.01) * 0.3
 		var sample := (noise * 0.4 + ring * 0.6) * env * vol
+		if step_playback.can_push_buffer(1):
+			step_playback.push_frame(Vector2(sample, sample))
+
+func _play_jump_grunt() -> void:
+	if not step_playback:
+		return
+	# Short "huh" grunt — low formant burst with noise
+	var num := 500
+	var grunt_filter := 0.0
+	for i in range(num):
+		var t := float(i) / float(num)
+		# Sharp attack (first 10%), fast decay
+		var env := 0.0
+		if t < 0.1:
+			env = t / 0.1
+		else:
+			env = (1.0 - t) * (1.0 - t)
+		var noise := step_rng.randf_range(-1.0, 1.0)
+		grunt_filter = grunt_filter * 0.7 + noise * 0.3
+		var formant := sin(t * 220.0 * TAU * 0.01) * grunt_filter * 0.5
+		formant += sin(t * 110.0 * TAU * 0.01) * 0.2  # sub harmonic
+		var sample := formant * env * 0.06
 		if step_playback.can_push_buffer(1):
 			step_playback.push_frame(Vector2(sample, sample))
 
