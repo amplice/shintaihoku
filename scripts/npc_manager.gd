@@ -112,18 +112,24 @@ func _process(delta: float) -> void:
 				npc_data["is_stopped"] = true
 				npc_data["stop_duration"] = stop_rng.randf_range(2.0, 5.0)
 
-		var current_speed := 0.0 if is_stopped else speed
+		# Weather speed modifier: umbrella holders are slower, others hurry
+		var weather_mult := 1.0
+		if npc_data.get("has_umbrella", false):
+			weather_mult = 0.8
+		elif not npc_data.get("is_jogger", false):
+			weather_mult = 1.15  # hurrying through rain
+		var current_speed := 0.0 if is_stopped else speed * weather_mult
 
 		# Always move (even if culled, to keep positions consistent)
 		if not is_stopped:
 			if axis == "x":
-				node.position.x += speed * direction * delta
+				node.position.x += current_speed * direction * delta
 				if node.position.x > grid_extent:
 					node.position.x = -grid_extent
 				elif node.position.x < -grid_extent:
 					node.position.x = grid_extent
 			else:
-				node.position.z += speed * direction * delta
+				node.position.z += current_speed * direction * delta
 				if node.position.z > grid_extent:
 					node.position.z = -grid_extent
 				elif node.position.z < -grid_extent:

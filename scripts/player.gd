@@ -679,21 +679,30 @@ func _setup_shadow_blob() -> void:
 	shadow_blob.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	get_parent().call_deferred("add_child", shadow_blob)
 
+var breath_variant: int = 0  # alternates between exhale types
+
 func _trigger_breath_sound() -> void:
 	if not step_playback:
 		return
-	# Breathy exhale: band-pass filtered noise with formant resonance
-	var breath_samples := 1200
+	breath_variant = (breath_variant + 1) % 2
+	var breath_samples := 1200 if breath_variant == 0 else 1500
 	var breath_filter := 0.0
 	for i in range(breath_samples):
 		var t := float(i) / float(breath_samples)
-		# Breath envelope: gentle rise then fall
 		var env := sin(t * PI) * 0.8
 		var noise := step_rng.randf_range(-1.0, 1.0)
-		# Band-pass for breathy quality (500-1500Hz range)
-		breath_filter = breath_filter * 0.65 + noise * 0.35
-		var formant := sin(t * 800.0 * TAU * 0.01) * breath_filter * 0.4
-		var sample := formant * env * 0.08
+		var sample: float
+		if breath_variant == 0:
+			# Light exhale: higher formant, shorter
+			breath_filter = breath_filter * 0.65 + noise * 0.35
+			var formant := sin(t * 800.0 * TAU * 0.01) * breath_filter * 0.4
+			sample = formant * env * 0.08
+		else:
+			# Deep exhale: lower formant, longer, more airy
+			breath_filter = breath_filter * 0.75 + noise * 0.25
+			var formant := sin(t * 500.0 * TAU * 0.01) * breath_filter * 0.3
+			formant += sin(t * 300.0 * TAU * 0.01) * breath_filter * 0.15
+			sample = formant * env * 0.06
 		if step_playback.can_push_buffer(1):
 			step_playback.push_frame(Vector2(sample, sample))
 

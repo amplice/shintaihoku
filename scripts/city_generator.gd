@@ -5962,6 +5962,23 @@ func _generate_alleys() -> void:
 			alley_light.shadow_enabled = false
 			alley_light.position = mid + Vector3(0, 3.0, 0)
 			add_child(alley_light)
+			# Alley puddle with neon reflection
+			var apuddle := MeshInstance3D.new()
+			var apud_mesh := QuadMesh.new()
+			apud_mesh.size = Vector2(gap * 0.6, minf(size_a.z, size_b.z) * 0.4)
+			apuddle.mesh = apud_mesh
+			apuddle.position = mid + Vector3(0, 0.015, 0)
+			apuddle.rotation.x = -PI * 0.5
+			var apud_mat := ShaderMaterial.new()
+			apud_mat.shader = puddle_shader
+			apud_mat.set_shader_parameter("puddle_tint", alley_light.light_color * 0.08)
+			apud_mat.set_shader_parameter("neon_tint", alley_light.light_color)
+			apud_mat.set_shader_parameter("neon_strength", 0.8)
+			apud_mat.set_shader_parameter("reflection_strength", 0.4)
+			apud_mat.set_shader_parameter("ripple_speed", 2.0)
+			apud_mat.set_shader_parameter("ripple_scale", 8.0)
+			apuddle.set_surface_override_material(0, apud_mat)
+			add_child(apuddle)
 
 func _generate_pigeon_flocks() -> void:
 	# Small clusters of pigeon shapes sitting on building rooftop edges

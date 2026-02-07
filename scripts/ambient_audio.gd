@@ -205,6 +205,11 @@ var organ_timer: float = 0.0
 var organ_phase: float = 0.0
 var organ_active: bool = false
 var organ_duration: float = 6.0
+var tune_timer: float = 0.0
+var tune_phase: float = 0.0
+var tune_active: bool = false
+var tune_duration: float = 0.4
+var tune_freq: float = 1000.0
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -900,6 +905,22 @@ func _process(delta: float) -> void:
 	if rat_active:
 		rat_phase += delta
 
+	# Distant person whistling (brief melodic tone)
+	tune_timer -= delta
+	if tune_timer <= 0.0 and not tune_active:
+		tune_timer = rng.randf_range(25.0, 60.0)
+		tune_active = true
+		tune_phase = 0.0
+		tune_duration = rng.randf_range(0.2, 0.5)
+		# Pentatonic scale: C5, D5, E5, G5, A5
+		var penta := [1046.5, 1174.7, 1318.5, 1568.0, 1760.0]
+		tune_freq = penta[rng.randi_range(0, 4)]
+
+	if tune_active:
+		tune_phase += delta
+		if tune_phase > tune_duration:
+			tune_active = false
+
 	# Distant church organ drone (very rare, eerie)
 	organ_timer -= delta
 	if organ_timer <= 0.0 and not organ_active:
@@ -1537,6 +1558,18 @@ func _fill_hum_buffer() -> void:
 			var rt_tone := sin(t * rt_freq * TAU) * 0.15
 			rt_tone += sin(t * rt_freq * 1.6 * TAU) * 0.06
 			sample += rt_tone * rt_env * 0.015
+		# Distant person whistling (brief pure tone)
+		if tune_active:
+			var wh_env := 1.0
+			if tune_phase < 0.03:
+				wh_env = tune_phase / 0.03
+			elif tune_phase > tune_duration - 0.05:
+				wh_env = maxf(0.0, (tune_duration - tune_phase) / 0.05)
+			wh_env = wh_env * wh_env
+			# Pure sine tone with slight vibrato
+			var wh_vib := sin(tune_phase * 6.0 * TAU) * 8.0
+			var wh_tone := sin(t * (tune_freq + wh_vib) * TAU) * 0.2
+			sample += wh_tone * wh_env * 0.015
 		# Distant church organ drone (eerie sustained chord)
 		if organ_active:
 			var og_env := 1.0
