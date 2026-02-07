@@ -14,6 +14,12 @@ var flying_cars: Array[Dictionary] = []
 var cell_stride: float
 var grid_extent: float  # half-size of the entire grid in world units
 
+const ENGINE_HUM_POOL_SIZE: int = 4
+const ENGINE_HUM_RANGE: float = 40.0
+
+var engine_hum_pool: Array[Dictionary] = []
+var hum_rng := RandomNumberGenerator.new()
+
 var car_colors: Array[Color] = [
 	Color(0.15, 0.15, 0.18),  # dark gray
 	Color(0.18, 0.1, 0.25),   # dark purple
@@ -38,6 +44,29 @@ func _ready() -> void:
 	# Spawn flying cars
 	for i in range(num_flying_cars):
 		_spawn_flying_car(rng, i)
+
+	# Setup engine hum audio pool
+	hum_rng.seed = 8888
+	for i in range(ENGINE_HUM_POOL_SIZE):
+		var player := AudioStreamPlayer3D.new()
+		var gen := AudioStreamGenerator.new()
+		gen.mix_rate = 22050.0
+		gen.buffer_length = 0.1
+		player.stream = gen
+		player.volume_db = -14.0
+		player.max_distance = ENGINE_HUM_RANGE
+		player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+		player.unit_size = 8.0
+		add_child(player)
+		player.play()
+		var playback: AudioStreamGeneratorPlayback = player.get_stream_playback()
+		engine_hum_pool.append({
+			"player": player,
+			"playback": playback,
+			"phase": 0.0,
+			"target_car": null,
+			"base_freq": 55.0 + float(i) * 8.0,  # slight freq variation per slot
+		})
 
 func _process(delta: float) -> void:
 	var time := Time.get_ticks_msec() / 1000.0
@@ -87,6 +116,68 @@ func _process(delta: float) -> void:
 
 		# Gentle hover oscillation
 		node.position.y = base_y + sin(time * 2.0 + float(index)) * 0.3
+
+	# Engine hum: assign pool slots to nearest cars
+	var cam := get_viewport().get_camera_3d()
+	if cam:
+		var cam_pos := cam.global_position
+		# Collect all cars with distances
+		var all_cars: Array[Dictionary] = []
+		for gc in ground_cars:
+			var gc_node: Node3D = gc["node"]
+			var d := gc_node.global_position.distance_to(cam_pos)
+			if d < ENGINE_HUM_RANGE:
+				all_cars.append({"node": gc_node, "dist": d, "speed": gc["speed"], "flying": false})
+		for fc in flying_cars:
+			var fc_node: Node3D = fc["node"]
+			var d := fc_node.global_position.distance_to(cam_pos)
+			if d < ENGINE_HUM_RANGE:
+				all_cars.append({"node": fc_node, "dist": d, "speed": fc["speed"], "flying": true})
+		# Sort by distance (closest first)
+		all_cars.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["dist"] < b["dist"])
+		# Assign pool slots
+		for i in range(ENGINE_HUM_POOL_SIZE):
+			var slot: Dictionary = engine_hum_pool[i]
+			if i < all_cars.size():
+				var car_info: Dictionary = all_cars[i]
+				var player3d: AudioStreamPlayer3D = slot["player"]
+				var ci_node: Node3D = car_info["node"]
+				player3d.global_position = ci_node.global_position
+				# Fill hum buffer
+				var pb: AudioStreamGeneratorPlayback = slot["playback"]
+				if pb:
+					var frames := pb.get_frames_available()
+					var base_freq: float = slot["base_freq"]
+					var car_speed: float = car_info["speed"]
+					var is_flying: bool = car_info["flying"]
+					var phase: float = slot["phase"]
+					for _f in range(frames):
+						phase += 1.0 / 22050.0
+						var sample: float
+						if is_flying:
+							# Higher whine for flying cars
+							sample = sin(phase * (base_freq * 3.0) * TAU) * 0.15
+							sample += sin(phase * (base_freq * 4.5) * TAU) * 0.08
+							sample += hum_rng.randf_range(-0.02, 0.02)
+						else:
+							# Low rumble for ground cars
+							var rpm_factor := car_speed / 15.0
+							sample = sin(phase * base_freq * rpm_factor * TAU) * 0.25
+							sample += sin(phase * base_freq * 2.0 * rpm_factor * TAU) * 0.12
+							sample += sin(phase * base_freq * 3.0 * rpm_factor * TAU) * 0.05
+							sample += hum_rng.randf_range(-0.03, 0.03)
+						sample *= 0.4
+						if pb.can_push_buffer(1):
+							pb.push_frame(Vector2(sample, sample))
+					slot["phase"] = phase
+			else:
+				# No car for this slot, push silence
+				var pb: AudioStreamGeneratorPlayback = slot["playback"]
+				if pb:
+					var frames := pb.get_frames_available()
+					for _f in range(frames):
+						if pb.can_push_buffer(1):
+							pb.push_frame(Vector2.ZERO)
 
 func _spawn_ground_car(rng: RandomNumberGenerator, _index: int) -> void:
 	var car := _build_ground_car_mesh(rng)
@@ -229,6 +320,16 @@ func _build_ground_car_mesh(rng: RandomNumberGenerator) -> Node3D:
 			_make_ps1_material(headlight_color * 0.5, true, headlight_color, 2.5))
 		car.add_child(hl)
 
+	# Headlight beam (actual light)
+	var beam := OmniLight3D.new()
+	beam.light_color = Color(1.0, 0.95, 0.8)
+	beam.light_energy = 2.0
+	beam.omni_range = 12.0
+	beam.omni_attenuation = 1.5
+	beam.shadow_enabled = false
+	beam.position = Vector3(2.5, 0.5, 0)
+	car.add_child(beam)
+
 	return car
 
 func _build_flying_car_mesh(rng: RandomNumberGenerator) -> Node3D:
@@ -290,5 +391,28 @@ func _build_flying_car_mesh(rng: RandomNumberGenerator) -> Node3D:
 		tl.set_surface_override_material(0,
 			_make_ps1_material(tail_color * 0.5, true, tail_color, 3.0))
 		car.add_child(tl)
+
+	# Engine contrail particles
+	var trail := GPUParticles3D.new()
+	trail.position = Vector3(-2.5, -0.2, 0)
+	trail.amount = 15
+	trail.lifetime = 1.5
+	trail.visibility_aabb = AABB(Vector3(-15, -3, -3), Vector3(30, 6, 6))
+	var trail_mat := ParticleProcessMaterial.new()
+	trail_mat.direction = Vector3(-1, 0, 0)
+	trail_mat.spread = 10.0
+	trail_mat.initial_velocity_min = 2.0
+	trail_mat.initial_velocity_max = 4.0
+	trail_mat.gravity = Vector3(0, 0.2, 0)
+	trail_mat.damping_min = 1.0
+	trail_mat.damping_max = 2.0
+	trail_mat.scale_min = 0.1
+	trail_mat.scale_max = 0.4
+	trail_mat.color = Color(glow_col.r, glow_col.g, glow_col.b, 0.15)
+	trail.process_material = trail_mat
+	var trail_mesh := BoxMesh.new()
+	trail_mesh.size = Vector3(0.15, 0.15, 0.15)
+	trail.draw_pass_1 = trail_mesh
+	car.add_child(trail)
 
 	return car

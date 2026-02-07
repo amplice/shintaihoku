@@ -11,6 +11,7 @@ var ps1_shader: Shader
 var npcs: Array[Dictionary] = []
 var cell_stride: float
 var grid_extent: float
+var stop_rng := RandomNumberGenerator.new()
 
 # NPC outfit color palettes
 var jacket_colors: Array[Color] = [
@@ -45,6 +46,7 @@ func _ready() -> void:
 
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 555
+	stop_rng.seed = 9999
 
 	for i in range(num_npcs):
 		_spawn_npc(rng, i)
@@ -59,19 +61,35 @@ func _process(delta: float) -> void:
 		var direction: float = npc_data["direction"]
 		var anim: HumanoidAnimation = npc_data["anim"]
 
-		# Always move (even if culled, to keep positions consistent)
-		if axis == "x":
-			node.position.x += speed * direction * delta
-			if node.position.x > grid_extent:
-				node.position.x = -grid_extent
-			elif node.position.x < -grid_extent:
-				node.position.x = grid_extent
+		# Stop-and-look behavior
+		var is_stopped: bool = npc_data["is_stopped"]
+		if is_stopped:
+			npc_data["stop_duration"] -= delta
+			if npc_data["stop_duration"] <= 0.0:
+				npc_data["is_stopped"] = false
+				npc_data["stop_timer"] = stop_rng.randf_range(10.0, 30.0)
 		else:
-			node.position.z += speed * direction * delta
-			if node.position.z > grid_extent:
-				node.position.z = -grid_extent
-			elif node.position.z < -grid_extent:
-				node.position.z = grid_extent
+			npc_data["stop_timer"] -= delta
+			if npc_data["stop_timer"] <= 0.0:
+				npc_data["is_stopped"] = true
+				npc_data["stop_duration"] = stop_rng.randf_range(2.0, 5.0)
+
+		var current_speed := 0.0 if is_stopped else speed
+
+		# Always move (even if culled, to keep positions consistent)
+		if not is_stopped:
+			if axis == "x":
+				node.position.x += speed * direction * delta
+				if node.position.x > grid_extent:
+					node.position.x = -grid_extent
+				elif node.position.x < -grid_extent:
+					node.position.x = grid_extent
+			else:
+				node.position.z += speed * direction * delta
+				if node.position.z > grid_extent:
+					node.position.z = -grid_extent
+				elif node.position.z < -grid_extent:
+					node.position.z = grid_extent
 
 		# Distance-based culling
 		var dist := node.global_position.distance_to(cam_pos)
@@ -82,7 +100,7 @@ func _process(delta: float) -> void:
 			node.visible = true
 
 		# Update walk animation (only for visible NPCs)
-		anim.update(delta, speed)
+		anim.update(delta, current_speed)
 
 func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 	var npc := Node3D.new()
@@ -174,9 +192,13 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 	npcs.append({
 		"node": npc,
 		"speed": speed,
+		"base_speed": speed,
 		"axis": axis,
 		"direction": direction,
 		"anim": anim,
+		"stop_timer": rng.randf_range(8.0, 25.0),  # time until next stop
+		"stop_duration": 0.0,  # how long to stay stopped
+		"is_stopped": false,
 	})
 
 func _add_pivot(parent: Node3D, pivot_name: String, pos: Vector3) -> Node3D:
