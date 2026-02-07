@@ -138,6 +138,34 @@ func _process(delta: float) -> void:
 		if smoke:
 			smoke.emitting = is_stopped
 
+		# Phone glow: only visible when stopped
+		if npc_data["has_phone"]:
+			var pl: OmniLight3D = npc_data["phone_light"]
+			if pl and is_instance_valid(pl):
+				pl.light_energy = 0.8 if is_stopped else 0.0
+			var phone_mesh := node.get_node_or_null("Model/Phone")
+			if phone_mesh:
+				phone_mesh.visible = is_stopped
+
+		# Head tracking: stopped NPCs look at player when nearby
+		var head_node := node.get_node_or_null("Model/Head")
+		if head_node and is_instance_valid(head_node) and head_node.is_inside_tree():
+			if is_stopped and dist < 8.0:
+				var to_player := cam_pos - node.global_position
+				to_player.y = 0.0
+				if to_player.length_squared() > 0.01:
+					# Get angle relative to NPC facing direction
+					var local_dir := node.global_transform.basis.inverse() * to_player.normalized()
+					var target_yaw := atan2(local_dir.x, -local_dir.z)
+					target_yaw = clampf(target_yaw, -1.0, 1.0)  # ~57 degree max
+					head_node.rotation.y = lerpf(head_node.rotation.y, target_yaw, 3.0 * delta)
+					# Slight downward tilt when looking
+					head_node.rotation.x = lerpf(head_node.rotation.x, -0.15, 3.0 * delta)
+			else:
+				# Return to neutral
+				head_node.rotation.y = lerpf(head_node.rotation.y, 0.0, 2.0 * delta)
+				head_node.rotation.x = lerpf(head_node.rotation.x, 0.0, 2.0 * delta)
+
 	# Update umbrella rain patter audio
 	_update_umbrella_audio(cam_pos)
 
@@ -316,9 +344,46 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		umbrella.add_child(canopy)
 		model.add_child(umbrella)
 
-	# Cigarette smoke (30% of NPCs are smokers, but not umbrella holders)
+	# Phone (20% of non-umbrella NPCs hold a glowing phone)
+	var has_phone := false
+	var phone_light: OmniLight3D = null
+	if not has_umbrella and rng.randf() < 0.20:
+		has_phone = true
+		# Small emissive rectangle in right hand area
+		var phone := MeshInstance3D.new()
+		var phone_mesh := BoxMesh.new()
+		phone_mesh.size = Vector3(0.06, 0.1, 0.02)
+		phone.mesh = phone_mesh
+		phone.position = Vector3(0.18, 0.95, 0.15)
+		var phone_color := Color(0.6, 0.7, 1.0)
+		var phone_mat := ShaderMaterial.new()
+		phone_mat.shader = ps1_shader
+		phone_mat.set_shader_parameter("albedo_color", phone_color * 0.3)
+		phone_mat.set_shader_parameter("vertex_snap_intensity", 4.0)
+		phone_mat.set_shader_parameter("color_depth", 12.0)
+		phone_mat.set_shader_parameter("fog_color", Color(0.05, 0.03, 0.1, 1.0))
+		phone_mat.set_shader_parameter("fog_distance", 100.0)
+		phone_mat.set_shader_parameter("fog_density", 0.3)
+		phone_mat.set_shader_parameter("emissive", true)
+		phone_mat.set_shader_parameter("emission_color", phone_color)
+		phone_mat.set_shader_parameter("emission_strength", 3.0)
+		phone.set_surface_override_material(0, phone_mat)
+		phone.name = "Phone"
+		model.add_child(phone)
+		# Face glow light
+		phone_light = OmniLight3D.new()
+		phone_light.light_color = Color(0.5, 0.6, 1.0)
+		phone_light.light_energy = 0.8
+		phone_light.omni_range = 1.5
+		phone_light.omni_attenuation = 1.5
+		phone_light.shadow_enabled = false
+		phone_light.position = Vector3(0.18, 0.95, 0.15)
+		phone_light.name = "PhoneLight"
+		model.add_child(phone_light)
+
+	# Cigarette smoke (30% of NPCs are smokers, but not umbrella holders or phone users)
 	var smoke_particles: GPUParticles3D = null
-	if not has_umbrella and rng.randf() < 0.30:
+	if not has_umbrella and not has_phone and rng.randf() < 0.30:
 		smoke_particles = GPUParticles3D.new()
 		smoke_particles.position = Vector3(0.1, 1.6, 0.15)
 		smoke_particles.amount = 8
@@ -357,6 +422,8 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		"is_stopped": false,
 		"smoke": smoke_particles,
 		"has_umbrella": has_umbrella,
+		"has_phone": has_phone,
+		"phone_light": phone_light,
 	})
 
 func _add_pivot(parent: Node3D, pivot_name: String, pos: Vector3) -> Node3D:
@@ -480,4 +547,6 @@ func _spawn_conversation_groups(_rng: RandomNumberGenerator) -> void:
 				"is_stopped": true,
 				"smoke": null,
 				"has_umbrella": false,
+				"has_phone": false,
+				"phone_light": null,
 			})

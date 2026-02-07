@@ -35,6 +35,14 @@ const NEON_BUZZ_RANGE: float = 10.0
 var neon_buzz_pool: Array[Dictionary] = []
 var neon_buzz_positions: Array[Vector3] = []
 var buzz_rng := RandomNumberGenerator.new()
+# Distant radio music
+const RADIO_POOL_SIZE: int = 2
+const RADIO_RANGE: float = 15.0
+var radio_pool: Array[Dictionary] = []
+var radio_positions: Array[Vector3] = []
+var radio_rng := RandomNumberGenerator.new()
+var stray_cats: Array[Dictionary] = []  # [{node, home_pos, fleeing, flee_dir}]
+
 var neon_colors: Array[Color] = [
 	Color(1.0, 0.05, 0.4),   # hot magenta
 	Color(0.0, 0.9, 1.0),    # cyan
@@ -134,6 +142,8 @@ func _ready() -> void:
 	_generate_distant_city_glow()
 	_generate_rooftop_water_tanks()
 	_setup_neon_buzz_audio()
+	_setup_radio_audio()
+	_generate_stray_cats()
 	_setup_neon_flicker()
 	_setup_color_shift_signs()
 	print("CityGenerator: generation complete, total children=", get_child_count())
@@ -4609,6 +4619,89 @@ func _process(_delta: float) -> void:
 			hp_light.light_color = hcol
 			hp_light.light_energy = 2.0 + sin(time * 2.0 + hp_phase) * 0.8
 
+	# Distant radio music (proximity-based)
+	if radio_pool.size() > 0:
+		var radio_cam := get_viewport().get_camera_3d()
+		if radio_cam:
+			var rc_pos := radio_cam.global_position
+			# Find nearest radio positions
+			var nearest_radios: Array[Dictionary] = []
+			for rpos in radio_positions:
+				var d := rpos.distance_to(rc_pos)
+				if d < RADIO_RANGE:
+					nearest_radios.append({"pos": rpos, "dist": d})
+			nearest_radios.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["dist"] < b["dist"])
+			for i in range(RADIO_POOL_SIZE):
+				var slot: Dictionary = radio_pool[i]
+				var player: AudioStreamPlayer3D = slot["player"]
+				var playback: AudioStreamGeneratorPlayback = slot["playback"]
+				if i < nearest_radios.size():
+					player.global_position = nearest_radios[i]["pos"]
+					if playback:
+						var frames := playback.get_frames_available()
+						var ph: float = slot["phase"]
+						var note_timer: float = slot["note_timer"]
+						var current_freq: float = slot["current_freq"]
+						var filter_state: float = slot["filter_state"]
+						var beat_phase: float = slot["beat_phase"]
+						var mix_rate := 22050.0
+						# Pentatonic scale frequencies (muffled, lo-fi feel)
+						var pentatonic: Array[float] = [220.0, 246.9, 293.7, 329.6, 392.0, 440.0, 493.9]
+						for _f in range(frames):
+							ph += 1.0 / mix_rate
+							note_timer -= 1.0 / mix_rate
+							beat_phase += 1.0 / mix_rate
+							if note_timer <= 0.0:
+								note_timer = radio_rng.randf_range(0.2, 0.5)
+								current_freq = pentatonic[radio_rng.randi_range(0, pentatonic.size() - 1)]
+							# Simple sine melody
+							var melody := sin(ph * current_freq * TAU) * 0.15
+							# Muffled kick drum on beat
+							var beat_pos := fmod(beat_phase, 0.5)
+							var kick := 0.0
+							if beat_pos < 0.05:
+								kick = sin(beat_pos * 80.0 * TAU) * (1.0 - beat_pos / 0.05) * 0.2
+							var raw := melody + kick
+							# Heavy low-pass filter (muffled through wall)
+							filter_state = filter_state * 0.92 + raw * 0.08
+							var sample := filter_state * 0.4
+							playback.push_frame(Vector2(sample, sample))
+						slot["phase"] = ph
+						slot["note_timer"] = note_timer
+						slot["current_freq"] = current_freq
+						slot["filter_state"] = filter_state
+						slot["beat_phase"] = beat_phase
+				else:
+					if playback:
+						var frames := playback.get_frames_available()
+						for _f in range(frames):
+							playback.push_frame(Vector2.ZERO)
+
+	# Stray cat AI (flee from player)
+	var cam2 := get_viewport().get_camera_3d()
+	if cam2:
+		var player_pos := cam2.global_position
+		for cat_data in stray_cats:
+			var cat_node: Node3D = cat_data["node"]
+			var home_pos: Vector3 = cat_data["home_pos"]
+			var dist_to_player := cat_node.global_position.distance_to(player_pos)
+			var is_fleeing: bool = cat_data["fleeing"]
+			if dist_to_player < 5.0 and not is_fleeing:
+				# Start fleeing
+				cat_data["fleeing"] = true
+				var away := (cat_node.global_position - player_pos).normalized()
+				away.y = 0.0
+				cat_data["flee_dir"] = away
+			if is_fleeing:
+				var flee_dir: Vector3 = cat_data["flee_dir"]
+				cat_node.position += flee_dir * 6.0 * _delta
+				cat_node.rotation.y = atan2(flee_dir.x, flee_dir.z)
+				var dist_from_home := cat_node.global_position.distance_to(home_pos)
+				if dist_from_home > 15.0 or dist_to_player > 20.0:
+					# Return home
+					cat_data["fleeing"] = false
+					cat_node.position = home_pos
+
 	# Neon buzz audio (proximity-based)
 	if neon_buzz_pool.size() > 0:
 		var cam := get_viewport().get_camera_3d()
@@ -4830,3 +4923,114 @@ func _generate_rooftop_water_tanks() -> void:
 			leg.set_surface_override_material(0, _make_ps1_material(leg_color))
 			tank_parent.add_child(leg)
 		add_child(tank_parent)
+
+func _setup_radio_audio() -> void:
+	radio_rng.seed = 7100
+	# Pick 4 random building positions for radio sources
+	var stride := block_size + street_width
+	for _i in range(4):
+		var gx := radio_rng.randi_range(-grid_size + 1, grid_size - 1)
+		var gz := radio_rng.randi_range(-grid_size + 1, grid_size - 1)
+		var rx := gx * stride + radio_rng.randf_range(2.0, block_size - 2.0)
+		var rz := gz * stride + radio_rng.randf_range(2.0, block_size - 2.0)
+		radio_positions.append(Vector3(rx, 2.5, rz))
+	# Create audio pool
+	for _i in range(RADIO_POOL_SIZE):
+		var player := AudioStreamPlayer3D.new()
+		var gen := AudioStreamGenerator.new()
+		gen.mix_rate = 22050.0
+		gen.buffer_length = 0.1
+		player.stream = gen
+		player.volume_db = -14.0
+		player.max_distance = RADIO_RANGE
+		player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+		player.unit_size = 5.0
+		add_child(player)
+		player.play()
+		radio_pool.append({
+			"player": player,
+			"generator": gen,
+			"playback": player.get_stream_playback(),
+			"phase": 0.0,
+			"note_timer": 0.0,
+			"current_freq": 220.0,
+			"filter_state": 0.0,
+			"beat_phase": 0.0,
+		})
+
+func _generate_stray_cats() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 6900
+	var num_cats := 7
+	for _i in range(num_cats):
+		var cat := Node3D.new()
+		# Place near a random sidewalk edge
+		var gx := rng.randi_range(-grid_size + 1, grid_size - 1)
+		var gz := rng.randi_range(-grid_size + 1, grid_size - 1)
+		var stride := block_size + street_width
+		var cat_x := gx * stride + block_size * 0.5 + rng.randf_range(-2.0, 2.0)
+		var cat_z := gz * stride + block_size * 0.5 + rng.randf_range(-2.0, 2.0)
+		var cat_y := rng.randf_range(0.0, 0.3)  # ground level or on something
+		cat.position = Vector3(cat_x, cat_y, cat_z)
+		cat.rotation.y = rng.randf_range(0, TAU)
+		# Cat colors
+		var cat_colors_arr: Array[Color] = [
+			Color(0.15, 0.12, 0.1),  # dark brown
+			Color(0.1, 0.1, 0.1),    # black
+			Color(0.5, 0.35, 0.2),   # orange tabby
+			Color(0.3, 0.3, 0.3),    # gray
+			Color(0.6, 0.55, 0.45),  # cream
+		]
+		var cat_col := cat_colors_arr[rng.randi_range(0, cat_colors_arr.size() - 1)]
+		# Body (elongated box)
+		var body := MeshInstance3D.new()
+		var body_mesh := BoxMesh.new()
+		body_mesh.size = Vector3(0.12, 0.1, 0.25)
+		body.mesh = body_mesh
+		body.position = Vector3(0, 0.12, 0)
+		body.set_surface_override_material(0, _make_ps1_material(cat_col))
+		cat.add_child(body)
+		# Head (smaller box)
+		var head := MeshInstance3D.new()
+		var head_mesh := BoxMesh.new()
+		head_mesh.size = Vector3(0.1, 0.08, 0.08)
+		head.mesh = head_mesh
+		head.position = Vector3(0, 0.18, 0.14)
+		head.set_surface_override_material(0, _make_ps1_material(cat_col))
+		cat.add_child(head)
+		# Eyes (tiny green emissive dots)
+		for side in [-0.025, 0.025]:
+			var eye := MeshInstance3D.new()
+			var eye_mesh := BoxMesh.new()
+			eye_mesh.size = Vector3(0.015, 0.015, 0.01)
+			eye.mesh = eye_mesh
+			eye.position = Vector3(side, 0.19, 0.185)
+			var eye_col := Color(0.2, 1.0, 0.3)
+			eye.set_surface_override_material(0,
+				_make_ps1_material(eye_col * 0.3, true, eye_col, 2.5))
+			cat.add_child(eye)
+		# Tail (thin elongated box, angled up)
+		var tail := MeshInstance3D.new()
+		var tail_mesh := BoxMesh.new()
+		tail_mesh.size = Vector3(0.03, 0.03, 0.2)
+		tail.mesh = tail_mesh
+		tail.position = Vector3(0, 0.18, -0.18)
+		tail.rotation.x = -0.5  # angled up
+		tail.set_surface_override_material(0, _make_ps1_material(cat_col))
+		cat.add_child(tail)
+		# Ears (two small prisms approximated with boxes)
+		for ear_side in [-0.03, 0.03]:
+			var ear := MeshInstance3D.new()
+			var ear_mesh := BoxMesh.new()
+			ear_mesh.size = Vector3(0.025, 0.04, 0.02)
+			ear.mesh = ear_mesh
+			ear.position = Vector3(ear_side, 0.24, 0.14)
+			ear.set_surface_override_material(0, _make_ps1_material(cat_col * 0.8))
+			cat.add_child(ear)
+		add_child(cat)
+		stray_cats.append({
+			"node": cat,
+			"home_pos": cat.position,
+			"fleeing": false,
+			"flee_dir": Vector3.ZERO,
+		})

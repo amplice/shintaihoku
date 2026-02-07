@@ -410,6 +410,33 @@ func _build_ground_car_mesh(rng: RandomNumberGenerator) -> Node3D:
 	beam.position = Vector3(2.5, 0.5, 0)
 	car.add_child(beam)
 
+	# Tire spray particles (wet road mist behind rear wheels)
+	for spray_side in [-0.9, 0.9]:
+		var spray := GPUParticles3D.new()
+		spray.amount = 8
+		spray.lifetime = 0.5
+		spray.visibility_aabb = AABB(Vector3(-3, -1, -3), Vector3(6, 3, 6))
+		var spray_mat := ParticleProcessMaterial.new()
+		spray_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+		spray_mat.emission_box_extents = Vector3(0.1, 0, 0.1)
+		spray_mat.direction = Vector3(-1, 0.5, 0)  # spray backward and up
+		spray_mat.spread = 25.0
+		spray_mat.initial_velocity_min = 2.0
+		spray_mat.initial_velocity_max = 4.0
+		spray_mat.gravity = Vector3(0, -3.0, 0)
+		spray_mat.damping_min = 1.0
+		spray_mat.damping_max = 2.0
+		spray_mat.scale_min = 0.05
+		spray_mat.scale_max = 0.15
+		spray_mat.color = Color(0.5, 0.55, 0.65, 0.12)
+		spray.process_material = spray_mat
+		var spray_mesh := SphereMesh.new()
+		spray_mesh.radius = 0.05
+		spray_mesh.height = 0.1
+		spray.draw_pass_1 = spray_mesh
+		spray.position = Vector3(-1.1, 0.15, spray_side)
+		car.add_child(spray)
+
 	return car
 
 func _build_flying_car_mesh(rng: RandomNumberGenerator) -> Node3D:
