@@ -56,6 +56,10 @@ func _ready() -> void:
 	_generate_traffic_lights()
 	_generate_billboards()
 	_generate_dumpsters()
+	_generate_fire_escapes()
+	_generate_window_ac_units()
+	_generate_telephone_poles()
+	_generate_graffiti()
 	_setup_neon_flicker()
 	print("CityGenerator: generation complete, total children=", get_child_count())
 
@@ -1386,6 +1390,236 @@ func _generate_dumpsters() -> void:
 			dumpster.add_child(sb)
 
 			add_child(dumpster)
+
+func _generate_fire_escapes() -> void:
+	# Zigzag metal fire escapes on building side walls
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 1100
+	var metal_mat := _make_ps1_material(Color(0.22, 0.22, 0.24))
+	var railing_mat := _make_ps1_material(Color(0.18, 0.18, 0.2))
+
+	for child in get_children():
+		if not child is MeshInstance3D:
+			continue
+		var mi := child as MeshInstance3D
+		if not mi.mesh is BoxMesh:
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		if bsize.y < 15.0 or rng.randf() > 0.3:  # 30% of tall buildings
+			continue
+
+		var num_floors := int(bsize.y / 3.5)
+		var face := 1.0 if rng.randf() < 0.5 else -1.0  # left or right side
+		var platform_z := rng.randf_range(-bsize.z * 0.3, bsize.z * 0.3)
+
+		for f in range(1, num_floors):
+			var floor_y := -bsize.y * 0.5 + f * 3.5
+
+			# Platform
+			var platform := MeshInstance3D.new()
+			var plat_mesh := BoxMesh.new()
+			plat_mesh.size = Vector3(1.5, 0.06, 1.2)
+			platform.mesh = plat_mesh
+			platform.position = Vector3(face * (bsize.x * 0.5 + 0.75), floor_y, platform_z)
+			platform.set_surface_override_material(0, metal_mat)
+			mi.add_child(platform)
+
+			# Railing (thin vertical bars on outer edge)
+			var rail := MeshInstance3D.new()
+			var rail_mesh := BoxMesh.new()
+			rail_mesh.size = Vector3(0.04, 1.0, 1.2)
+			rail.mesh = rail_mesh
+			rail.position = Vector3(face * (bsize.x * 0.5 + 1.45), floor_y + 0.5, platform_z)
+			rail.set_surface_override_material(0, railing_mat)
+			mi.add_child(rail)
+
+			# Diagonal stair to next floor (angled box)
+			if f < num_floors - 1:
+				var stair := MeshInstance3D.new()
+				var stair_mesh := BoxMesh.new()
+				stair_mesh.size = Vector3(0.5, 0.06, 0.6)
+				stair.mesh = stair_mesh
+				stair.position = Vector3(face * (bsize.x * 0.5 + 0.75), floor_y + 1.75, platform_z)
+				stair.rotation.z = face * 0.9  # angled
+				stair.set_surface_override_material(0, metal_mat)
+				mi.add_child(stair)
+
+func _generate_window_ac_units() -> void:
+	# Small box meshes sticking out from building walls below windows
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 1200
+	var ac_mat := _make_ps1_material(Color(0.28, 0.28, 0.3))
+
+	for child in get_children():
+		if not child is MeshInstance3D:
+			continue
+		var mi := child as MeshInstance3D
+		if not mi.mesh is BoxMesh:
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		if bsize.y < 10.0:
+			continue
+
+		var num_units := rng.randi_range(0, 4)
+		for _u in range(num_units):
+			if rng.randf() > 0.5:
+				continue
+			var face := rng.randi_range(0, 3)
+			var unit_y := rng.randf_range(-bsize.y * 0.3, bsize.y * 0.3)
+
+			var unit := MeshInstance3D.new()
+			var unit_mesh := BoxMesh.new()
+			unit_mesh.size = Vector3(0.6, 0.4, 0.5)
+			unit.mesh = unit_mesh
+			unit.set_surface_override_material(0, ac_mat)
+
+			match face:
+				0:  # front
+					unit.position = Vector3(rng.randf_range(-bsize.x * 0.3, bsize.x * 0.3),
+						unit_y, bsize.z * 0.5 + 0.25)
+				1:  # back
+					unit.position = Vector3(rng.randf_range(-bsize.x * 0.3, bsize.x * 0.3),
+						unit_y, -bsize.z * 0.5 - 0.25)
+				2:  # right
+					unit.position = Vector3(bsize.x * 0.5 + 0.25, unit_y,
+						rng.randf_range(-bsize.z * 0.3, bsize.z * 0.3))
+					unit.rotation.y = PI * 0.5
+				3:  # left
+					unit.position = Vector3(-bsize.x * 0.5 - 0.25, unit_y,
+						rng.randf_range(-bsize.z * 0.3, bsize.z * 0.3))
+					unit.rotation.y = PI * 0.5
+
+			mi.add_child(unit)
+
+func _generate_telephone_poles() -> void:
+	# Wooden/metal telephone poles along streets with crossarms
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 1300
+	var cell_stride := block_size + street_width
+	var pole_spacing := 28.0  # every 28 units
+	var pole_mat := _make_ps1_material(Color(0.2, 0.18, 0.15))
+	var wire_mat := _make_ps1_material(Color(0.1, 0.1, 0.12))
+
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			if rng.randf() > 0.5:  # 50% of streets get poles
+				continue
+			var cell_x := gx * cell_stride
+			var cell_z := gz * cell_stride
+
+			# Poles along Z-street
+			var street_x := cell_x + block_size * 0.5 + street_width * 0.15
+			var num_poles := int(block_size / pole_spacing)
+			for i in range(num_poles):
+				var pz := cell_z - block_size * 0.5 + (i + 0.5) * pole_spacing
+				_create_telephone_pole(Vector3(street_x, 0, pz), pole_mat, wire_mat)
+
+func _create_telephone_pole(pos: Vector3, pole_mat: ShaderMaterial, wire_mat: ShaderMaterial) -> void:
+	var pole_node := Node3D.new()
+	pole_node.position = pos
+
+	# Main pole
+	var pole := MeshInstance3D.new()
+	var pole_mesh := CylinderMesh.new()
+	pole_mesh.top_radius = 0.08
+	pole_mesh.bottom_radius = 0.12
+	pole_mesh.height = 8.0
+	pole.mesh = pole_mesh
+	pole.position = Vector3(0, 4.0, 0)
+	pole.set_surface_override_material(0, pole_mat)
+	pole_node.add_child(pole)
+
+	# Crossarm
+	var crossarm := MeshInstance3D.new()
+	var arm_mesh := BoxMesh.new()
+	arm_mesh.size = Vector3(2.5, 0.1, 0.1)
+	crossarm.mesh = arm_mesh
+	crossarm.position = Vector3(0, 7.5, 0)
+	crossarm.set_surface_override_material(0, pole_mat)
+	pole_node.add_child(crossarm)
+
+	# Insulators (small cylinders on crossarm)
+	for ix in [-0.9, -0.3, 0.3, 0.9]:
+		var insulator := MeshInstance3D.new()
+		var ins_mesh := CylinderMesh.new()
+		ins_mesh.top_radius = 0.04
+		ins_mesh.bottom_radius = 0.04
+		ins_mesh.height = 0.15
+		insulator.mesh = ins_mesh
+		insulator.position = Vector3(ix, 7.6, 0)
+		insulator.set_surface_override_material(0, wire_mat)
+		pole_node.add_child(insulator)
+
+	# Wire stubs (short horizontal lines from each insulator)
+	for ix in [-0.9, -0.3, 0.3, 0.9]:
+		var wire := MeshInstance3D.new()
+		var wire_mesh := BoxMesh.new()
+		wire_mesh.size = Vector3(0.02, 0.02, 3.0)
+		wire.mesh = wire_mesh
+		wire.position = Vector3(ix, 7.65, 0)
+		wire.set_surface_override_material(0, wire_mat)
+		pole_node.add_child(wire)
+
+	add_child(pole_node)
+
+func _generate_graffiti() -> void:
+	# Colored emissive quads on lower building walls
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 1400
+
+	var graffiti_colors: Array[Color] = [
+		Color(1.0, 0.05, 0.4),   # magenta
+		Color(0.0, 0.9, 1.0),    # cyan
+		Color(0.6, 0.0, 1.0),    # purple
+		Color(1.0, 0.4, 0.0),    # orange
+		Color(0.0, 1.0, 0.5),    # green
+		Color(1.0, 1.0, 0.0),    # yellow
+	]
+
+	for child in get_children():
+		if not child is MeshInstance3D:
+			continue
+		var mi := child as MeshInstance3D
+		if not mi.mesh is BoxMesh:
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		if bsize.y < 10.0 or rng.randf() > 0.25:  # 25% of buildings
+			continue
+
+		var num_tags := rng.randi_range(1, 3)
+		for _t in range(num_tags):
+			var gc := graffiti_colors[rng.randi_range(0, graffiti_colors.size() - 1)]
+			var tag_w := rng.randf_range(1.0, 3.0)
+			var tag_h := rng.randf_range(0.5, 1.5)
+
+			var face := rng.randi_range(0, 3)
+			var tag_y := -bsize.y * 0.5 + rng.randf_range(0.5, 3.0)  # near ground level
+
+			var tag := MeshInstance3D.new()
+			var tag_mesh := QuadMesh.new()
+			tag_mesh.size = Vector2(tag_w, tag_h)
+			tag.mesh = tag_mesh
+			tag.set_surface_override_material(0,
+				_make_ps1_material(gc * 0.2, true, gc, rng.randf_range(0.5, 1.5)))
+
+			match face:
+				0:
+					tag.position = Vector3(rng.randf_range(-bsize.x * 0.35, bsize.x * 0.35),
+						tag_y, bsize.z * 0.502)
+				1:
+					tag.position = Vector3(rng.randf_range(-bsize.x * 0.35, bsize.x * 0.35),
+						tag_y, -bsize.z * 0.502)
+					tag.rotation.y = PI
+				2:
+					tag.position = Vector3(bsize.x * 0.502, tag_y,
+						rng.randf_range(-bsize.z * 0.35, bsize.z * 0.35))
+					tag.rotation.y = PI * 0.5
+				3:
+					tag.position = Vector3(-bsize.x * 0.502, tag_y,
+						rng.randf_range(-bsize.z * 0.35, bsize.z * 0.35))
+					tag.rotation.y = -PI * 0.5
+
+			mi.add_child(tag)
 
 func _setup_neon_flicker() -> void:
 	# Register existing neon sign lights for flickering
