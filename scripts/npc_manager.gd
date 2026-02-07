@@ -13,6 +13,12 @@ var cell_stride: float
 var grid_extent: float
 var stop_rng := RandomNumberGenerator.new()
 
+# Umbrella rain patter audio pool
+const UMBRELLA_AUDIO_POOL_SIZE: int = 2
+const UMBRELLA_AUDIO_RANGE: float = 12.0
+var umbrella_pool: Array[Dictionary] = []
+var umbrella_rng := RandomNumberGenerator.new()
+
 # NPC outfit color palettes
 var jacket_colors: Array[Color] = [
 	Color(0.12, 0.12, 0.15),  # dark charcoal
@@ -50,6 +56,30 @@ func _ready() -> void:
 
 	for i in range(num_npcs):
 		_spawn_npc(rng, i)
+
+	_setup_umbrella_audio()
+
+func _setup_umbrella_audio() -> void:
+	umbrella_rng.seed = 7890
+	for _i in range(UMBRELLA_AUDIO_POOL_SIZE):
+		var player := AudioStreamPlayer3D.new()
+		var gen := AudioStreamGenerator.new()
+		gen.mix_rate = 22050.0
+		gen.buffer_length = 0.1
+		player.stream = gen
+		player.volume_db = -16.0
+		player.max_distance = UMBRELLA_AUDIO_RANGE
+		player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+		player.unit_size = 5.0
+		add_child(player)
+		player.play()
+		umbrella_pool.append({
+			"player": player,
+			"generator": gen,
+			"playback": player.get_stream_playback(),
+			"assigned_npc": null,
+			"filter": 0.0,
+		})
 
 func _process(delta: float) -> void:
 	var cam := get_viewport().get_camera_3d()
@@ -106,6 +136,52 @@ func _process(delta: float) -> void:
 		var smoke: GPUParticles3D = npc_data["smoke"]
 		if smoke:
 			smoke.emitting = is_stopped
+
+	# Update umbrella rain patter audio
+	_update_umbrella_audio(cam_pos)
+
+func _update_umbrella_audio(cam_pos: Vector3) -> void:
+	# Find nearest umbrella NPCs to camera
+	var umbrella_npcs: Array[Dictionary] = []
+	for npc_data in npcs:
+		if not npc_data["has_umbrella"]:
+			continue
+		var npc_node: Node3D = npc_data["node"]
+		var d := npc_node.global_position.distance_to(cam_pos)
+		if d < UMBRELLA_AUDIO_RANGE:
+			umbrella_npcs.append({"npc": npc_data, "dist": d})
+	# Sort by distance
+	umbrella_npcs.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["dist"] < b["dist"])
+	# Assign pool slots to nearest umbrella NPCs
+	for i in range(UMBRELLA_AUDIO_POOL_SIZE):
+		var slot: Dictionary = umbrella_pool[i]
+		var player: AudioStreamPlayer3D = slot["player"]
+		var playback: AudioStreamGeneratorPlayback = slot["playback"]
+		if i < umbrella_npcs.size():
+			var npc_node: Node3D = umbrella_npcs[i]["npc"]["node"]
+			player.global_position = npc_node.global_position + Vector3(0, 1.9, 0)
+			# Fill buffer with metallic rain patter (high-pass noise)
+			if playback:
+				var frames := playback.get_frames_available()
+				var filt: float = slot["filter"]
+				for _f in range(frames):
+					var noise := umbrella_rng.randf_range(-1.0, 1.0)
+					# High-pass filter for metallic plink
+					var hp := noise - filt
+					filt = noise
+					# Sparse patter: mostly quiet, occasional taps
+					var tap := 0.0
+					if absf(hp) > 0.8:
+						tap = hp * 0.5
+					var sample := tap * 0.25
+					playback.push_frame(Vector2(sample, sample))
+				slot["filter"] = filt
+		else:
+			# No umbrella NPC for this slot - silence
+			if playback:
+				var frames := playback.get_frames_available()
+				for _f in range(frames):
+					playback.push_frame(Vector2.ZERO)
 
 func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 	var npc := Node3D.new()
@@ -192,9 +268,56 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 	var anim := HumanoidAnimation.new()
 	anim.setup(model)
 
-	# Cigarette smoke (30% of NPCs are smokers)
+	# Umbrella (25% of NPCs carry one)
+	var has_umbrella := false
+	if rng.randf() < 0.25:
+		has_umbrella = true
+		var umbrella := Node3D.new()
+		umbrella.name = "Umbrella"
+		umbrella.position = Vector3(0.15, 1.85, 0)
+		# Handle (thin cylinder)
+		var handle := MeshInstance3D.new()
+		var handle_mesh := CylinderMesh.new()
+		handle_mesh.top_radius = 0.02
+		handle_mesh.bottom_radius = 0.02
+		handle_mesh.height = 0.5
+		handle.mesh = handle_mesh
+		handle.position = Vector3(0, -0.15, 0)
+		var handle_color := Color(0.15, 0.1, 0.08)
+		var handle_mat := ShaderMaterial.new()
+		handle_mat.shader = ps1_shader
+		handle_mat.set_shader_parameter("albedo_color", handle_color)
+		handle_mat.set_shader_parameter("vertex_snap_intensity", 4.0)
+		handle_mat.set_shader_parameter("color_depth", 12.0)
+		handle_mat.set_shader_parameter("fog_color", Color(0.05, 0.03, 0.1, 1.0))
+		handle_mat.set_shader_parameter("fog_distance", 100.0)
+		handle_mat.set_shader_parameter("fog_density", 0.3)
+		handle.set_surface_override_material(0, handle_mat)
+		umbrella.add_child(handle)
+		# Canopy (flattened cone)
+		var canopy := MeshInstance3D.new()
+		var canopy_mesh := CylinderMesh.new()
+		canopy_mesh.top_radius = 0.0
+		canopy_mesh.bottom_radius = 0.45
+		canopy_mesh.height = 0.12
+		canopy.mesh = canopy_mesh
+		canopy.position = Vector3(0, 0.1, 0)
+		var canopy_tint := jacket_color * 1.2
+		var canopy_mat := ShaderMaterial.new()
+		canopy_mat.shader = ps1_shader
+		canopy_mat.set_shader_parameter("albedo_color", canopy_tint)
+		canopy_mat.set_shader_parameter("vertex_snap_intensity", 4.0)
+		canopy_mat.set_shader_parameter("color_depth", 12.0)
+		canopy_mat.set_shader_parameter("fog_color", Color(0.05, 0.03, 0.1, 1.0))
+		canopy_mat.set_shader_parameter("fog_distance", 100.0)
+		canopy_mat.set_shader_parameter("fog_density", 0.3)
+		canopy.set_surface_override_material(0, canopy_mat)
+		umbrella.add_child(canopy)
+		model.add_child(umbrella)
+
+	# Cigarette smoke (30% of NPCs are smokers, but not umbrella holders)
 	var smoke_particles: GPUParticles3D = null
-	if rng.randf() < 0.30:
+	if not has_umbrella and rng.randf() < 0.30:
 		smoke_particles = GPUParticles3D.new()
 		smoke_particles.position = Vector3(0.1, 1.6, 0.15)
 		smoke_particles.amount = 8
@@ -232,6 +355,7 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		"stop_duration": 0.0,
 		"is_stopped": false,
 		"smoke": smoke_particles,
+		"has_umbrella": has_umbrella,
 	})
 
 func _add_pivot(parent: Node3D, pivot_name: String, pos: Vector3) -> Node3D:

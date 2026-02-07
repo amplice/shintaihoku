@@ -28,6 +28,7 @@ var step_playback: AudioStreamGeneratorPlayback
 var step_rng := RandomNumberGenerator.new()
 var last_step_sign: float = 1.0  # tracks bob_timer sin sign for step triggers
 var flashlight: SpotLight3D
+var foot_splash: GPUParticles3D
 
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
@@ -38,6 +39,7 @@ func _ready() -> void:
 	_setup_crt_overlay()
 	_setup_footstep_audio()
 	_setup_flashlight()
+	_setup_foot_splash()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
@@ -107,7 +109,12 @@ func _physics_process(delta: float) -> void:
 		if current_sign != last_step_sign and current_sign != 0.0:
 			last_step_sign = current_sign
 			_trigger_footstep(is_sprinting)
+		# Foot splash particles while walking on wet ground
+		if foot_splash:
+			foot_splash.emitting = true
 	else:
+		if foot_splash:
+			foot_splash.emitting = false
 		# Idle breathing sway
 		bob_timer += delta * 1.2  # slow breathing rate
 		var breathe_y := sin(bob_timer * 0.8) * 0.005
@@ -275,6 +282,31 @@ func _setup_flashlight() -> void:
 	flashlight.position = Vector3(0.3, 0, -0.5)
 	flashlight.visible = false  # start off
 	camera.add_child(flashlight)
+
+func _setup_foot_splash() -> void:
+	foot_splash = GPUParticles3D.new()
+	foot_splash.amount = 12
+	foot_splash.lifetime = 0.3
+	foot_splash.emitting = false
+	foot_splash.visibility_aabb = AABB(Vector3(-2, -1, -2), Vector3(4, 3, 4))
+	var splash_mat := ParticleProcessMaterial.new()
+	splash_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	splash_mat.emission_box_extents = Vector3(0.2, 0, 0.2)
+	splash_mat.direction = Vector3(0, 1, 0)
+	splash_mat.spread = 45.0
+	splash_mat.initial_velocity_min = 1.0
+	splash_mat.initial_velocity_max = 2.5
+	splash_mat.gravity = Vector3(0, -10.0, 0)
+	splash_mat.scale_min = 0.03
+	splash_mat.scale_max = 0.08
+	splash_mat.color = Color(0.5, 0.55, 0.7, 0.3)
+	foot_splash.process_material = splash_mat
+	var splash_mesh := SphereMesh.new()
+	splash_mesh.radius = 0.03
+	splash_mesh.height = 0.06
+	foot_splash.draw_pass_1 = splash_mesh
+	foot_splash.position = Vector3(0, 0.05, 0)
+	add_child(foot_splash)
 
 func _setup_crt_overlay() -> void:
 	var crt_shader_path := "res://shaders/crt.gdshader"

@@ -11,6 +11,7 @@ extends Node3D
 @export var max_width: float = 14.0
 
 var ps1_shader: Shader
+var puddle_shader: Shader
 var neon_font: Font
 var flickering_lights: Array[Dictionary] = []  # [{node, base_energy, phase, speed, style}]
 var traffic_lights: Array[Dictionary] = []  # [{red, yellow, green, phase}]
@@ -49,6 +50,7 @@ const NEON_TEXTS: Array[String] = [
 
 func _ready() -> void:
 	ps1_shader = load("res://shaders/ps1.gdshader")
+	puddle_shader = load("res://shaders/puddle.gdshader")
 	# Load CJK font for kanji neon signs
 	var font_path := "res://fonts/NotoSansJP-Bold.ttf"
 	if ResourceLoader.exists(font_path):
@@ -122,6 +124,7 @@ func _ready() -> void:
 	_generate_newspaper_boxes()
 	_generate_crosswalks()
 	_generate_aircraft_flyover()
+	_generate_neon_light_shafts()
 	_setup_neon_flicker()
 	_setup_color_shift_signs()
 	print("CityGenerator: generation complete, total children=", get_child_count())
@@ -861,8 +864,15 @@ func _generate_puddles() -> void:
 				puddle.mesh = quad
 				puddle.position = Vector3(px, 0.02, pz)
 				puddle.rotation.x = -PI * 0.5  # lay flat on ground
-				puddle.set_surface_override_material(0,
-					_make_ps1_material(puddle_col * 0.08, true, puddle_col, rng.randf_range(0.8, 1.5)))
+				var puddle_mat := ShaderMaterial.new()
+				puddle_mat.shader = puddle_shader
+				puddle_mat.set_shader_parameter("puddle_tint", puddle_col * 0.08)
+				puddle_mat.set_shader_parameter("neon_tint", puddle_col)
+				puddle_mat.set_shader_parameter("neon_strength", rng.randf_range(0.5, 1.2))
+				puddle_mat.set_shader_parameter("reflection_strength", rng.randf_range(0.25, 0.45))
+				puddle_mat.set_shader_parameter("ripple_speed", rng.randf_range(1.5, 3.0))
+				puddle_mat.set_shader_parameter("ripple_scale", rng.randf_range(6.0, 12.0))
+				puddle.set_surface_override_material(0, puddle_mat)
 				add_child(puddle)
 				# Subtle ground glow from puddle reflecting neon
 				if rng.randf() < 0.35:
@@ -4585,3 +4595,49 @@ func _process(_delta: float) -> void:
 		if is_instance_valid(hp_light):
 			hp_light.light_color = hcol
 			hp_light.light_energy = 2.0 + sin(time * 2.0 + hp_phase) * 0.8
+
+func _generate_neon_light_shafts() -> void:
+	# Add translucent light cones below bright neon sign lights (fog shaft effect)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 6500
+	var shafts_to_add: Array[Dictionary] = []
+	var children_snapshot := get_children()
+	for raw_child in children_snapshot:
+		if not raw_child is Node3D:
+			continue
+		var child := raw_child as Node3D
+		for sub in child.get_children():
+			if not sub is OmniLight3D:
+				continue
+			var light := sub as OmniLight3D
+			if light.light_energy < 2.0:
+				continue
+			var world_y := child.position.y + light.position.y
+			if world_y < 4.0 or world_y > 20.0:
+				continue
+			if rng.randf() > 0.10:
+				continue
+			# Create a downward-pointing light shaft
+			var shaft_height := minf(world_y - 0.5, rng.randf_range(3.0, 8.0))
+			var shaft_top_x := child.position.x + light.position.x
+			var shaft_top_z := child.position.z + light.position.z
+			shafts_to_add.append({
+				"pos": Vector3(shaft_top_x, world_y - shaft_height * 0.5, shaft_top_z),
+				"height": shaft_height,
+				"color": light.light_color,
+				"width": rng.randf_range(0.5, 1.2),
+			})
+	for sd in shafts_to_add:
+		var shaft := MeshInstance3D.new()
+		var shaft_mesh := BoxMesh.new()
+		var sw: float = sd["width"]
+		var sh: float = sd["height"]
+		shaft_mesh.size = Vector3(sw, sh, sw * 0.3)
+		shaft.mesh = shaft_mesh
+		shaft.position = sd["pos"]
+		var scol: Color = sd["color"]
+		# Faint emissive material for volumetric look
+		shaft.set_surface_override_material(0,
+			_make_ps1_material(scol * 0.02, true, scol, 0.4))
+		shaft.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(shaft)
