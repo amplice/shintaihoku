@@ -15,6 +15,7 @@ var hum_phase: float = 0.0
 var siren_timer: float = 0.0
 var siren_phase: float = 0.0
 var siren_active: bool = false
+var siren_type: int = 0  # 0 = American wail, 1 = European two-tone
 var thunder_timer: float = 0.0
 var thunder_phase: float = 0.0
 var thunder_active: bool = false
@@ -166,6 +167,10 @@ var clink_active: bool = false
 var clink_count: int = 0
 var clink_max: int = 0
 var clink_gap_timer: float = 0.0
+var dumpster_timer: float = 0.0
+var dumpster_phase: float = 0.0
+var dumpster_active: bool = false
+var dumpster_duration: float = 0.5
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -227,6 +232,7 @@ func _process(delta: float) -> void:
 	if siren_timer <= 0.0:
 		siren_timer = rng.randf_range(30.0, 90.0)
 		siren_active = true
+		siren_type = rng.randi_range(0, 1)
 
 	if siren_active:
 		siren_phase += delta
@@ -724,6 +730,19 @@ func _process(delta: float) -> void:
 	if clink_active:
 		clink_phase += delta
 
+	# Dumpster lid rattle
+	dumpster_timer -= delta
+	if dumpster_timer <= 0.0 and not dumpster_active:
+		dumpster_timer = rng.randf_range(45.0, 90.0)
+		dumpster_active = true
+		dumpster_phase = 0.0
+		dumpster_duration = rng.randf_range(0.3, 0.8)
+
+	if dumpster_active:
+		dumpster_phase += delta
+		if dumpster_phase > dumpster_duration:
+			dumpster_active = false
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -748,10 +767,18 @@ func _fill_hum_buffer() -> void:
 		var sample := sin(t * 60.0 * TAU) * 0.3
 		sample += sin(t * 120.0 * TAU) * 0.15
 		sample += sin(t * 180.0 * TAU) * 0.05
-		# Add siren if active (rising/falling tone)
+		# Add siren if active (two variants)
 		if siren_active:
-			var siren_freq := 600.0 + sin(siren_phase * 1.5) * 200.0
-			sample += sin(t * siren_freq * TAU) * 0.08 * (1.0 - siren_phase / 4.0)
+			var siren_env := 0.08 * (1.0 - siren_phase / 4.0)
+			if siren_type == 0:
+				# American wail: smooth rising/falling
+				var siren_freq := 600.0 + sin(siren_phase * 1.5) * 200.0
+				sample += sin(t * siren_freq * TAU) * siren_env
+			else:
+				# European two-tone: alternating 600/800Hz
+				var euro_toggle := sin(siren_phase * 1.5 * TAU)
+				var euro_freq := 600.0 if euro_toggle > 0.0 else 800.0
+				sample += sin(t * euro_freq * TAU) * siren_env
 		# Add distant dog bark (short noise burst with resonance)
 		if bark_active and bark_phase < 0.12:
 			var bark_env := (1.0 - bark_phase / 0.12) * (1.0 - bark_phase / 0.12)
@@ -1105,6 +1132,20 @@ func _fill_hum_buffer() -> void:
 			bell += sin(t * cm_freq * 2.76 * TAU) * 0.1  # inharmonic partial
 			bell += sin(t * cm_freq * 5.4 * TAU) * 0.04  # high shimmer
 			sample += bell * cm_env * 0.015
+		# Dumpster lid rattle (metallic impacts in quick succession)
+		if dumpster_active:
+			var dm_env := 1.0
+			if dumpster_phase > dumpster_duration - 0.1:
+				dm_env = maxf(0.0, (dumpster_duration - dumpster_phase) / 0.1)
+			# Rapid metallic impacts (~8Hz)
+			var rattle_pos := fmod(dumpster_phase, 0.125)
+			if rattle_pos < 0.03:
+				var rt_env := (1.0 - rattle_pos / 0.03)
+				rt_env = rt_env * rt_env * rt_env
+				var rt_tone := sin(t * 380.0 * TAU) * 0.2
+				rt_tone += sin(t * 550.0 * TAU) * 0.15
+				var rt_noise := rng.randf_range(-1.0, 1.0) * 0.3
+				sample += (rt_tone + rt_noise) * rt_env * dm_env * 0.02
 		# Distant cat fight screech (high warbling screech)
 		if cat_screech_active:
 			var cs_env := 1.0

@@ -192,6 +192,7 @@ func _ready() -> void:
 	_generate_fluorescent_tubes()
 	_generate_fire_barrels()
 	_generate_security_spotlights()
+	_generate_wall_drips()
 	print("CityGenerator: generation complete, total children=", get_child_count())
 
 func _make_ps1_material(color: Color, is_emissive: bool = false,
@@ -6848,3 +6849,39 @@ func _generate_security_spotlights() -> void:
 			spot.shadow_enabled = false
 			add_child(spot)
 			count += 1
+
+func _generate_wall_drips() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 9700
+	var stride := block_size + street_width
+	var drip_count := 0
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			if drip_count >= 8:
+				break
+			if rng.randf() > 0.06:
+				continue
+			var bx := gx * stride + rng.randf_range(1.0, block_size - 1.0)
+			var bz := gz * stride + rng.randf_range(-0.5, 0.5)
+			var drip_y := rng.randf_range(3.0, 8.0)
+			var drip := GPUParticles3D.new()
+			drip.position = Vector3(bx, drip_y, bz)
+			drip.amount = 2
+			drip.lifetime = 0.8
+			drip.visibility_aabb = AABB(Vector3(-0.5, -4, -0.5), Vector3(1, 5, 1))
+			var d_mat := ParticleProcessMaterial.new()
+			d_mat.direction = Vector3(0, -1, 0)
+			d_mat.spread = 5.0
+			d_mat.initial_velocity_min = 0.1
+			d_mat.initial_velocity_max = 0.3
+			d_mat.gravity = Vector3(0, -4.0, 0)
+			d_mat.scale_min = 0.02
+			d_mat.scale_max = 0.04
+			d_mat.color = Color(0.4, 0.45, 0.6, 0.12)
+			drip.process_material = d_mat
+			var d_mesh := SphereMesh.new()
+			d_mesh.radius = 0.02
+			d_mesh.height = 0.06
+			drip.draw_pass_1 = d_mesh
+			add_child(drip)
+			drip_count += 1

@@ -622,6 +622,14 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		_add_body_part(model, "Hood", BoxMesh.new(), Vector3(0, 1.6, -0.12),
 			jacket_color * 1.1, Vector3(0.4, 0.25, 0.22))
 
+	# Cybernetic glowing eyes (3% of NPCs)
+	if rng.randf() < 0.03:
+		var eye_col := Color(0.0, 0.9, 1.0) if rng.randf() < 0.6 else Color(1.0, 0.1, 0.1)
+		_add_body_part(model, "EyeL", BoxMesh.new(), Vector3(-0.07, 1.58, 0.13),
+			eye_col * 0.3, Vector3(0.03, 0.03, 0.03), true, eye_col, 3.0)
+		_add_body_part(model, "EyeR", BoxMesh.new(), Vector3(0.07, 1.58, 0.13),
+			eye_col * 0.3, Vector3(0.03, 0.03, 0.03), true, eye_col, 3.0)
+
 	# Face mask (10% of NPCs - covers lower face)
 	if rng.randf() < 0.10:
 		var mask_col := Color(0.85, 0.85, 0.85) if rng.randf() < 0.6 else Color(0.1, 0.1, 0.1)
