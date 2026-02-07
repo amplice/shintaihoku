@@ -50,6 +50,8 @@ func _ready() -> void:
 		_spawn_npc(rng, i)
 
 func _process(delta: float) -> void:
+	var cam := get_viewport().get_camera_3d()
+	var cam_pos := cam.global_position if cam else Vector3.ZERO
 	for npc_data in npcs:
 		var node: Node3D = npc_data["node"]
 		var speed: float = npc_data["speed"]
@@ -57,7 +59,7 @@ func _process(delta: float) -> void:
 		var direction: float = npc_data["direction"]
 		var anim: HumanoidAnimation = npc_data["anim"]
 
-		# Move along street
+		# Always move (even if culled, to keep positions consistent)
 		if axis == "x":
 			node.position.x += speed * direction * delta
 			if node.position.x > grid_extent:
@@ -71,7 +73,15 @@ func _process(delta: float) -> void:
 			elif node.position.z < -grid_extent:
 				node.position.z = grid_extent
 
-		# Update walk animation
+		# Distance-based culling
+		var dist := node.global_position.distance_to(cam_pos)
+		if dist > 80.0:
+			node.visible = false
+			continue
+		else:
+			node.visible = true
+
+		# Update walk animation (only for visible NPCs)
 		anim.update(delta, speed)
 
 func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
@@ -94,9 +104,11 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		npc.position = Vector3(lane_pos + sidewalk_offset, 0, along_pos)
 		npc.rotation.y = PI * 0.5 if direction > 0 else -PI * 0.5
 
-	# Build humanoid model
+	# Build humanoid model with height/build variety
 	var model := Node3D.new()
 	model.name = "Model"
+	var height_scale := rng.randf_range(0.85, 1.15)
+	model.scale = Vector3(height_scale, height_scale, height_scale)
 	npc.add_child(model)
 
 	var skin_color := skin_colors[rng.randi_range(0, skin_colors.size() - 1)]

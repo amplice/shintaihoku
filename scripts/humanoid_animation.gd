@@ -12,9 +12,12 @@ var left_elbow: Node3D
 var right_elbow: Node3D
 var left_knee: Node3D
 var right_knee: Node3D
+var head: Node3D
+var model_root: Node3D
 
 var walk_cycle: float = 0.0
 var walk_frequency: float = 8.0  # cycles per second at full speed
+var idle_time: float = 0.0
 var is_setup: bool = false
 
 func setup(model: Node3D) -> void:
@@ -26,6 +29,8 @@ func setup(model: Node3D) -> void:
 	right_elbow = model.get_node_or_null("RightShoulder/RightElbow")
 	left_knee = model.get_node_or_null("LeftHip/LeftKnee")
 	right_knee = model.get_node_or_null("RightHip/RightKnee")
+	head = model.get_node_or_null("Head")
+	model_root = model
 	is_setup = (left_shoulder != null and right_shoulder != null
 		and left_hip != null and right_hip != null)
 
@@ -37,6 +42,7 @@ func update(delta: float, horizontal_speed: float) -> void:
 
 	if speed_ratio > 0.05:
 		# Walking -- advance cycle
+		idle_time = 0.0
 		walk_cycle += delta * walk_frequency * speed_ratio
 		var swing_amount := 0.5 * speed_ratio  # radians
 
@@ -64,18 +70,35 @@ func update(delta: float, horizontal_speed: float) -> void:
 		if right_knee:
 			right_knee.rotation.x = clampf(-leg_swing * 0.7, 0.0, 0.9)
 	else:
-		# Idle -- lerp all rotations back to 0
+		# Idle -- subtle life-like movements
+		idle_time += delta
 		var lerp_speed := 10.0 * delta
-		left_shoulder.rotation.x = lerpf(left_shoulder.rotation.x, 0.0, lerp_speed)
-		right_shoulder.rotation.x = lerpf(right_shoulder.rotation.x, 0.0, lerp_speed)
+
+		# Lerp walk poses back toward idle targets
+		var idle_arm := sin(idle_time * 0.5) * 0.03  # very subtle arm sway
+		left_shoulder.rotation.x = lerpf(left_shoulder.rotation.x, idle_arm, lerp_speed)
+		right_shoulder.rotation.x = lerpf(right_shoulder.rotation.x, -idle_arm * 0.5, lerp_speed)
 		left_hip.rotation.x = lerpf(left_hip.rotation.x, 0.0, lerp_speed)
 		right_hip.rotation.x = lerpf(right_hip.rotation.x, 0.0, lerp_speed)
 		if left_elbow:
-			left_elbow.rotation.x = lerpf(left_elbow.rotation.x, 0.0, lerp_speed)
+			left_elbow.rotation.x = lerpf(left_elbow.rotation.x, -0.05, lerp_speed)
 		if right_elbow:
-			right_elbow.rotation.x = lerpf(right_elbow.rotation.x, 0.0, lerp_speed)
+			right_elbow.rotation.x = lerpf(right_elbow.rotation.x, -0.05, lerp_speed)
 		if left_knee:
 			left_knee.rotation.x = lerpf(left_knee.rotation.x, 0.0, lerp_speed)
 		if right_knee:
 			right_knee.rotation.x = lerpf(right_knee.rotation.x, 0.0, lerp_speed)
+
+		# Head look-around (slow periodic turn)
+		if head:
+			var head_turn := sin(idle_time * 0.3) * 0.2
+			var head_tilt := sin(idle_time * 0.2 + 1.0) * 0.05
+			head.rotation.y = lerpf(head.rotation.y, head_turn, 3.0 * delta)
+			head.rotation.z = lerpf(head.rotation.z, head_tilt, 3.0 * delta)
+
+		# Weight shift (subtle hip sway)
+		if model_root:
+			var sway := sin(idle_time * 0.4) * 0.01
+			model_root.position.x = lerpf(model_root.position.x, sway, 2.0 * delta)
+
 		walk_cycle = 0.0

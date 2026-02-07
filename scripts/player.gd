@@ -101,9 +101,12 @@ func _physics_process(delta: float) -> void:
 			last_step_sign = current_sign
 			_trigger_footstep(is_sprinting)
 	else:
-		# Smoothly return to center
-		camera.position.y = lerpf(camera.position.y, camera_base_y, 10.0 * delta)
-		camera.position.x = lerpf(camera.position.x, 0.0, 10.0 * delta)
+		# Idle breathing sway
+		bob_timer += delta * 1.2  # slow breathing rate
+		var breathe_y := sin(bob_timer * 0.8) * 0.005
+		var breathe_x := sin(bob_timer * 0.5) * 0.002
+		camera.position.y = lerpf(camera.position.y, camera_base_y + breathe_y, 5.0 * delta)
+		camera.position.x = lerpf(camera.position.x, breathe_x, 5.0 * delta)
 
 func _build_humanoid_model() -> void:
 	# Remove the old capsule mesh from the scene
@@ -225,20 +228,32 @@ func _setup_footstep_audio() -> void:
 func _trigger_footstep(sprinting: bool) -> void:
 	if not step_playback:
 		return
-	# Generate a short percussive noise burst (footstep on wet concrete)
+	# Randomly vary between dry and wet footstep sounds
+	var is_wet := step_rng.randf() < 0.35  # 35% chance of splashy step
 	var num_samples := 800 if sprinting else 600
+	if is_wet:
+		num_samples = int(num_samples * 1.3)  # wet steps ring longer
 	var pitch := step_rng.randf_range(0.7, 1.0) if sprinting else step_rng.randf_range(0.9, 1.3)
 	var volume := 0.35 if sprinting else 0.2
 	var phase := 0.0
+	var filter_state := 0.0
 	for i in range(num_samples):
 		var t := float(i) / float(num_samples)
 		# Envelope: sharp attack, fast decay
 		var env := (1.0 - t) * (1.0 - t)
-		# Noise + low thump
 		var noise := step_rng.randf_range(-1.0, 1.0)
 		phase += pitch * 0.02
-		var thump := sin(phase * 80.0 * TAU) * 0.5
-		var sample := (noise * 0.6 + thump * 0.4) * env * volume
+		var sample: float
+		if is_wet:
+			# Wet: more noise, higher pitch splash, less thump
+			var splash := noise * 0.85
+			var water_ring := sin(phase * 120.0 * TAU) * 0.15 * (1.0 - t)
+			filter_state = filter_state * 0.6 + splash * 0.4
+			sample = (filter_state + water_ring) * env * volume * 1.2
+		else:
+			# Dry: standard thump + noise
+			var thump := sin(phase * 80.0 * TAU) * 0.5
+			sample = (noise * 0.6 + thump * 0.4) * env * volume
 		if step_playback.can_push_buffer(1):
 			step_playback.push_frame(Vector2(sample, sample))
 
