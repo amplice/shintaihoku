@@ -6,6 +6,9 @@ var splash_particles: GPUParticles3D
 var rain_time: float = 0.0
 var base_amount: int = 0
 var base_splash_amount: int = 0
+var wind_gust_timer: float = 8.0
+var wind_x: float = 0.0
+var wind_target_x: float = 0.0
 
 func _ready() -> void:
 	_setup_splash_particles()
@@ -25,6 +28,18 @@ func _process(delta: float) -> void:
 	amount = int(base_amount * (0.4 + 0.6 * intensity))
 	if splash_particles:
 		splash_particles.amount = int(base_splash_amount * (0.3 + 0.7 * intensity))
+
+	# Wind gusts — shift rain gravity sideways periodically
+	wind_gust_timer -= delta
+	if wind_gust_timer <= 0.0:
+		wind_gust_timer = randf_range(6.0, 15.0)
+		wind_target_x = randf_range(-4.0, 4.0)
+	wind_x = lerpf(wind_x, wind_target_x, 1.5 * delta)
+	# Decay wind back toward calm
+	wind_target_x = lerpf(wind_target_x, 0.0, 0.3 * delta)
+	var rain_mat := process_material as ParticleProcessMaterial
+	if rain_mat:
+		rain_mat.gravity = Vector3(wind_x, -25.0, wind_x * 0.3)
 
 func _setup_splash_particles() -> void:
 	splash_particles = GPUParticles3D.new()

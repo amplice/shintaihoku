@@ -45,6 +45,7 @@ var interact_label: Label
 var is_crouching: bool = false
 var crouch_lerp: float = 1.0  # 1.0 = standing, CROUCH_HEIGHT = crouched
 var model_node: Node3D = null
+var shadow_blob: MeshInstance3D = null
 
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
@@ -60,6 +61,7 @@ func _ready() -> void:
 	_setup_breath_fog()
 	_setup_compass_hud()
 	_setup_interaction_prompt()
+	_setup_shadow_blob()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
@@ -129,6 +131,10 @@ func _physics_process(delta: float) -> void:
 		velocity.z = move_toward(velocity.z, 0, current_speed * 5.0 * delta)
 
 	move_and_slide()
+
+	# Shadow blob follows player on ground
+	if shadow_blob and is_instance_valid(shadow_blob) and shadow_blob.is_inside_tree():
+		shadow_blob.global_position = Vector3(global_position.x, 0.03, global_position.z)
 
 	# Drive walk animation
 	var horiz_speed := Vector2(velocity.x, velocity.z).length()
@@ -514,3 +520,19 @@ func _setup_crt_overlay() -> void:
 	rect.material = mat
 	crt_material = mat
 	canvas_layer.add_child(rect)
+
+func _setup_shadow_blob() -> void:
+	shadow_blob = MeshInstance3D.new()
+	var blob_mesh := QuadMesh.new()
+	blob_mesh.size = Vector2(0.8, 0.8)
+	shadow_blob.mesh = blob_mesh
+	shadow_blob.rotation.x = -PI * 0.5  # flat on ground
+	# Dark semi-transparent circle approximation
+	var blob_mat := StandardMaterial3D.new()
+	blob_mat.albedo_color = Color(0.0, 0.0, 0.0, 0.35)
+	blob_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	blob_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	blob_mat.no_depth_test = false
+	shadow_blob.set_surface_override_material(0, blob_mat)
+	shadow_blob.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	get_parent().call_deferred("add_child", shadow_blob)

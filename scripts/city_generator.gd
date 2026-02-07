@@ -59,6 +59,9 @@ var neon_colors: Array[Color] = [
 	Color(1.0, 0.4, 0.0),    # orange
 	Color(0.0, 1.0, 0.5),    # green neon
 	Color(1.0, 0.0, 0.1),    # red
+	Color(1.0, 0.75, 0.1),   # warm gold/amber
+	Color(0.95, 0.9, 0.85),  # warm white
+	Color(1.0, 0.3, 0.6),    # soft pink
 ]
 
 # Kanji/compound words for neon signs
