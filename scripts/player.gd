@@ -7,6 +7,12 @@ const SPRINT_SPEED = 8.0
 const ROTATION_SPEED = 0.003
 const GRAVITY = 20.0
 const JUMP_VELOCITY = 7.0
+const BASE_FOV = 70.0
+const SPRINT_FOV = 80.0
+const FOV_LERP_SPEED = 6.0
+const BOB_FREQUENCY = 10.0
+const BOB_AMPLITUDE = 0.03
+const BOB_SPRINT_MULT = 1.4
 
 @onready var camera_pivot: Node3D = $CameraPivot
 @onready var camera: Camera3D = $CameraPivot/Camera3D
@@ -14,10 +20,14 @@ const JUMP_VELOCITY = 7.0
 var camera_rotation_x: float = -0.3  # slight downward angle
 var ps1_shader: Shader
 var anim: HumanoidAnimation
+var bob_timer: float = 0.0
+var camera_base_y: float = 0.0
 
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	ps1_shader = load("res://shaders/ps1.gdshader")
+	camera.fov = BASE_FOV
+	camera_base_y = camera.position.y
 	_build_humanoid_model()
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -63,6 +73,25 @@ func _physics_process(delta: float) -> void:
 	var horiz_speed := Vector2(velocity.x, velocity.z).length()
 	if anim:
 		anim.update(delta, horiz_speed)
+
+	var is_sprinting := Input.is_key_pressed(KEY_SHIFT) and horiz_speed > 1.0
+
+	# Sprint FOV effect
+	var target_fov := SPRINT_FOV if is_sprinting else BASE_FOV
+	camera.fov = lerpf(camera.fov, target_fov, FOV_LERP_SPEED * delta)
+
+	# Head bob
+	if is_on_floor() and horiz_speed > 0.5:
+		var bob_mult := BOB_SPRINT_MULT if is_sprinting else 1.0
+		bob_timer += delta * BOB_FREQUENCY * (horiz_speed / SPEED)
+		var bob_offset := sin(bob_timer) * BOB_AMPLITUDE * bob_mult
+		camera.position.y = camera_base_y + bob_offset
+		# Subtle horizontal sway
+		camera.position.x = sin(bob_timer * 0.5) * BOB_AMPLITUDE * 0.5 * bob_mult
+	else:
+		# Smoothly return to center
+		camera.position.y = lerpf(camera.position.y, camera_base_y, 10.0 * delta)
+		camera.position.x = lerpf(camera.position.x, 0.0, 10.0 * delta)
 
 func _build_humanoid_model() -> void:
 	# Remove the old capsule mesh from the scene

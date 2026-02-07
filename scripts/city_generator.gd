@@ -13,6 +13,7 @@ extends Node3D
 var ps1_shader: Shader
 var neon_font: Font
 var flickering_lights: Array[Dictionary] = []  # [{node, base_energy, phase, speed, style}]
+var traffic_lights: Array[Dictionary] = []  # [{red, yellow, green, phase}]
 var neon_colors: Array[Color] = [
 	Color(1.0, 0.05, 0.4),   # hot magenta
 	Color(0.0, 0.9, 1.0),    # cyan
@@ -49,6 +50,12 @@ func _ready() -> void:
 	_generate_steam_vents()
 	_generate_skyline()
 	_generate_rooftop_details()
+	_generate_sidewalks()
+	_generate_road_markings()
+	_generate_vending_machines()
+	_generate_traffic_lights()
+	_generate_billboards()
+	_generate_dumpsters()
 	_setup_neon_flicker()
 	print("CityGenerator: generation complete, total children=", get_child_count())
 
@@ -959,6 +966,427 @@ func _generate_rooftop_details() -> void:
 			ac.set_surface_override_material(0, metal_mat)
 			mi.add_child(ac)
 
+func _generate_sidewalks() -> void:
+	var cell_stride := block_size + street_width
+	var curb_height := 0.15
+	var sidewalk_width := 2.0
+	var sidewalk_mat := _make_ps1_material(Color(0.12, 0.12, 0.14))
+	var curb_mat := _make_ps1_material(Color(0.18, 0.18, 0.2))
+
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			var cell_x := gx * cell_stride
+			var cell_z := gz * cell_stride
+
+			# Sidewalk along +Z street (east side of block)
+			var sz_x := cell_x + block_size * 0.5 + sidewalk_width * 0.5
+			_add_sidewalk_strip(Vector3(sz_x, curb_height * 0.5, cell_z),
+				Vector3(sidewalk_width, curb_height, block_size), sidewalk_mat, curb_mat, curb_height, "z")
+
+			# Sidewalk along +X street (south side of block)
+			var sx_z := cell_z + block_size * 0.5 + sidewalk_width * 0.5
+			_add_sidewalk_strip(Vector3(cell_x, curb_height * 0.5, sx_z),
+				Vector3(block_size, curb_height, sidewalk_width), sidewalk_mat, curb_mat, curb_height, "x")
+
+func _add_sidewalk_strip(pos: Vector3, size: Vector3, sidewalk_mat: ShaderMaterial,
+		curb_mat: ShaderMaterial, curb_height: float, _street_axis: String) -> void:
+	# Raised sidewalk platform
+	var sidewalk := MeshInstance3D.new()
+	var sidewalk_mesh := BoxMesh.new()
+	sidewalk_mesh.size = size
+	sidewalk.mesh = sidewalk_mesh
+	sidewalk.position = pos
+	sidewalk.set_surface_override_material(0, sidewalk_mat)
+	add_child(sidewalk)
+
+	# Curb edge (thin raised strip on street side)
+	var curb := MeshInstance3D.new()
+	var curb_mesh := BoxMesh.new()
+	if _street_axis == "z":
+		curb_mesh.size = Vector3(0.1, curb_height + 0.05, size.z)
+		curb.position = pos + Vector3(size.x * 0.5, 0.025, 0)
+	else:
+		curb_mesh.size = Vector3(size.x, curb_height + 0.05, 0.1)
+		curb.position = pos + Vector3(0, 0.025, size.z * 0.5)
+	curb.mesh = curb_mesh
+	curb.set_surface_override_material(0, curb_mat)
+	add_child(curb)
+
+func _generate_road_markings() -> void:
+	var cell_stride := block_size + street_width
+	var marking_mat := _make_ps1_material(Color(0.6, 0.6, 0.4) * 0.3, true,
+		Color(0.6, 0.6, 0.4), 0.5)
+	var crosswalk_mat := _make_ps1_material(Color(0.8, 0.8, 0.8) * 0.3, true,
+		Color(0.8, 0.8, 0.8), 0.4)
+
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			var cell_x := gx * cell_stride
+			var cell_z := gz * cell_stride
+
+			# Center line dashes along Z-street
+			var street_center_x := cell_x + block_size * 0.5 + street_width * 0.5
+			var dash_spacing := 4.0
+			var num_dashes := int(block_size / dash_spacing)
+			for i in range(num_dashes):
+				var dz := cell_z - block_size * 0.5 + (i + 0.5) * dash_spacing
+				var dash := MeshInstance3D.new()
+				var dash_mesh := QuadMesh.new()
+				dash_mesh.size = Vector2(0.15, 1.5)
+				dash.mesh = dash_mesh
+				dash.position = Vector3(street_center_x, 0.01, dz)
+				dash.rotation.x = -PI * 0.5
+				dash.set_surface_override_material(0, marking_mat)
+				add_child(dash)
+
+			# Center line dashes along X-street
+			var street_center_z := cell_z + block_size * 0.5 + street_width * 0.5
+			for i in range(num_dashes):
+				var dx := cell_x - block_size * 0.5 + (i + 0.5) * dash_spacing
+				var dash := MeshInstance3D.new()
+				var dash_mesh := QuadMesh.new()
+				dash_mesh.size = Vector2(1.5, 0.15)
+				dash.mesh = dash_mesh
+				dash.position = Vector3(dx, 0.01, street_center_z)
+				dash.rotation.x = -PI * 0.5
+				dash.set_surface_override_material(0, marking_mat)
+				add_child(dash)
+
+			# Crosswalk at intersection (corner of block)
+			var ix := cell_x + block_size * 0.5 + street_width * 0.5
+			var iz := cell_z + block_size * 0.5 + street_width * 0.5
+			# Crosswalk across Z-street (parallel to X)
+			var num_stripes := 5
+			for s in range(num_stripes):
+				var stripe := MeshInstance3D.new()
+				var stripe_mesh := QuadMesh.new()
+				stripe_mesh.size = Vector2(street_width * 0.7, 0.4)
+				stripe.mesh = stripe_mesh
+				stripe.position = Vector3(ix, 0.015, iz - 2.0 + s * 1.0)
+				stripe.rotation.x = -PI * 0.5
+				stripe.set_surface_override_material(0, crosswalk_mat)
+				add_child(stripe)
+			# Crosswalk across X-street (parallel to Z)
+			for s in range(num_stripes):
+				var stripe := MeshInstance3D.new()
+				var stripe_mesh := QuadMesh.new()
+				stripe_mesh.size = Vector2(0.4, street_width * 0.7)
+				stripe.mesh = stripe_mesh
+				stripe.position = Vector3(ix - 2.0 + s * 1.0, 0.015, iz)
+				stripe.rotation.x = -PI * 0.5
+				stripe.set_surface_override_material(0, crosswalk_mat)
+				add_child(stripe)
+
+func _generate_vending_machines() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 789
+	var cell_stride := block_size + street_width
+
+	var vending_colors: Array[Color] = [
+		Color(1.0, 0.05, 0.4),  # magenta
+		Color(0.0, 0.9, 1.0),   # cyan
+		Color(1.0, 0.4, 0.0),   # orange
+		Color(0.0, 1.0, 0.5),   # green
+	]
+
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			if rng.randf() > 0.25:  # 25% of blocks get a vending machine
+				continue
+			var cell_x := gx * cell_stride
+			var cell_z := gz * cell_stride
+
+			var vc := vending_colors[rng.randi_range(0, vending_colors.size() - 1)]
+
+			# Place on sidewalk
+			var side := rng.randi_range(0, 1)
+			var vx: float
+			var vz: float
+			if side == 0:
+				# Along Z-street sidewalk
+				vx = cell_x + block_size * 0.5 + 1.0
+				vz = cell_z + rng.randf_range(-block_size * 0.3, block_size * 0.3)
+			else:
+				# Along X-street sidewalk
+				vx = cell_x + rng.randf_range(-block_size * 0.3, block_size * 0.3)
+				vz = cell_z + block_size * 0.5 + 1.0
+
+			var vm := Node3D.new()
+			vm.position = Vector3(vx, 0, vz)
+
+			# Main body
+			var body := MeshInstance3D.new()
+			var body_mesh := BoxMesh.new()
+			body_mesh.size = Vector3(0.8, 1.8, 0.7)
+			body.mesh = body_mesh
+			body.position = Vector3(0, 0.9, 0)
+			body.set_surface_override_material(0, _make_ps1_material(Color(0.15, 0.15, 0.18)))
+			vm.add_child(body)
+
+			# Glowing front panel
+			var panel := MeshInstance3D.new()
+			var panel_mesh := QuadMesh.new()
+			panel_mesh.size = Vector2(0.7, 1.2)
+			panel.mesh = panel_mesh
+			panel.position = Vector3(0, 1.0, 0.351)
+			panel.set_surface_override_material(0,
+				_make_ps1_material(vc * 0.3, true, vc, 3.0))
+			vm.add_child(panel)
+
+			# Small light
+			var vlight := OmniLight3D.new()
+			vlight.light_color = vc
+			vlight.light_energy = 1.5
+			vlight.omni_range = 4.0
+			vlight.omni_attenuation = 1.5
+			vlight.shadow_enabled = false
+			vlight.position = Vector3(0, 1.0, 0.8)
+			vm.add_child(vlight)
+
+			# Collision
+			var sb := StaticBody3D.new()
+			var col := CollisionShape3D.new()
+			var shape := BoxShape3D.new()
+			shape.size = Vector3(0.8, 1.8, 0.7)
+			col.shape = shape
+			col.position = Vector3(0, 0.9, 0)
+			sb.add_child(col)
+			vm.add_child(sb)
+
+			add_child(vm)
+
+func _generate_traffic_lights() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 890
+	var cell_stride := block_size + street_width
+	var pole_mat := _make_ps1_material(Color(0.2, 0.2, 0.22))
+
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			if rng.randf() > 0.4:  # 40% of intersections get traffic lights
+				continue
+			var ix := gx * cell_stride + block_size * 0.5 + street_width * 0.9
+			var iz := gz * cell_stride + block_size * 0.5 + street_width * 0.9
+
+			var phase := rng.randf() * 20.0  # stagger timing
+			_create_traffic_light(Vector3(ix, 0, iz), pole_mat, phase)
+
+func _create_traffic_light(pos: Vector3, pole_mat: ShaderMaterial, phase: float) -> void:
+	var tl := Node3D.new()
+	tl.position = pos
+
+	# Pole
+	var pole := MeshInstance3D.new()
+	var pole_mesh := CylinderMesh.new()
+	pole_mesh.top_radius = 0.06
+	pole_mesh.bottom_radius = 0.08
+	pole_mesh.height = 5.0
+	pole.mesh = pole_mesh
+	pole.position = Vector3(0, 2.5, 0)
+	pole.set_surface_override_material(0, pole_mat)
+	tl.add_child(pole)
+
+	# Signal housing
+	var housing := MeshInstance3D.new()
+	var housing_mesh := BoxMesh.new()
+	housing_mesh.size = Vector3(0.4, 1.0, 0.3)
+	housing.mesh = housing_mesh
+	housing.position = Vector3(0, 5.2, 0)
+	housing.set_surface_override_material(0, _make_ps1_material(Color(0.08, 0.08, 0.08)))
+	tl.add_child(housing)
+
+	# Red light
+	var red_col := Color(1.0, 0.0, 0.0)
+	var red := MeshInstance3D.new()
+	var red_mesh := SphereMesh.new()
+	red_mesh.radius = 0.1
+	red_mesh.height = 0.2
+	red.mesh = red_mesh
+	red.position = Vector3(0, 5.5, 0.16)
+	red.set_surface_override_material(0, _make_ps1_material(red_col * 0.3, true, red_col, 2.0))
+	tl.add_child(red)
+
+	# Yellow light
+	var yellow_col := Color(1.0, 0.8, 0.0)
+	var yellow := MeshInstance3D.new()
+	var yellow_mesh := SphereMesh.new()
+	yellow_mesh.radius = 0.1
+	yellow_mesh.height = 0.2
+	yellow.mesh = yellow_mesh
+	yellow.position = Vector3(0, 5.2, 0.16)
+	yellow.set_surface_override_material(0, _make_ps1_material(yellow_col * 0.3, true, yellow_col, 2.0))
+	tl.add_child(yellow)
+
+	# Green light
+	var green_col := Color(0.0, 1.0, 0.2)
+	var green := MeshInstance3D.new()
+	var green_mesh := SphereMesh.new()
+	green_mesh.radius = 0.1
+	green_mesh.height = 0.2
+	green.mesh = green_mesh
+	green.position = Vector3(0, 4.9, 0.16)
+	green.set_surface_override_material(0, _make_ps1_material(green_col * 0.3, true, green_col, 2.0))
+	tl.add_child(green)
+
+	add_child(tl)
+
+	traffic_lights.append({
+		"red": red,
+		"yellow": yellow,
+		"green": green,
+		"phase": phase,
+		"red_mat_on": _make_ps1_material(red_col * 0.3, true, red_col, 4.0),
+		"red_mat_off": _make_ps1_material(red_col * 0.1),
+		"yellow_mat_on": _make_ps1_material(yellow_col * 0.3, true, yellow_col, 4.0),
+		"yellow_mat_off": _make_ps1_material(yellow_col * 0.1),
+		"green_mat_on": _make_ps1_material(green_col * 0.3, true, green_col, 4.0),
+		"green_mat_off": _make_ps1_material(green_col * 0.1),
+	})
+
+func _generate_billboards() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 901
+	var cell_stride := block_size + street_width
+	var pole_mat := _make_ps1_material(Color(0.15, 0.15, 0.18))
+
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			if rng.randf() > 0.12:  # ~12% of blocks get a billboard
+				continue
+			var cell_x := gx * cell_stride
+			var cell_z := gz * cell_stride
+			var bx := cell_x + rng.randf_range(-block_size * 0.2, block_size * 0.2)
+			var bz := cell_z + rng.randf_range(-block_size * 0.2, block_size * 0.2)
+			var bb_height := rng.randf_range(15.0, 25.0)
+			var neon_col := neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
+
+			var bb := Node3D.new()
+			bb.position = Vector3(bx, 0, bz)
+
+			# Support pole
+			var pole := MeshInstance3D.new()
+			var pole_mesh := CylinderMesh.new()
+			pole_mesh.top_radius = 0.15
+			pole_mesh.bottom_radius = 0.2
+			pole_mesh.height = bb_height
+			pole.mesh = pole_mesh
+			pole.position = Vector3(0, bb_height * 0.5, 0)
+			pole.set_surface_override_material(0, pole_mat)
+			bb.add_child(pole)
+
+			# Billboard frame
+			var frame_w := rng.randf_range(5.0, 8.0)
+			var frame_h := rng.randf_range(3.0, 5.0)
+			var frame := MeshInstance3D.new()
+			var frame_mesh := BoxMesh.new()
+			frame_mesh.size = Vector3(frame_w, frame_h, 0.2)
+			frame.mesh = frame_mesh
+			frame.position = Vector3(0, bb_height + frame_h * 0.5, 0)
+			frame.rotation.y = rng.randf_range(0, PI)
+			frame.set_surface_override_material(0, _make_ps1_material(Color(0.05, 0.05, 0.08)))
+			bb.add_child(frame)
+
+			# Glowing front face
+			var front := MeshInstance3D.new()
+			var front_mesh := QuadMesh.new()
+			front_mesh.size = Vector2(frame_w - 0.3, frame_h - 0.3)
+			front.mesh = front_mesh
+			front.position = Vector3(0, 0, 0.11)
+			front.set_surface_override_material(0,
+				_make_ps1_material(neon_col * 0.2, true, neon_col, 2.5))
+			frame.add_child(front)
+
+			# Glowing back face
+			var back := MeshInstance3D.new()
+			var back_mesh := QuadMesh.new()
+			back_mesh.size = Vector2(frame_w - 0.3, frame_h - 0.3)
+			back.mesh = back_mesh
+			back.position = Vector3(0, 0, -0.11)
+			back.rotation.y = PI
+			var back_col := neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
+			back.set_surface_override_material(0,
+				_make_ps1_material(back_col * 0.2, true, back_col, 2.5))
+			frame.add_child(back)
+
+			# Kanji text overlay on front
+			if neon_font:
+				var label := Label3D.new()
+				label.text = NEON_TEXTS[rng.randi_range(0, NEON_TEXTS.size() - 1)]
+				label.font = neon_font
+				label.font_size = rng.randi_range(96, 160)
+				label.pixel_size = 0.01
+				label.modulate = Color.WHITE
+				label.outline_modulate = neon_col * 0.8
+				label.outline_size = 6
+				label.position = Vector3(0, 0, 0.12)
+				label.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+				frame.add_child(label)
+
+			# Billboard light
+			var bb_light := OmniLight3D.new()
+			bb_light.light_color = neon_col
+			bb_light.light_energy = 3.0
+			bb_light.omni_range = 12.0
+			bb_light.omni_attenuation = 1.5
+			bb_light.shadow_enabled = false
+			bb_light.position = Vector3(0, bb_height + frame_h * 0.5, 2.0)
+			bb.add_child(bb_light)
+
+			add_child(bb)
+
+func _generate_dumpsters() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 1012
+	var cell_stride := block_size + street_width
+	var dumpster_mat := _make_ps1_material(Color(0.1, 0.15, 0.1))
+	var rust_mat := _make_ps1_material(Color(0.2, 0.1, 0.05))
+
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			if rng.randf() > 0.3:  # 30% of blocks
+				continue
+			var cell_x := gx * cell_stride
+			var cell_z := gz * cell_stride
+
+			# Place near building edges (alley-like)
+			var dx := cell_x + rng.randf_range(-block_size * 0.4, block_size * 0.4)
+			var dz := cell_z + block_size * 0.5 + rng.randf_range(1.0, 2.5)
+			var mat := dumpster_mat if rng.randf() > 0.4 else rust_mat
+
+			var dumpster := Node3D.new()
+			dumpster.position = Vector3(dx, 0, dz)
+
+			# Body
+			var body := MeshInstance3D.new()
+			var body_mesh := BoxMesh.new()
+			body_mesh.size = Vector3(1.8, 1.2, 1.0)
+			body.mesh = body_mesh
+			body.position = Vector3(0, 0.6, 0)
+			body.set_surface_override_material(0, mat)
+			dumpster.add_child(body)
+
+			# Lid (slightly open)
+			var lid := MeshInstance3D.new()
+			var lid_mesh := BoxMesh.new()
+			lid_mesh.size = Vector3(1.8, 0.05, 1.0)
+			lid.mesh = lid_mesh
+			lid.position = Vector3(0, 1.22, -0.15)
+			lid.rotation.x = rng.randf_range(-0.3, 0.0)
+			lid.set_surface_override_material(0, mat)
+			dumpster.add_child(lid)
+
+			# Collision
+			var sb := StaticBody3D.new()
+			var col := CollisionShape3D.new()
+			var shape := BoxShape3D.new()
+			shape.size = Vector3(1.8, 1.2, 1.0)
+			col.shape = shape
+			col.position = Vector3(0, 0.6, 0)
+			sb.add_child(col)
+			dumpster.add_child(sb)
+
+			add_child(dumpster)
+
 func _setup_neon_flicker() -> void:
 	# Register existing neon sign lights for flickering
 	var rng := RandomNumberGenerator.new()
@@ -990,6 +1418,8 @@ func _collect_neon_lights(node: Node, rng: RandomNumberGenerator) -> void:
 
 func _process(_delta: float) -> void:
 	var time := Time.get_ticks_msec() / 1000.0
+
+	# Neon flickering and antenna blinking
 	for data in flickering_lights:
 		var light: OmniLight3D = data["node"]
 		if not is_instance_valid(light):
@@ -1000,7 +1430,6 @@ func _process(_delta: float) -> void:
 		var style: String = data["style"]
 
 		if style == "blink":
-			# Slow blink on/off for antenna lights
 			var val := sin(time * speed + phase)
 			var on := 1.0 if val > 0.0 else 0.0
 			light.light_energy = base * on
@@ -1008,10 +1437,33 @@ func _process(_delta: float) -> void:
 			if mesh_node and is_instance_valid(mesh_node):
 				(mesh_node as MeshInstance3D).visible = val > 0.0
 		else:
-			# Neon flicker -- rapid random-ish pulsing
 			var flick := sin(time * speed + phase) * sin(time * speed * 1.7 + phase * 0.5)
-			# Occasionally go fully dark for a frame (sputtering)
 			var sputter := 1.0
 			if sin(time * speed * 3.0 + phase * 2.0) > 0.92:
 				sputter = 0.1
 			light.light_energy = base * (0.5 + 0.5 * flick) * sputter
+
+	# Traffic light cycling (10s cycle: 5s green, 1s yellow, 4s red)
+	for tl_data in traffic_lights:
+		var red_node: MeshInstance3D = tl_data["red"]
+		var yellow_node: MeshInstance3D = tl_data["yellow"]
+		var green_node: MeshInstance3D = tl_data["green"]
+		if not is_instance_valid(red_node):
+			continue
+		var phase: float = tl_data["phase"]
+		var cycle := fmod(time + phase, 10.0)
+		if cycle < 5.0:
+			# Green
+			red_node.set_surface_override_material(0, tl_data["red_mat_off"])
+			yellow_node.set_surface_override_material(0, tl_data["yellow_mat_off"])
+			green_node.set_surface_override_material(0, tl_data["green_mat_on"])
+		elif cycle < 6.0:
+			# Yellow
+			red_node.set_surface_override_material(0, tl_data["red_mat_off"])
+			yellow_node.set_surface_override_material(0, tl_data["yellow_mat_on"])
+			green_node.set_surface_override_material(0, tl_data["green_mat_off"])
+		else:
+			# Red
+			red_node.set_surface_override_material(0, tl_data["red_mat_on"])
+			yellow_node.set_surface_override_material(0, tl_data["yellow_mat_off"])
+			green_node.set_surface_override_material(0, tl_data["green_mat_off"])
