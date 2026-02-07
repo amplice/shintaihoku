@@ -184,6 +184,14 @@ func _physics_process(delta: float) -> void:
 		var current_blur: float = current_blur_val if current_blur_val != null else 0.0
 		crt_material.set_shader_parameter("speed_blur", lerpf(current_blur, blur_target, 8.0 * delta))
 
+	# Camera wind sway (subtle drift from rain wind)
+	var rain_node := get_node_or_null("../Rain")
+	var wind_strength := 0.0
+	if rain_node and "wind_x" in rain_node:
+		wind_strength = rain_node.wind_x
+	var wind_sway := wind_strength * 0.0008
+	camera.rotation.z = lerpf(camera.rotation.z, camera.rotation.z + wind_sway, 2.0 * delta)
+
 	# Breath fog puffs (every 2.5-3.5 seconds)
 	breath_timer -= delta
 	if breath_timer <= 0.0:

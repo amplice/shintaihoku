@@ -64,6 +64,15 @@ var bass_bpm: float = 120.0
 var spark_timer: float = 0.0
 var spark_phase: float = 0.0
 var spark_active: bool = false
+var explosion_timer: float = 0.0
+var explosion_phase: float = 0.0
+var explosion_active: bool = false
+var explosion_duration: float = 2.0
+var explosion_filter: float = 0.0
+var phone_timer: float = 0.0
+var phone_phase: float = 0.0
+var phone_active: bool = false
+var phone_duration: float = 2.5
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -182,6 +191,33 @@ func _process(delta: float) -> void:
 		spark_phase += delta
 		if spark_phase > 0.15:
 			spark_active = false
+
+	# Distant explosion rumble (very rare)
+	explosion_timer -= delta
+	if explosion_timer <= 0.0 and not explosion_active:
+		explosion_timer = rng.randf_range(120.0, 300.0)
+		explosion_active = true
+		explosion_phase = 0.0
+		explosion_duration = rng.randf_range(1.5, 2.5)
+		explosion_filter = 0.0
+
+	if explosion_active:
+		explosion_phase += delta
+		if explosion_phase > explosion_duration:
+			explosion_active = false
+
+	# Distant phone ringtone
+	phone_timer -= delta
+	if phone_timer <= 0.0 and not phone_active:
+		phone_timer = rng.randf_range(60.0, 120.0)
+		phone_active = true
+		phone_phase = 0.0
+		phone_duration = rng.randf_range(2.0, 3.0)
+
+	if phone_active:
+		phone_phase += delta
+		if phone_phase > phone_duration:
+			phone_active = false
 
 	# Distant dog barking
 	bark_timer -= delta
@@ -415,6 +451,36 @@ func _fill_hum_buffer() -> void:
 				var tinkle_noise := rng.randf_range(-1.0, 1.0) * 0.2
 				glass_sample += (tinkle1 + tinkle2 + tinkle3 + tinkle_noise) * glass_env * glass_env
 			sample += glass_sample * 0.04
+		# Distant explosion rumble (sub-bass boom)
+		if explosion_active:
+			var ex_env := 1.0
+			if explosion_phase < 0.05:
+				ex_env = explosion_phase / 0.05
+			elif explosion_phase > explosion_duration * 0.3:
+				ex_env = maxf(0.0, (explosion_duration - explosion_phase) / (explosion_duration * 0.7))
+			ex_env = ex_env * ex_env
+			# Sub-bass sine (25-40Hz)
+			var boom := sin(t * 30.0 * TAU) * 0.5
+			boom += sin(t * 55.0 * TAU) * 0.2
+			# Impact noise
+			var ex_noise := rng.randf_range(-1.0, 1.0)
+			explosion_filter = explosion_filter * 0.9 + ex_noise * 0.1
+			boom += explosion_filter * 0.3
+			sample += boom * ex_env * 0.06
+		# Distant phone ringtone (two-tone melodic beep)
+		if phone_active:
+			# Ring pattern: 0.15s on, 0.1s off, repeating
+			var ring_pos := fmod(phone_phase, 0.5)
+			if ring_pos < 0.15 or (ring_pos > 0.25 and ring_pos < 0.4):
+				var ph_env := 0.8
+				if ring_pos < 0.02:
+					ph_env = ring_pos / 0.02
+				var tone_a := sin(t * 800.0 * TAU) * 0.3
+				var tone_b := sin(t * 1000.0 * TAU) * 0.2
+				# Alternate tones per ring burst
+				var use_a := ring_pos < 0.15
+				var ph_sample := tone_a if use_a else tone_b
+				sample += ph_sample * ph_env * 0.02
 		# Electrical spark crackle (short high-freq burst)
 		if spark_active and spark_phase < 0.12:
 			var sp_env := (1.0 - spark_phase / 0.12)

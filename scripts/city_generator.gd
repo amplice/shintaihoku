@@ -173,6 +173,8 @@ func _ready() -> void:
 	_generate_building_stoops()
 	_generate_exit_signs()
 	_generate_puddle_splash_rings()
+	_generate_lobby_lights()
+	_generate_height_fog_layers()
 	_setup_neon_flicker()
 	_setup_color_shift_signs()
 	print("CityGenerator: generation complete, total children=", get_child_count())
@@ -6376,3 +6378,74 @@ func _generate_puddle_splash_rings() -> void:
 		smesh.height = 0.02
 		splash.draw_pass_1 = smesh
 		add_child(splash)
+
+func _generate_lobby_lights() -> void:
+	# Warm interior light spilling from building ground level
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 8700
+	var count := 0
+	for child in get_children():
+		if count >= 15:
+			break
+		if not child is MeshInstance3D:
+			continue
+		var mi := child as MeshInstance3D
+		if not mi.mesh is BoxMesh:
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		if bsize.y < 10.0:
+			continue
+		if rng.randf() > 0.10:
+			continue
+		count += 1
+		var base_y := mi.position.y - bsize.y * 0.5 + 1.5
+		var face_sign := 1.0 if rng.randf() < 0.5 else -1.0
+		var lobby_x := mi.position.x + rng.randf_range(-bsize.x * 0.2, bsize.x * 0.2)
+		var lobby_z := mi.position.z + face_sign * (bsize.z * 0.5 + 0.5)
+		var lobby_light := OmniLight3D.new()
+		var warm_idx := rng.randi_range(0, 2)
+		var warm_col := Color(1.0, 0.8, 0.4)
+		if warm_idx == 1: warm_col = Color(1.0, 0.7, 0.3)
+		elif warm_idx == 2: warm_col = Color(0.9, 0.85, 0.6)
+		lobby_light.light_color = warm_col
+		lobby_light.light_energy = rng.randf_range(1.5, 3.0)
+		lobby_light.omni_range = rng.randf_range(5.0, 8.0)
+		lobby_light.omni_attenuation = 1.5
+		lobby_light.shadow_enabled = false
+		lobby_light.position = Vector3(lobby_x, base_y, lobby_z)
+		add_child(lobby_light)
+
+func _generate_height_fog_layers() -> void:
+	# Subtle colored fog planes at different heights for depth
+	var fog_mat_low := StandardMaterial3D.new()
+	fog_mat_low.albedo_color = Color(0.08, 0.03, 0.12, 0.03)
+	fog_mat_low.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	fog_mat_low.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	fog_mat_low.cull_mode = BaseMaterial3D.CULL_DISABLED
+	fog_mat_low.no_depth_test = true
+
+	var fog_mat_mid := StandardMaterial3D.new()
+	fog_mat_mid.albedo_color = Color(0.05, 0.06, 0.1, 0.02)
+	fog_mat_mid.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	fog_mat_mid.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	fog_mat_mid.cull_mode = BaseMaterial3D.CULL_DISABLED
+	fog_mat_mid.no_depth_test = true
+
+	var fog_mat_high := StandardMaterial3D.new()
+	fog_mat_high.albedo_color = Color(0.02, 0.02, 0.04, 0.015)
+	fog_mat_high.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	fog_mat_high.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	fog_mat_high.cull_mode = BaseMaterial3D.CULL_DISABLED
+	fog_mat_high.no_depth_test = true
+
+	var heights := [5.0, 15.0, 25.0]
+	var mats := [fog_mat_low, fog_mat_mid, fog_mat_high]
+	for i in range(3):
+		var fog_plane := MeshInstance3D.new()
+		var fog_mesh := PlaneMesh.new()
+		fog_mesh.size = Vector2(300, 300)
+		fog_plane.mesh = fog_mesh
+		fog_plane.position = Vector3(0, heights[i], 0)
+		fog_plane.set_surface_override_material(0, mats[i])
+		fog_plane.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(fog_plane)
