@@ -171,6 +171,10 @@ var dumpster_timer: float = 0.0
 var dumpster_phase: float = 0.0
 var dumpster_active: bool = false
 var dumpster_duration: float = 0.5
+var firework_timer: float = 0.0
+var firework_phase: float = 0.0
+var firework_active: bool = false
+var firework_flash_light: OmniLight3D = null
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -214,6 +218,14 @@ func _ready() -> void:
 	lightning_light.rotation_degrees = Vector3(-45, 30, 0)
 	lightning_light.shadow_enabled = false
 	add_child(lightning_light)
+
+	# Firework flash light (sky-level burst)
+	firework_flash_light = OmniLight3D.new()
+	firework_flash_light.light_energy = 0.0
+	firework_flash_light.omni_range = 80.0
+	firework_flash_light.shadow_enabled = false
+	firework_flash_light.position = Vector3(0, 80, 0)
+	add_child(firework_flash_light)
 
 var rain_intensity_time: float = 0.0
 
@@ -730,6 +742,34 @@ func _process(delta: float) -> void:
 	if clink_active:
 		clink_phase += delta
 
+	# Distant firework (very rare)
+	firework_timer -= delta
+	if firework_timer <= 0.0 and not firework_active:
+		firework_timer = rng.randf_range(300.0, 600.0)
+		firework_active = true
+		firework_phase = 0.0
+		# Random sky position for the flash
+		if firework_flash_light:
+			firework_flash_light.position = Vector3(
+				rng.randf_range(-60.0, 60.0), 80.0, rng.randf_range(-60.0, 60.0))
+			# Random color
+			var fw_colors := [Color(1.0, 0.3, 0.3), Color(0.3, 1.0, 0.3), Color(0.3, 0.5, 1.0),
+				Color(1.0, 0.8, 0.2), Color(1.0, 0.4, 0.8)]
+			firework_flash_light.light_color = fw_colors[rng.randi_range(0, 4)]
+
+	if firework_active:
+		firework_phase += delta
+		# Flash at the burst moment (0.5s whistle, then pop)
+		if firework_flash_light:
+			if firework_phase > 0.5 and firework_phase < 0.7:
+				firework_flash_light.light_energy = maxf(0.0, (0.7 - firework_phase) * 15.0)
+			else:
+				firework_flash_light.light_energy = 0.0
+		if firework_phase > 1.5:
+			firework_active = false
+			if firework_flash_light:
+				firework_flash_light.light_energy = 0.0
+
 	# Dumpster lid rattle
 	dumpster_timer -= delta
 	if dumpster_timer <= 0.0 and not dumpster_active:
@@ -1132,6 +1172,31 @@ func _fill_hum_buffer() -> void:
 			bell += sin(t * cm_freq * 2.76 * TAU) * 0.1  # inharmonic partial
 			bell += sin(t * cm_freq * 5.4 * TAU) * 0.04  # high shimmer
 			sample += bell * cm_env * 0.015
+		# Distant firework (ascending whistle + pop + crackle)
+		if firework_active:
+			if firework_phase < 0.5:
+				# Ascending whistle
+				var fw_env := firework_phase / 0.5
+				var fw_freq := 400.0 + firework_phase * 3200.0  # 400 -> 2000Hz
+				var fw_whistle := sin(t * fw_freq * TAU) * 0.15
+				sample += fw_whistle * fw_env * 0.025
+			elif firework_phase < 0.55:
+				# Pop (sharp noise burst)
+				var pop_env := (0.55 - firework_phase) / 0.05
+				pop_env = pop_env * pop_env
+				var pop := rng.randf_range(-1.0, 1.0) * 0.5
+				pop += sin(t * 200.0 * TAU) * 0.3
+				sample += pop * pop_env * 0.05
+			elif firework_phase < 1.3:
+				# Crackle/sparkle tail
+				var cr_env := maxf(0.0, (1.3 - firework_phase) / 0.75)
+				cr_env = cr_env * cr_env
+				var sparkle := sin(t * 3500.0 * TAU) * 0.1
+				sparkle += sin(t * 5200.0 * TAU) * 0.05
+				var cr_noise := rng.randf_range(-1.0, 1.0) * 0.2
+				# Gate to create sparkle bursts
+				var cr_gate := 1.0 if absf(cr_noise) > 0.4 else 0.0
+				sample += (sparkle + cr_noise * 0.3) * cr_env * cr_gate * 0.02
 		# Dumpster lid rattle (metallic impacts in quick succession)
 		if dumpster_active:
 			var dm_env := 1.0

@@ -177,7 +177,7 @@ func _process(delta: float) -> void:
 						target_rot = -0.8 + (cycle - 1.5) * 0.8  # lower
 					rs.rotation.x = lerpf(rs.rotation.x, target_rot, 5.0 * delta)
 
-		# Phone glow: only visible when stopped
+		# Phone glow: only visible when stopped, arm raises to check
 		if npc_data["has_phone"]:
 			var pl: OmniLight3D = npc_data["phone_light"]
 			if pl and is_instance_valid(pl):
@@ -185,6 +185,12 @@ func _process(delta: float) -> void:
 			var phone_mesh := node.get_node_or_null("Model/Phone")
 			if phone_mesh:
 				phone_mesh.visible = is_stopped
+			# Raise right arm when stopped (checking phone pose)
+			if is_stopped and not smoke:
+				var phone_rs := node.get_node_or_null("Model/RightShoulder")
+				if phone_rs:
+					var phone_target := -0.6  # arm raised to face level
+					phone_rs.rotation.x = lerpf(phone_rs.rotation.x, phone_target, 3.0 * delta)
 
 		# Head tracking: stopped NPCs look at player when nearby
 		var head_node := node.get_node_or_null("Model/Head")

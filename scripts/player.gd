@@ -53,6 +53,7 @@ var sprint_time: float = 0.0  # how long we've been sprinting
 var impact_aberration: float = 0.0  # chromatic aberration from hard landing
 var accent_stripe_mat: ShaderMaterial = null  # for glow pulse
 var accent_pulse_time: float = 0.0
+var turn_lean: float = 0.0  # camera lean from turning
 
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
@@ -75,6 +76,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
 		# Horizontal rotation on player body
 		rotate_y(-event.relative.x * ROTATION_SPEED)
+		# Turn momentum lean (cinematic camera dutch angle)
+		turn_lean += event.relative.x * 0.0003
 		# Vertical rotation on camera pivot
 		camera_rotation_x -= event.relative.y * ROTATION_SPEED
 		camera_rotation_x = clamp(camera_rotation_x, -1.2, 0.5)
@@ -206,6 +209,11 @@ func _physics_process(delta: float) -> void:
 		var current_blur_val = crt_material.get_shader_parameter("speed_blur")
 		var current_blur: float = current_blur_val if current_blur_val != null else 0.0
 		crt_material.set_shader_parameter("speed_blur", lerpf(current_blur, blur_target, 8.0 * delta))
+
+	# Turn momentum lean (decay toward 0)
+	turn_lean = clampf(turn_lean, -0.04, 0.04)
+	turn_lean = lerpf(turn_lean, 0.0, 6.0 * delta)
+	camera_pivot.rotation.z += turn_lean
 
 	# Camera wind sway (subtle drift from rain wind)
 	var rain_node := get_node_or_null("../Rain")
