@@ -78,6 +78,9 @@ var thunder_flinch: float = 0.0  # involuntary camera dip from thunder
 var thunder_was_active: bool = false  # edge detection for thunder start
 var prev_move_dir: Vector2 = Vector2.ZERO  # for bob phase reset on direction flip
 var was_sprinting_last: bool = false  # edge detect for sprint stop exhale
+var land_nod: float = 0.0  # forward nod on landing
+var lens_water_timer: float = 0.0  # rain lens distortion pulse timer
+var lens_water_pulse: float = 0.0  # current lens pulse intensity
 
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
@@ -137,6 +140,8 @@ func _physics_process(delta: float) -> void:
 			limp_timer = 3.0  # recovery limp for 3 seconds
 		if fall_speed > 5.0:
 			land_fov_dip = 5.0  # FOV narrows briefly on impact
+		if fall_speed > 3.5:
+			land_nod = 0.3  # forward whiplash nod duration
 		if fall_speed > 4.0 and land_dust:
 			land_dust.restart()
 			land_dust.emitting = true
@@ -149,6 +154,12 @@ func _physics_process(delta: float) -> void:
 		camera_pivot.rotation.z = sin(shake_timer * 40.0) * shake_amount
 	else:
 		camera_pivot.rotation.z = lerpf(camera_pivot.rotation.z, 0.0, 10.0 * delta)
+
+	# Landing forward nod (whiplash feel)
+	if land_nod > 0.0:
+		land_nod -= delta
+		var nod_amp := clampf(land_nod / 0.3, 0.0, 1.0)
+		camera.rotation.x -= sin(land_nod * 20.0) * 0.02 * nod_amp
 
 	# Crouch
 	is_crouching = Input.is_key_pressed(KEY_CTRL) and is_on_floor()
@@ -451,6 +462,24 @@ func _physics_process(delta: float) -> void:
 		rain_drip_flash = lerpf(rain_drip_flash, 0.0, 4.0 * delta)
 		var final_noise := maxf(wet_noise, rain_drip_flash)
 		crt_material.set_shader_parameter("noise_intensity", lerpf(0.02, final_noise, 3.0 * delta))
+
+	# Lens water distortion pulse (heavy rain causes periodic aberration spike)
+	if crt_material:
+		var rain_n := get_node_or_null("../Rain")
+		if rain_n and "rain_time" in rain_n:
+			var r_int: float = 0.5 + 0.5 * sin(rain_n.rain_time * 0.1)
+			if r_int > 0.8:
+				lens_water_timer -= delta
+				if lens_water_timer <= 0.0:
+					lens_water_timer = randf_range(15.0, 30.0)
+					lens_water_pulse = 0.3
+			else:
+				lens_water_timer = randf_range(10.0, 20.0)
+		lens_water_pulse = maxf(0.0, lens_water_pulse - delta * 0.6)
+		if lens_water_pulse > 0.0 and impact_aberration <= 0.0:
+			var cur_ab = crt_material.get_shader_parameter("aberration_amount")
+			var cur_ab_f: float = cur_ab if cur_ab != null else 1.0
+			crt_material.set_shader_parameter("aberration_amount", cur_ab_f + lens_water_pulse)
 
 	# Interaction prompt (proximity + look direction NPC detection)
 	if interact_label:

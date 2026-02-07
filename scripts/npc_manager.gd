@@ -894,6 +894,28 @@ func _process(delta: float) -> void:
 				var nr_angle := sin(nr_prog * PI) * 0.2 * (1.0 if nr_prog < 0.5 else -1.0)
 				head_node.rotation.z = lerpf(head_node.rotation.z, nr_angle, 4.0 * delta)
 
+		# Corner peek (3% of stopped NPCs near intersections — cautious lean)
+		if npc_data.get("does_corner_peek", false) and is_stopped:
+			npc_data["peek_clock"] = npc_data.get("peek_clock", 0.0) + delta
+			var pk_cycle := fmod(npc_data["peek_clock"], 30.0)
+			# Check if near intersection (both x and z near cell boundary)
+			var ipx := fmod(absf(node.position.x), cell_stride)
+			var ipz := fmod(absf(node.position.z), cell_stride)
+			var near_corner := (ipx < 6.0 or ipx > cell_stride - 6.0) and (ipz < 6.0 or ipz > cell_stride - 6.0)
+			if pk_cycle < 3.0 and near_corner:
+				var pk_blend := 0.0
+				if pk_cycle < 0.5:
+					pk_blend = pk_cycle / 0.5
+				elif pk_cycle < 2.0:
+					pk_blend = 1.0
+				else:
+					pk_blend = (3.0 - pk_cycle) / 1.0
+				var pk_mdl := node.get_node_or_null("Model")
+				if pk_mdl and is_instance_valid(pk_mdl):
+					pk_mdl.rotation.x = lerpf(pk_mdl.rotation.x, 0.08 * pk_blend, 4.0 * delta)
+				if head_node and is_instance_valid(head_node):
+					head_node.rotation.y = lerpf(head_node.rotation.y, 0.5 * pk_blend, 3.0 * delta)
+
 		# Step-over puddle (3% of walking NPCs — wider stride briefly)
 		if npc_data.get("does_step_over", false) and not is_stopped:
 			npc_data["step_over_timer"] = npc_data.get("step_over_timer", 30.0) - delta
@@ -1815,6 +1837,7 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		"does_step_over": rng.randf() < 0.03,
 		"step_over_timer": rng.randf_range(20.0, 40.0),
 		"does_neck_roll": rng.randf() < 0.03,
+		"does_corner_peek": rng.randf() < 0.03,
 		"horn_flinch": 0.0,
 		"nod_cooldown": 0.0,
 		"last_cell_x": -999,

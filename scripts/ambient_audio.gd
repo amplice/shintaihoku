@@ -331,6 +331,13 @@ var bagrustle_active: bool = false
 var zipper_timer: float = 0.0
 var zipper_phase: float = 0.0
 var zipper_active: bool = false
+var drain_timer: float = 0.0
+var drain_phase: float = 0.0
+var drain_active: bool = false
+var drain_duration: float = 4.0
+var doorbeat_timer: float = 0.0
+var doorbeat_phase: float = 0.0
+var doorbeat_active: bool = false
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -1464,6 +1471,31 @@ func _process(delta: float) -> void:
 		if zipper_phase > 0.3:
 			zipper_active = false
 
+	# Storm drain water gurgle (bubbling flow)
+	drain_timer -= delta
+	if drain_timer <= 0.0 and not drain_active:
+		drain_timer = rng.randf_range(70.0, 140.0)
+		drain_active = true
+		drain_phase = 0.0
+		drain_duration = rng.randf_range(3.0, 5.0)
+
+	if drain_active:
+		drain_phase += delta
+		if drain_phase > drain_duration:
+			drain_active = false
+
+	# Muffled music burst (door opens to club, brief beat escape)
+	doorbeat_timer -= delta
+	if doorbeat_timer <= 0.0 and not doorbeat_active:
+		doorbeat_timer = rng.randf_range(100.0, 200.0)
+		doorbeat_active = true
+		doorbeat_phase = 0.0
+
+	if doorbeat_active:
+		doorbeat_phase += delta
+		if doorbeat_phase > 2.0:
+			doorbeat_active = false
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -2552,6 +2584,42 @@ func _fill_hum_buffer() -> void:
 			zp_tone += sin(t * zp_freq * 2.0 * TAU) * 0.15  # metallic harmonic
 			zp_tone += rng.randf_range(-1.0, 1.0) * 0.1  # buzz
 			sample += zp_tone * zp_env * 0.005
+
+		# Storm drain water gurgle (low-frequency bubbling)
+		if drain_active:
+			var dr_env := 0.0
+			if drain_phase < 0.5:
+				dr_env = drain_phase / 0.5
+			elif drain_phase < drain_duration - 0.8:
+				dr_env = 1.0
+			else:
+				dr_env = maxf(0.0, (drain_duration - drain_phase) / 0.8)
+			# Bubbling: random amplitude modulated low tones
+			var dr_bubble := sin(t * 80.0 * TAU) * 0.3 * (0.5 + 0.5 * sin(drain_phase * 8.0))
+			dr_bubble += sin(t * 120.0 * TAU) * 0.2 * (0.5 + 0.5 * sin(drain_phase * 5.0 + 1.0))
+			dr_bubble += rng.randf_range(-1.0, 1.0) * 0.15  # turbulence noise
+			# Occasional higher splash
+			if fmod(drain_phase, 1.2) < 0.1:
+				dr_bubble += sin(t * 350.0 * TAU) * 0.2
+			sample += dr_bubble * dr_env * 0.004
+
+		# Muffled music burst (4 beats of bass, as if club door opened)
+		if doorbeat_active:
+			var db_env := 0.0
+			if doorbeat_phase < 0.1:
+				db_env = doorbeat_phase / 0.1  # door opens
+			elif doorbeat_phase < 1.8:
+				db_env = 1.0
+			else:
+				db_env = maxf(0.0, (2.0 - doorbeat_phase) / 0.2)  # door closes
+			# 4 beats at ~130 BPM (0.46s per beat)
+			var beat_pos := fmod(doorbeat_phase, 0.46)
+			var beat_env := exp(-beat_pos * 8.0)  # kick decay
+			var db_kick := sin(t * 60.0 * TAU) * 0.5 * beat_env
+			db_kick += sin(t * 120.0 * TAU) * 0.2 * beat_env
+			# Low-pass filter effect (muffled through wall)
+			db_kick *= 0.5  # attenuated
+			sample += db_kick * db_env * 0.005
 
 		# Distant crowd murmur (band-limited noise, 200-800Hz band)
 		var murmur_noise := rng.randf_range(-1.0, 1.0)
