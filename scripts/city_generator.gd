@@ -162,6 +162,10 @@ func _ready() -> void:
 	_generate_rooftop_gardens()
 	_generate_scattered_papers()
 	_generate_facade_stripes()
+	_generate_balcony_ledges()
+	_generate_roof_parapets()
+	_generate_building_cornices()
+	_generate_window_frames()
 	_setup_neon_flicker()
 	_setup_color_shift_signs()
 	print("CityGenerator: generation complete, total children=", get_child_count())
@@ -5975,3 +5979,226 @@ func _generate_facade_stripes() -> void:
 			stripe_b.set_surface_override_material(0, stripe.get_surface_override_material(0))
 			stripe_b.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			add_child(stripe_b)
+
+func _generate_balcony_ledges() -> void:
+	# Small protruding balcony platforms on building faces
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 8000
+	for child in get_children():
+		if not child is MeshInstance3D:
+			continue
+		var mi := child as MeshInstance3D
+		if not mi.mesh is BoxMesh:
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		if bsize.y < 14.0:
+			continue
+		if rng.randf() > 0.12:
+			continue
+		var num_balc := rng.randi_range(1, 3)
+		for _b in range(num_balc):
+			var balc_y := mi.position.y + rng.randf_range(-bsize.y * 0.3, bsize.y * 0.25)
+			var face_side := rng.randi_range(0, 1)  # 0=front(+Z), 1=back(-Z)
+			var face_sign := 1.0 if face_side == 0 else -1.0
+			var balc_x := mi.position.x + rng.randf_range(-bsize.x * 0.3, bsize.x * 0.3)
+			var balc_z := mi.position.z + face_sign * (bsize.z * 0.5 + 0.4)
+			# Floor slab
+			var slab := MeshInstance3D.new()
+			var slab_mesh := BoxMesh.new()
+			var balc_w := rng.randf_range(1.5, 2.5)
+			slab_mesh.size = Vector3(balc_w, 0.08, 0.8)
+			slab.mesh = slab_mesh
+			slab.position = Vector3(balc_x, balc_y, balc_z)
+			slab.set_surface_override_material(0, _make_ps1_material(Color(0.25, 0.24, 0.22)))
+			slab.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			add_child(slab)
+			# Railing posts (3 thin cylinders)
+			var rail_mat := _make_ps1_material(Color(0.18, 0.18, 0.16))
+			for ri in range(3):
+				var rail := MeshInstance3D.new()
+				var rail_mesh := CylinderMesh.new()
+				rail_mesh.top_radius = 0.02
+				rail_mesh.bottom_radius = 0.02
+				rail_mesh.height = 0.7
+				rail.mesh = rail_mesh
+				rail.position = Vector3(
+					balc_x - balc_w * 0.4 + ri * balc_w * 0.4,
+					balc_y + 0.35,
+					balc_z + face_sign * 0.35
+				)
+				rail.set_surface_override_material(0, rail_mat)
+				rail.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				add_child(rail)
+			# Top rail (horizontal bar)
+			var top_rail := MeshInstance3D.new()
+			var top_mesh := BoxMesh.new()
+			top_mesh.size = Vector3(balc_w, 0.03, 0.03)
+			top_rail.mesh = top_mesh
+			top_rail.position = Vector3(balc_x, balc_y + 0.7, balc_z + face_sign * 0.35)
+			top_rail.set_surface_override_material(0, rail_mat)
+			top_rail.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			add_child(top_rail)
+
+func _generate_roof_parapets() -> void:
+	# Raised lip around building rooftop edges
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 8100
+	var parapet_mat := _make_ps1_material(Color(0.28, 0.27, 0.25))
+	for child in get_children():
+		if not child is MeshInstance3D:
+			continue
+		var mi := child as MeshInstance3D
+		if not mi.mesh is BoxMesh:
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		if bsize.y < 10.0:
+			continue
+		if rng.randf() > 0.25:
+			continue
+		var roof_y := mi.position.y + bsize.y * 0.5
+		var lip_h := rng.randf_range(0.3, 0.6)
+		var lip_thick := 0.12
+		# Front parapet (+Z)
+		var pf := MeshInstance3D.new()
+		var pf_mesh := BoxMesh.new()
+		pf_mesh.size = Vector3(bsize.x + lip_thick * 2.0, lip_h, lip_thick)
+		pf.mesh = pf_mesh
+		pf.position = Vector3(mi.position.x, roof_y + lip_h * 0.5, mi.position.z + bsize.z * 0.5)
+		pf.set_surface_override_material(0, parapet_mat)
+		pf.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(pf)
+		# Back parapet (-Z)
+		var pb := MeshInstance3D.new()
+		pb.mesh = pf_mesh
+		pb.position = Vector3(mi.position.x, roof_y + lip_h * 0.5, mi.position.z - bsize.z * 0.5)
+		pb.set_surface_override_material(0, parapet_mat)
+		pb.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(pb)
+		# Left parapet (+X)
+		var pl := MeshInstance3D.new()
+		var pl_mesh := BoxMesh.new()
+		pl_mesh.size = Vector3(lip_thick, lip_h, bsize.z)
+		pl.mesh = pl_mesh
+		pl.position = Vector3(mi.position.x + bsize.x * 0.5, roof_y + lip_h * 0.5, mi.position.z)
+		pl.set_surface_override_material(0, parapet_mat)
+		pl.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(pl)
+		# Right parapet (-X)
+		var pr := MeshInstance3D.new()
+		pr.mesh = pl_mesh
+		pr.position = Vector3(mi.position.x - bsize.x * 0.5, roof_y + lip_h * 0.5, mi.position.z)
+		pr.set_surface_override_material(0, parapet_mat)
+		pr.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(pr)
+
+func _generate_building_cornices() -> void:
+	# Decorative horizontal trim at roofline
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 8200
+	for child in get_children():
+		if not child is MeshInstance3D:
+			continue
+		var mi := child as MeshInstance3D
+		if not mi.mesh is BoxMesh:
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		if bsize.y < 12.0:
+			continue
+		if rng.randf() > 0.18:
+			continue
+		var roof_y := mi.position.y + bsize.y * 0.5
+		var cornice_h := rng.randf_range(0.2, 0.4)
+		var cornice_depth := rng.randf_range(0.15, 0.3)
+		var cornice_color := Color(0.32, 0.30, 0.28) + Color(rng.randf_range(-0.05, 0.05), rng.randf_range(-0.05, 0.05), rng.randf_range(-0.05, 0.05))
+		var c_mat := _make_ps1_material(cornice_color)
+		# Front cornice (+Z) — slightly wider/deeper than building face
+		var cf := MeshInstance3D.new()
+		var cf_mesh := BoxMesh.new()
+		cf_mesh.size = Vector3(bsize.x + cornice_depth * 2.0, cornice_h, cornice_depth)
+		cf.mesh = cf_mesh
+		cf.position = Vector3(mi.position.x, roof_y - cornice_h * 0.5 - 0.1, mi.position.z + bsize.z * 0.5 + cornice_depth * 0.5)
+		cf.set_surface_override_material(0, c_mat)
+		cf.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(cf)
+		# Back cornice (-Z)
+		var cb := MeshInstance3D.new()
+		cb.mesh = cf_mesh
+		cb.position = Vector3(mi.position.x, roof_y - cornice_h * 0.5 - 0.1, mi.position.z - bsize.z * 0.5 - cornice_depth * 0.5)
+		cb.set_surface_override_material(0, c_mat)
+		cb.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(cb)
+
+func _generate_window_frames() -> void:
+	# Raised frame borders around some lit windows for depth
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 8300
+	var frame_mat := _make_ps1_material(Color(0.15, 0.14, 0.13))
+	var count := 0
+	var max_frames := 80
+	for child in get_children():
+		if count >= max_frames:
+			break
+		if not child is MeshInstance3D:
+			continue
+		var mi := child as MeshInstance3D
+		if not mi.mesh is BoxMesh:
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		if bsize.y < 10.0:
+			continue
+		# Check children for window quads
+		for sub in mi.get_children():
+			if count >= max_frames:
+				break
+			if not sub is MeshInstance3D:
+				continue
+			if not sub.mesh is QuadMesh:
+				continue
+			var qsize: Vector2 = (sub.mesh as QuadMesh).size
+			# Must be window-sized (roughly 1.2 x 1.5)
+			if qsize.x < 0.8 or qsize.x > 2.0 or qsize.y < 1.0 or qsize.y > 2.0:
+				continue
+			if rng.randf() > 0.12:
+				continue
+			count += 1
+			# Frame thickness
+			var ft := 0.06
+			var fh := qsize.y + ft * 2.0
+			var fw := qsize.x + ft * 2.0
+			# Determine face direction from window position
+			# Top frame bar
+			var ftop := MeshInstance3D.new()
+			var ftop_mesh := BoxMesh.new()
+			ftop_mesh.size = Vector3(fw, ft, 0.04)
+			ftop.mesh = ftop_mesh
+			ftop.position = sub.position + Vector3(0, qsize.y * 0.5 + ft * 0.5, 0)
+			ftop.rotation = sub.rotation
+			ftop.set_surface_override_material(0, frame_mat)
+			ftop.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			mi.add_child(ftop)
+			# Bottom frame bar
+			var fbot := MeshInstance3D.new()
+			fbot.mesh = ftop_mesh
+			fbot.position = sub.position + Vector3(0, -qsize.y * 0.5 - ft * 0.5, 0)
+			fbot.rotation = sub.rotation
+			fbot.set_surface_override_material(0, frame_mat)
+			fbot.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			mi.add_child(fbot)
+			# Left side bar
+			var fleft := MeshInstance3D.new()
+			var fside_mesh := BoxMesh.new()
+			fside_mesh.size = Vector3(ft, fh, 0.04)
+			fleft.mesh = fside_mesh
+			fleft.position = sub.position + Vector3(-qsize.x * 0.5 - ft * 0.5, 0, 0)
+			fleft.rotation = sub.rotation
+			fleft.set_surface_override_material(0, frame_mat)
+			fleft.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			mi.add_child(fleft)
+			# Right side bar
+			var fright := MeshInstance3D.new()
+			fright.mesh = fside_mesh
+			fright.position = sub.position + Vector3(qsize.x * 0.5 + ft * 0.5, 0, 0)
+			fright.rotation = sub.rotation
+			fright.set_surface_override_material(0, frame_mat)
+			fright.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			mi.add_child(fright)

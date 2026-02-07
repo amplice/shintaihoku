@@ -51,6 +51,11 @@ var horn_duration: float = 0.3
 var horn_pitch: float = 1.0
 var horn_double: bool = false
 var horn_gap_done: bool = false
+var radio_timer: float = 0.0
+var radio_phase: float = 0.0
+var radio_active: bool = false
+var radio_duration: float = 0.8
+var radio_filter: float = 0.0
 var rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
@@ -232,6 +237,20 @@ func _process(delta: float) -> void:
 		if horn_phase > total_dur:
 			horn_active = false
 
+	# Radio chatter bursts (walkie-talkie crackle)
+	radio_timer -= delta
+	if radio_timer <= 0.0 and not radio_active:
+		radio_timer = rng.randf_range(35.0, 65.0)
+		radio_active = true
+		radio_phase = 0.0
+		radio_duration = rng.randf_range(0.5, 1.5)
+		radio_filter = 0.0
+
+	if radio_active:
+		radio_phase += delta
+		if radio_phase > radio_duration:
+			radio_active = false
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -348,6 +367,25 @@ func _fill_hum_buffer() -> void:
 				var tinkle_noise := rng.randf_range(-1.0, 1.0) * 0.2
 				glass_sample += (tinkle1 + tinkle2 + tinkle3 + tinkle_noise) * glass_env * glass_env
 			sample += glass_sample * 0.04
+		# Radio chatter burst (band-pass filtered noise, walkie-talkie texture)
+		if radio_active:
+			var radio_env := 1.0
+			# Click-on at start, click-off at end
+			if radio_phase < 0.03:
+				radio_env = radio_phase / 0.03
+			elif radio_phase > radio_duration - 0.05:
+				radio_env = maxf(0.0, (radio_duration - radio_phase) / 0.05)
+			# Band-pass noise (800-2000Hz range) to mimic voice texture
+			var radio_noise := rng.randf_range(-1.0, 1.0)
+			radio_filter = radio_filter * 0.6 + radio_noise * 0.4
+			# Add formant-like resonances to suggest speech
+			var formant1 := sin(t * 900.0 * TAU) * radio_filter * 0.3
+			var formant2 := sin(t * 1400.0 * TAU) * radio_filter * 0.2
+			# Squelch click at start/end
+			var squelch := 0.0
+			if radio_phase < 0.02 or (radio_phase > radio_duration - 0.02 and radio_phase < radio_duration):
+				squelch = rng.randf_range(-1.0, 1.0) * 0.3
+			sample += (formant1 + formant2 + squelch) * radio_env * 0.04
 		# Distant crowd murmur (band-limited noise, 200-800Hz band)
 		var murmur_noise := rng.randf_range(-1.0, 1.0)
 		murmur_filter1 = murmur_filter1 * 0.85 + murmur_noise * 0.15
