@@ -87,6 +87,10 @@ func _ready() -> void:
 	_generate_roof_access_doors()
 	_generate_rain_gutters()
 	_generate_parking_meters()
+	_generate_shipping_containers()
+	_generate_scaffolding()
+	_generate_antenna_arrays()
+	_generate_laundry_lines()
 	_setup_neon_flicker()
 	print("CityGenerator: generation complete, total children=", get_child_count())
 
@@ -399,6 +403,21 @@ func _add_windows(building: MeshInstance3D, size: Vector3, rng: RandomNumberGene
 				win.set_surface_override_material(0,
 					_make_ps1_material(wc * 0.3, true, wc, rng.randf_range(2.5, 5.0)))
 				building.add_child(win)
+				# 5% of lit windows get a TV glow
+				if rng.randf() < 0.05:
+					var tv_light := OmniLight3D.new()
+					tv_light.light_color = Color(0.3, 0.4, 0.9)
+					tv_light.light_energy = 1.5
+					tv_light.omni_range = 3.0
+					tv_light.omni_attenuation = 1.5
+					tv_light.shadow_enabled = false
+					tv_light.position = win.position + Vector3(0, 0, -face * 0.3)
+					building.add_child(tv_light)
+					flickering_lights.append({
+						"node": tv_light, "mesh": null,
+						"base_energy": 1.5, "phase": rng.randf() * TAU,
+						"speed": rng.randf_range(5.0, 15.0), "style": "tv",
+					})
 
 	# Windows on side faces (X axis)
 	for face in [1.0, -1.0]:
@@ -424,6 +443,20 @@ func _add_windows(building: MeshInstance3D, size: Vector3, rng: RandomNumberGene
 				win.set_surface_override_material(0,
 					_make_ps1_material(wc * 0.3, true, wc, rng.randf_range(2.5, 5.0)))
 				building.add_child(win)
+				if rng.randf() < 0.05:
+					var tv_light := OmniLight3D.new()
+					tv_light.light_color = Color(0.3, 0.4, 0.9)
+					tv_light.light_energy = 1.5
+					tv_light.omni_range = 3.0
+					tv_light.omni_attenuation = 1.5
+					tv_light.shadow_enabled = false
+					tv_light.position = win.position + Vector3(-face * 0.3, 0, 0)
+					building.add_child(tv_light)
+					flickering_lights.append({
+						"node": tv_light, "mesh": null,
+						"base_energy": 1.5, "phase": rng.randf() * TAU,
+						"speed": rng.randf_range(5.0, 15.0), "style": "tv",
+					})
 
 func _add_neon_sign(building: MeshInstance3D, size: Vector3, rng: RandomNumberGenerator) -> void:
 	var neon_col := neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
@@ -1810,6 +1843,16 @@ func _generate_manholes() -> void:
 				mesh.size = Vector3(0.2, 0.2, 0.2)
 				steam.draw_pass_1 = mesh
 				add_child(steam)
+				# Neon-tinted underglow from below
+				var glow_col := neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
+				var underglow := OmniLight3D.new()
+				underglow.light_color = glow_col
+				underglow.light_energy = rng.randf_range(0.5, 1.2)
+				underglow.omni_range = 3.0
+				underglow.omni_attenuation = 1.5
+				underglow.shadow_enabled = false
+				underglow.position = Vector3(ix, 0.0, iz)
+				add_child(underglow)
 
 func _generate_litter() -> void:
 	# Small flat debris on sidewalks and gutters
@@ -3158,6 +3201,228 @@ func _generate_parking_meters() -> void:
 				meter.add_child(screen)
 				add_child(meter)
 
+func _generate_shipping_containers() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4000
+	var cell_stride := block_size + street_width
+	var container_colors: Array[Color] = [
+		Color(0.5, 0.15, 0.1),  # rust red
+		Color(0.1, 0.3, 0.5),   # blue
+		Color(0.15, 0.4, 0.15), # green
+		Color(0.5, 0.35, 0.1),  # orange
+		Color(0.3, 0.3, 0.32),  # gray
+		Color(0.4, 0.15, 0.35), # purple
+	]
+	# Only place at city edges
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			if abs(gx) < grid_size - 1 and abs(gz) < grid_size - 1:
+				continue
+			if rng.randf() > 0.25:
+				continue
+			var cell_x := gx * cell_stride
+			var cell_z := gz * cell_stride
+			var num_containers := rng.randi_range(2, 4)
+			var base_x := cell_x + rng.randf_range(-block_size * 0.3, block_size * 0.3)
+			var base_z := cell_z + rng.randf_range(-block_size * 0.3, block_size * 0.3)
+			for _c in range(num_containers):
+				var container := MeshInstance3D.new()
+				var c_mesh := BoxMesh.new()
+				c_mesh.size = Vector3(rng.randf_range(5.0, 7.0), 2.6, 2.4)
+				container.mesh = c_mesh
+				var stack := rng.randi_range(0, 1)
+				container.position = Vector3(
+					base_x + rng.randf_range(-2.0, 2.0),
+					1.3 + stack * 2.6,
+					base_z + rng.randf_range(-1.0, 1.0)
+				)
+				container.rotation.y = rng.randf_range(-0.2, 0.2)
+				var cc := container_colors[rng.randi_range(0, container_colors.size() - 1)]
+				# Add rust variation
+				if rng.randf() < 0.3:
+					cc = cc.lerp(Color(0.35, 0.2, 0.1), rng.randf_range(0.2, 0.6))
+				container.set_surface_override_material(0, _make_ps1_material(cc))
+				add_child(container)
+
+func _generate_scaffolding() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4100
+	var pipe_mat := _make_ps1_material(Color(0.4, 0.4, 0.42))
+	var plank_mat := _make_ps1_material(Color(0.3, 0.2, 0.1))
+	for child in get_children():
+		if not (child is MeshInstance3D):
+			continue
+		var mi := child as MeshInstance3D
+		if not (mi.mesh is BoxMesh):
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		if bsize.y < 20.0:
+			continue
+		if rng.randf() > 0.08:
+			continue
+		var face := 1.0 if rng.randf() < 0.5 else -1.0
+		var scaffold_h := minf(bsize.y * 0.6, rng.randf_range(8.0, 18.0))
+		var num_levels := int(scaffold_h / 3.0)
+		var scaffold_z := rng.randf_range(-bsize.z * 0.2, bsize.z * 0.2)
+		# Vertical poles (4 corners)
+		for pz_off in [-1.0, 1.0]:
+			for px_off in [0.0, 1.5]:
+				var pole := MeshInstance3D.new()
+				var p_mesh := BoxMesh.new()
+				p_mesh.size = Vector3(0.06, scaffold_h, 0.06)
+				pole.mesh = p_mesh
+				pole.position = Vector3(
+					face * (bsize.x * 0.5 + 0.3 + px_off),
+					-bsize.y * 0.5 + scaffold_h * 0.5,
+					scaffold_z + pz_off * 0.8
+				)
+				pole.set_surface_override_material(0, pipe_mat)
+				mi.add_child(pole)
+		# Horizontal members and planks at each level
+		for lvl in range(num_levels):
+			var level_y := -bsize.y * 0.5 + (lvl + 1) * 3.0
+			# Cross bar
+			var cross := MeshInstance3D.new()
+			var cr_mesh := BoxMesh.new()
+			cr_mesh.size = Vector3(1.8, 0.05, 0.05)
+			cross.mesh = cr_mesh
+			cross.position = Vector3(face * (bsize.x * 0.5 + 1.05), level_y, scaffold_z)
+			cross.set_surface_override_material(0, pipe_mat)
+			mi.add_child(cross)
+			# Plank (walking platform)
+			var plank := MeshInstance3D.new()
+			var pl_mesh := BoxMesh.new()
+			pl_mesh.size = Vector3(1.6, 0.08, 1.6)
+			plank.mesh = pl_mesh
+			plank.position = Vector3(face * (bsize.x * 0.5 + 1.05), level_y + 0.04, scaffold_z)
+			plank.set_surface_override_material(0, plank_mat)
+			mi.add_child(plank)
+
+func _generate_antenna_arrays() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4200
+	var pole_mat := _make_ps1_material(Color(0.35, 0.35, 0.38))
+	for child in get_children():
+		if not (child is MeshInstance3D):
+			continue
+		var mi := child as MeshInstance3D
+		if not (mi.mesh is BoxMesh):
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		if bsize.y < 25.0:
+			continue
+		if rng.randf() > 0.15:
+			continue
+		var num_antennas := rng.randi_range(2, 5)
+		for _a in range(num_antennas):
+			var ant_h := rng.randf_range(1.5, 4.0)
+			var ant := MeshInstance3D.new()
+			var ant_mesh := BoxMesh.new()
+			ant_mesh.size = Vector3(0.04, ant_h, 0.04)
+			ant.mesh = ant_mesh
+			ant.position = Vector3(
+				mi.position.x + rng.randf_range(-bsize.x * 0.3, bsize.x * 0.3),
+				mi.position.y + bsize.y * 0.5 + ant_h * 0.5,
+				mi.position.z + rng.randf_range(-bsize.z * 0.3, bsize.z * 0.3)
+			)
+			ant.set_surface_override_material(0, pole_mat)
+			add_child(ant)
+			# 40% get a blinking red tip
+			if rng.randf() < 0.4:
+				var tip := MeshInstance3D.new()
+				var tip_mesh := SphereMesh.new()
+				tip_mesh.radius = 0.06
+				tip_mesh.height = 0.12
+				tip.mesh = tip_mesh
+				tip.position = ant.position + Vector3(0, ant_h * 0.5, 0)
+				var red := Color(1.0, 0.05, 0.0)
+				tip.set_surface_override_material(0, _make_ps1_material(red, true, red, 3.0))
+				add_child(tip)
+				var tip_light := OmniLight3D.new()
+				tip_light.light_color = red
+				tip_light.light_energy = 0.8
+				tip_light.omni_range = 2.0
+				tip_light.shadow_enabled = false
+				tip_light.position = tip.position
+				add_child(tip_light)
+				flickering_lights.append({
+					"node": tip_light, "mesh": tip,
+					"base_energy": 0.8, "phase": rng.randf() * TAU,
+					"speed": rng.randf_range(2.0, 4.0), "style": "blink",
+				})
+
+func _generate_laundry_lines() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4300
+	var cell_stride := block_size + street_width
+	var cloth_colors: Array[Color] = [
+		Color(0.6, 0.2, 0.2),  # red
+		Color(0.2, 0.2, 0.5),  # blue
+		Color(0.5, 0.5, 0.45), # off-white
+		Color(0.15, 0.15, 0.15), # dark
+		Color(0.5, 0.35, 0.2), # brown
+	]
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			if rng.randf() > 0.10:
+				continue
+			var cell_x := gx * cell_stride
+			var cell_z := gz * cell_stride
+			# String a line across the street
+			var line_y := rng.randf_range(6.0, 12.0)
+			var along_x := rng.randf() < 0.5
+			var line_len := street_width + rng.randf_range(-2.0, 2.0)
+			var offset := rng.randf_range(-block_size * 0.2, block_size * 0.2)
+			var start_pos: Vector3
+			if along_x:
+				start_pos = Vector3(cell_x + block_size * 0.5, line_y, cell_z + offset)
+			else:
+				start_pos = Vector3(cell_x + offset, line_y, cell_z + block_size * 0.5)
+			# The line itself (thin box)
+			var line := MeshInstance3D.new()
+			var line_mesh := BoxMesh.new()
+			if along_x:
+				line_mesh.size = Vector3(0.02, 0.02, line_len)
+			else:
+				line_mesh.size = Vector3(line_len, 0.02, 0.02)
+			line.mesh = line_mesh
+			if along_x:
+				line.position = start_pos + Vector3(0, 0, line_len * 0.5)
+			else:
+				line.position = start_pos + Vector3(line_len * 0.5, 0, 0)
+			line.set_surface_override_material(0, _make_ps1_material(Color(0.3, 0.3, 0.3)))
+			add_child(line)
+			# Hanging clothes (small quads)
+			var num_clothes := rng.randi_range(3, 7)
+			for _cl in range(num_clothes):
+				var cloth := MeshInstance3D.new()
+				var cloth_mesh := BoxMesh.new()
+				cloth_mesh.size = Vector3(
+					rng.randf_range(0.3, 0.6),
+					rng.randf_range(0.4, 0.8),
+					0.02
+				)
+				cloth.mesh = cloth_mesh
+				var t := rng.randf()
+				var cloth_pos: Vector3
+				if along_x:
+					cloth_pos = Vector3(
+						start_pos.x,
+						line_y - rng.randf_range(0.1, 0.35),
+						start_pos.z + t * line_len
+					)
+				else:
+					cloth_pos = Vector3(
+						start_pos.x + t * line_len,
+						line_y - rng.randf_range(0.1, 0.35),
+						start_pos.z
+					)
+				cloth.position = cloth_pos
+				cloth.rotation.z = rng.randf_range(-0.15, 0.15)
+				var cc := cloth_colors[rng.randi_range(0, cloth_colors.size() - 1)]
+				cloth.set_surface_override_material(0, _make_ps1_material(cc))
+				add_child(cloth)
+
 func _setup_neon_flicker() -> void:
 	# Register existing neon sign lights for flickering
 	var rng := RandomNumberGenerator.new()
@@ -3207,6 +3472,16 @@ func _process(_delta: float) -> void:
 			var mesh_node = data["mesh"]
 			if mesh_node and is_instance_valid(mesh_node):
 				(mesh_node as MeshInstance3D).visible = val > 0.0
+		elif style == "tv":
+			# TV screen flicker: irregular brightness changes
+			var tv_val := 0.6 + 0.4 * sin(time * speed + phase) * sin(time * speed * 0.37 + phase * 1.7)
+			# Occasional brightness spike (scene change)
+			if sin(time * speed * 0.1 + phase) > 0.9:
+				tv_val = 1.2
+			light.light_energy = base * tv_val
+			# Slight color shift
+			var r_shift := 0.3 + 0.1 * sin(time * speed * 0.5 + phase)
+			light.light_color = Color(r_shift, 0.4, 0.9)
 		elif style == "buzz":
 			# Faulty sodium lamp: mostly on, occasional rapid flicker/dropout
 			var buzz := sin(time * speed + phase) * sin(time * speed * 2.3 + phase * 0.7)
