@@ -310,6 +310,12 @@ var keycard_active: bool = false
 var puddle_timer: float = 0.0
 var puddle_phase: float = 0.0
 var puddle_active: bool = false
+var hydraulic_timer: float = 0.0
+var hydraulic_phase: float = 0.0
+var hydraulic_active: bool = false
+var coin_timer: float = 0.0
+var coin_phase: float = 0.0
+var coin_active: bool = false
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -1363,6 +1369,30 @@ func _process(delta: float) -> void:
 		if puddle_phase > 0.3:
 			puddle_active = false
 
+	# Hydraulic door closer hiss (pneumatic whoosh)
+	hydraulic_timer -= delta
+	if hydraulic_timer <= 0.0 and not hydraulic_active:
+		hydraulic_timer = rng.randf_range(100.0, 180.0)
+		hydraulic_active = true
+		hydraulic_phase = 0.0
+
+	if hydraulic_active:
+		hydraulic_phase += delta
+		if hydraulic_phase > 1.5:
+			hydraulic_active = false
+
+	# Coin drop (metallic ping + rolling wobble)
+	coin_timer -= delta
+	if coin_timer <= 0.0 and not coin_active:
+		coin_timer = rng.randf_range(120.0, 250.0)
+		coin_active = true
+		coin_phase = 0.0
+
+	if coin_active:
+		coin_phase += delta
+		if coin_phase > 0.6:
+			coin_active = false
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -2356,6 +2386,38 @@ func _fill_hum_buffer() -> void:
 			pd_tone += sin(t * 1200.0 * TAU) * 0.2  # resonant ring
 			pd_tone += sin(t * 400.0 * TAU) * 0.15  # body
 			sample += pd_tone * pd_env * 0.006
+
+		# Hydraulic door closer hiss (filtered noise sweep high-to-low)
+		if hydraulic_active:
+			var hy_env := 0.0
+			if hydraulic_phase < 0.05:
+				hy_env = hydraulic_phase / 0.05  # sharp attack
+			elif hydraulic_phase < 1.0:
+				hy_env = 1.0 - (hydraulic_phase - 0.05) * 0.7
+			else:
+				hy_env = maxf(0.0, (1.5 - hydraulic_phase) / 0.5)
+			# Sweep filter from high to low frequency
+			var hy_cutoff := lerpf(0.9, 0.3, hydraulic_phase / 1.5)
+			var hy_noise := rng.randf_range(-1.0, 1.0)
+			hy_noise *= hy_cutoff  # crude frequency shaping
+			sample += hy_noise * hy_env * 0.005
+
+		# Coin drop (metallic ping then rolling wobble)
+		if coin_active:
+			if coin_phase < 0.08:
+				# Initial impact ping
+				var cn_env := exp(-coin_phase * 30.0)
+				var cn_tone := sin(t * 2400.0 * TAU) * 0.5
+				cn_tone += sin(t * 4800.0 * TAU) * 0.2
+				sample += cn_tone * cn_env * 0.007
+			else:
+				# Rolling wobble (decreasing amplitude, FM modulation)
+				var roll_phase := coin_phase - 0.08
+				var cn_env := exp(-roll_phase * 5.0)
+				var wobble := sin(roll_phase * 25.0) * 0.3  # wobble speed increases as coin slows
+				var cn_freq := 1500.0 + wobble * 500.0
+				var cn_tone := sin(t * cn_freq * TAU) * 0.4
+				sample += cn_tone * cn_env * 0.005
 
 		# AC unit compressor cycling (building HVAC motor hum)
 		if ac_active:

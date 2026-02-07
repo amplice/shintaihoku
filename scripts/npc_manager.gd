@@ -845,6 +845,45 @@ func _process(delta: float) -> void:
 				var flinch_amt := hf / 0.3  # 1.0 -> 0.0
 				flinch_mdl.rotation.z += sin(hf * 40.0) * 0.08 * flinch_amt
 
+		# Head turn toward passing cars (stopped NPCs watch nearby traffic)
+		if is_stopped and head_node and is_instance_valid(head_node):
+			var traffic := get_node_or_null("../TrafficManager")
+			if traffic and "ground_cars" in traffic:
+				var closest_car_dir := 0.0
+				var closest_car_d := 10.0
+				for ci in traffic.ground_cars:
+					var cn: Node3D = ci.get("node")
+					if cn and is_instance_valid(cn):
+						var cd := node.global_position.distance_to(cn.global_position)
+						if cd < closest_car_d:
+							closest_car_d = cd
+							var to_car := cn.global_position - node.global_position
+							closest_car_dir = atan2(to_car.x, to_car.z) - node.rotation.y
+				if closest_car_d < 10.0:
+					var look_y := clampf(closest_car_dir, -0.8, 0.8)
+					head_node.rotation.y = lerpf(head_node.rotation.y, look_y, 3.0 * delta)
+
+		# Face wipe (4% of stopped NPCs without umbrella — wipe rain off face)
+		if npc_data.get("does_face_wipe", false) and is_stopped and not npc_data.get("arms_crossed", false):
+			npc_data["wipe_clock"] = npc_data.get("wipe_clock", 0.0) + delta
+			var fw_cycle := fmod(npc_data["wipe_clock"], 30.0)
+			if fw_cycle < 1.5:
+				var rs := node.get_node_or_null("Model/RightShoulder")
+				var re := node.get_node_or_null("Model/RightShoulder/RightElbow")
+				if rs and is_instance_valid(rs) and re and is_instance_valid(re):
+					var fw_blend := 0.0
+					if fw_cycle < 0.3:
+						fw_blend = fw_cycle / 0.3  # raise
+					elif fw_cycle < 0.5:
+						fw_blend = 1.0  # at forehead
+					elif fw_cycle < 1.0:
+						fw_blend = 1.0  # sweep across
+						rs.rotation.z = lerpf(rs.rotation.z, sin(fw_cycle * 6.0) * 0.2, 8.0 * delta)
+					else:
+						fw_blend = (1.5 - fw_cycle) / 0.5  # lower
+					rs.rotation.x = lerpf(rs.rotation.x, -0.7 * fw_blend, 8.0 * delta)
+					re.rotation.x = lerpf(re.rotation.x, -0.8 * fw_blend, 8.0 * delta)
+
 		# Hand rub for warmth (15% of idle NPCs, both arms forward, slight rub oscillation)
 		if npc_data.get("does_hand_rub", false) and is_stopped and not npc_data["smoke"] and not npc_data.get("arms_crossed", false):
 			npc_data["rub_clock"] = npc_data.get("rub_clock", 0.0) + delta
@@ -1746,6 +1785,7 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		"does_shiver": not has_umbrella and rng.randf() < 0.05,
 		"does_collar_adj": not has_umbrella and not has_phone and rng.randf() < 0.07,
 		"does_watch_check": not has_phone and not has_umbrella and rng.randf() < 0.06,
+		"does_face_wipe": not has_umbrella and not has_phone and rng.randf() < 0.04,
 		"horn_flinch": 0.0,
 		"nod_cooldown": 0.0,
 		"last_cell_x": -999,

@@ -461,11 +461,17 @@ func _physics_process(delta: float) -> void:
 				bob_timer = 0.0
 		prev_move_dir = cur_dir
 
-	# Head bob (smooth amplitude transition)
+	# Head bob (smooth amplitude transition, rain-weight boost)
+	var rain_bob_mult := 1.0
+	var rain_node := get_node_or_null("../Rain")
+	if rain_node and "rain_time" in rain_node:
+		var ri: float = 0.5 + 0.5 * sin(rain_node.rain_time * 0.1)
+		if ri > 0.7:
+			rain_bob_mult = 1.0 + (ri - 0.7) * 0.33  # up to ~10% boost at max
 	var target_bob_amp := 0.0
 	if is_on_floor() and horiz_speed > 0.5:
 		var speed_ratio := clampf(horiz_speed / SPRINT_SPEED, 0.3, 1.0)
-		target_bob_amp = BOB_AMPLITUDE * lerpf(0.6, BOB_SPRINT_MULT, speed_ratio)
+		target_bob_amp = BOB_AMPLITUDE * lerpf(0.6, BOB_SPRINT_MULT, speed_ratio) * rain_bob_mult
 	bob_amplitude_current = lerpf(bob_amplitude_current, target_bob_amp, 8.0 * delta)
 
 	if bob_amplitude_current > 0.001:
