@@ -44,6 +44,13 @@ var train_pitch: float = 1.0
 var glass_timer: float = 0.0
 var glass_phase: float = 0.0
 var glass_active: bool = false
+var horn_timer: float = 0.0
+var horn_phase: float = 0.0
+var horn_active: bool = false
+var horn_duration: float = 0.3
+var horn_pitch: float = 1.0
+var horn_double: bool = false
+var horn_gap_done: bool = false
 var rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
@@ -198,6 +205,25 @@ func _process(delta: float) -> void:
 		if glass_phase > 0.4:
 			glass_active = false
 
+	# Distant car horn beeps
+	horn_timer -= delta
+	if horn_timer <= 0.0 and not horn_active:
+		horn_timer = rng.randf_range(15.0, 35.0)
+		horn_active = true
+		horn_phase = 0.0
+		horn_pitch = rng.randf_range(0.85, 1.15)
+		horn_duration = rng.randf_range(0.2, 0.5)
+		horn_double = rng.randf() < 0.4
+		horn_gap_done = false
+
+	if horn_active:
+		horn_phase += delta
+		var total_dur := horn_duration
+		if horn_double:
+			total_dur = horn_duration * 2.0 + 0.1
+		if horn_phase > total_dur:
+			horn_active = false
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -277,6 +303,28 @@ func _fill_hum_buffer() -> void:
 			thunder_filter = thunder_filter * 0.92 + rumble_noise * 0.08
 			var rumble := thunder_filter * 0.3 + sin(t * 30.0 * TAU) * 0.15
 			sample += (crack + rumble) * thunder_env * 0.5
+		# Distant car horn (short mid-frequency beep)
+		if horn_active:
+			var in_beep := false
+			if horn_double:
+				# Double honk: beep, gap, beep
+				if horn_phase < horn_duration:
+					in_beep = true
+				elif horn_phase > horn_duration + 0.1 and horn_phase < horn_duration * 2.0 + 0.1:
+					in_beep = true
+			else:
+				if horn_phase < horn_duration:
+					in_beep = true
+			if in_beep:
+				var local_t := fmod(horn_phase, horn_duration + 0.1)
+				var horn_env := 1.0
+				if local_t < 0.02:
+					horn_env = local_t / 0.02
+				elif local_t > horn_duration - 0.03:
+					horn_env = maxf(0.0, (horn_duration - local_t) / 0.03)
+				var h1 := sin(t * 340.0 * horn_pitch * TAU) * 0.3
+				var h2 := sin(t * 510.0 * horn_pitch * TAU) * 0.15
+				sample += (h1 + h2) * horn_env * 0.05
 		# Distant glass breaking (high-freq noise burst with tinkling resonance)
 		if glass_active and glass_phase < 0.35:
 			var glass_env := (1.0 - glass_phase / 0.35)

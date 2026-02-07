@@ -155,6 +155,7 @@ func _ready() -> void:
 	_generate_building_entrances()
 	_generate_street_vendors()
 	_generate_alleys()
+	_generate_pigeon_flocks()
 	_setup_neon_flicker()
 	_setup_color_shift_signs()
 	print("CityGenerator: generation complete, total children=", get_child_count())
@@ -345,6 +346,38 @@ func _create_storefront(pos: Vector3, size: Vector3, rng: RandomNumberGenerator)
 			for lz in [-0.3, 0.3]:
 				_add_wall(building, Vector3(table_x + lx, -half_h + 0.2, table_z + lz),
 					Vector3(0.08, 0.4, 0.08), table_mat)
+
+	# Shelves on side walls
+	var shelf_mat := _make_ps1_material(Color(0.25, 0.2, 0.15))
+	for shelf_side in [-1.0, 1.0]:
+		if rng.randf() < 0.6:
+			for shelf_row in range(rng.randi_range(1, 3)):
+				var shelf_y := -half_h + 1.2 + shelf_row * 0.8
+				_add_wall(building, Vector3(shelf_side * (half_w - 0.6), shelf_y, -half_d * 0.3),
+					Vector3(0.4, 0.05, d * 0.4), shelf_mat)
+				# Small items on shelf (bottles/jars)
+				for _item in range(rng.randi_range(2, 4)):
+					var bottle := MeshInstance3D.new()
+					var bottle_mesh := BoxMesh.new()
+					bottle_mesh.size = Vector3(0.06, rng.randf_range(0.08, 0.15), 0.06)
+					bottle.mesh = bottle_mesh
+					bottle.position = Vector3(
+						shelf_side * (half_w - 0.6) + rng.randf_range(-0.12, 0.12),
+						shelf_y + 0.06,
+						-half_d * 0.3 + rng.randf_range(-d * 0.15, d * 0.15))
+					var item_col := Color(rng.randf_range(0.3, 0.8), rng.randf_range(0.2, 0.6), rng.randf_range(0.1, 0.5))
+					bottle.set_surface_override_material(0, _make_ps1_material(item_col))
+					building.add_child(bottle)
+
+	# Cash register on counter (if counter exists)
+	if rng.randf() < 0.5:
+		var reg := MeshInstance3D.new()
+		var reg_mesh := BoxMesh.new()
+		reg_mesh.size = Vector3(0.3, 0.25, 0.25)
+		reg.mesh = reg_mesh
+		reg.position = Vector3(rng.randf_range(-0.5, 0.5), -half_h + 1.15, -half_d + 1.2)
+		reg.set_surface_override_material(0, _make_ps1_material(Color(0.15, 0.15, 0.18)))
+		building.add_child(reg)
 
 	add_child(building)
 
@@ -5630,3 +5663,62 @@ func _generate_alleys() -> void:
 			alley_light.shadow_enabled = false
 			alley_light.position = mid + Vector3(0, 3.0, 0)
 			add_child(alley_light)
+
+func _generate_pigeon_flocks() -> void:
+	# Small clusters of pigeon shapes sitting on building rooftop edges
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7600
+	var pigeon_col := Color(0.3, 0.28, 0.25)  # gray-brown
+	var pigeon_dark := Color(0.15, 0.14, 0.13)
+	var flock_count := 0
+	var max_flocks := 8
+	for child in get_children():
+		if flock_count >= max_flocks:
+			break
+		if not child is MeshInstance3D:
+			continue
+		var mi := child as MeshInstance3D
+		if not mi.mesh is BoxMesh:
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		if bsize.y < 15.0:
+			continue
+		if rng.randf() > 0.12:
+			continue
+		flock_count += 1
+		var roof_y := mi.position.y + bsize.y * 0.5
+		var num_birds := rng.randi_range(3, 5)
+		# Pick an edge (front or side)
+		var edge_x := rng.randf() < 0.5
+		for _b in range(num_birds):
+			var bird := Node3D.new()
+			var bx: float
+			var bz: float
+			if edge_x:
+				bx = mi.position.x + rng.randf_range(-bsize.x * 0.3, bsize.x * 0.3)
+				bz = mi.position.z + (bsize.z * 0.5 - 0.1) * (1.0 if rng.randf() < 0.5 else -1.0)
+			else:
+				bx = mi.position.x + (bsize.x * 0.5 - 0.1) * (1.0 if rng.randf() < 0.5 else -1.0)
+				bz = mi.position.z + rng.randf_range(-bsize.z * 0.3, bsize.z * 0.3)
+			bird.position = Vector3(bx, roof_y + 0.08, bz)
+			bird.rotation.y = rng.randf_range(0, TAU)
+			# Body (small elongated sphere)
+			var body := MeshInstance3D.new()
+			var body_mesh := SphereMesh.new()
+			body_mesh.radius = 0.06
+			body_mesh.height = 0.12
+			body.mesh = body_mesh
+			body.position = Vector3(0, 0, 0)
+			var col := pigeon_col if rng.randf() < 0.7 else pigeon_dark
+			body.set_surface_override_material(0, _make_ps1_material(col))
+			bird.add_child(body)
+			# Head (tiny sphere)
+			var head := MeshInstance3D.new()
+			var head_mesh := SphereMesh.new()
+			head_mesh.radius = 0.03
+			head_mesh.height = 0.06
+			head.mesh = head_mesh
+			head.position = Vector3(0, 0.04, 0.06)
+			head.set_surface_override_material(0, _make_ps1_material(col * 0.8))
+			bird.add_child(head)
+			add_child(bird)

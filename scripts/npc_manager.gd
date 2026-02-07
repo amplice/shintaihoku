@@ -133,6 +133,11 @@ func _process(delta: float) -> void:
 		# Update walk animation (only for visible NPCs)
 		anim.update(delta, current_speed)
 
+		# Foot splash when walking
+		var splash: GPUParticles3D = npc_data.get("splash")
+		if splash and is_instance_valid(splash):
+			splash.emitting = not is_stopped
+
 		# Toggle cigarette smoke + smoking arm animation
 		var smoke: GPUParticles3D = npc_data["smoke"]
 		if smoke:
@@ -454,6 +459,31 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		smoke_particles.draw_pass_1 = smoke_mesh
 		model.add_child(smoke_particles)
 
+	# Foot splash particles (wet ground)
+	var npc_splash := GPUParticles3D.new()
+	npc_splash.amount = 6
+	npc_splash.lifetime = 0.25
+	npc_splash.emitting = false
+	npc_splash.visibility_aabb = AABB(Vector3(-1, -0.5, -1), Vector3(2, 2, 2))
+	var sp_mat := ParticleProcessMaterial.new()
+	sp_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	sp_mat.emission_box_extents = Vector3(0.15, 0, 0.15)
+	sp_mat.direction = Vector3(0, 1, 0)
+	sp_mat.spread = 40.0
+	sp_mat.initial_velocity_min = 0.5
+	sp_mat.initial_velocity_max = 1.5
+	sp_mat.gravity = Vector3(0, -8.0, 0)
+	sp_mat.scale_min = 0.015
+	sp_mat.scale_max = 0.04
+	sp_mat.color = Color(0.4, 0.45, 0.6, 0.2)
+	npc_splash.process_material = sp_mat
+	var sp_mesh := SphereMesh.new()
+	sp_mesh.radius = 0.02
+	sp_mesh.height = 0.04
+	npc_splash.draw_pass_1 = sp_mesh
+	npc_splash.position = Vector3(0, 0.03, 0)
+	npc.add_child(npc_splash)
+
 	add_child(npc)
 
 	npcs.append({
@@ -470,6 +500,7 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		"has_umbrella": has_umbrella,
 		"has_phone": has_phone,
 		"phone_light": phone_light,
+		"splash": npc_splash,
 	})
 
 func _add_pivot(parent: Node3D, pivot_name: String, pos: Vector3) -> Node3D:

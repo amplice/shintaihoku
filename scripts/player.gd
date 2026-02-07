@@ -138,6 +138,13 @@ func _physics_process(delta: float) -> void:
 	var target_fov := SPRINT_FOV if is_sprinting else BASE_FOV
 	camera.fov = lerpf(camera.fov, target_fov, FOV_LERP_SPEED * delta)
 
+	# Sprint strafe camera roll
+	if is_sprinting and is_on_floor():
+		var strafe_roll := -input_dir.x * 0.025  # tilt into the turn
+		camera.rotation.z = lerpf(camera.rotation.z, strafe_roll, 6.0 * delta)
+	elif not (shake_timer > 0.0):
+		camera.rotation.z = lerpf(camera.rotation.z, 0.0, 8.0 * delta)
+
 	# Sprint rain streaks + speed blur
 	if sprint_streaks:
 		sprint_streaks.emitting = is_sprinting
