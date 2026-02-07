@@ -884,6 +884,49 @@ func _process(delta: float) -> void:
 					rs.rotation.x = lerpf(rs.rotation.x, -0.7 * fw_blend, 8.0 * delta)
 					re.rotation.x = lerpf(re.rotation.x, -0.8 * fw_blend, 8.0 * delta)
 
+		# Yawn (4% of NPCs, triggers after extended stop)
+		if npc_data.get("does_yawn", false) and is_stopped:
+			npc_data["yawn_cooldown"] = npc_data.get("yawn_cooldown", 0.0) - delta
+			if npc_data["yawn_cooldown"] <= 0.0:
+				npc_data["yawn_phase"] = npc_data.get("yawn_phase", 0.0) + delta
+				var yp: float = npc_data["yawn_phase"]
+				if yp < 3.0:
+					if head_node and is_instance_valid(head_node):
+						var yawn_blend := 0.0
+						if yp < 0.5:
+							yawn_blend = yp / 0.5
+						elif yp < 2.0:
+							yawn_blend = 1.0
+						else:
+							yawn_blend = (3.0 - yp) / 1.0
+						head_node.rotation.x = lerpf(head_node.rotation.x, 0.2 * yawn_blend, 4.0 * delta)
+						head_node.scale.y = lerpf(head_node.scale.y, 1.0 + 0.08 * yawn_blend, 5.0 * delta)
+					# Cover mouth with right hand
+					var yrs := node.get_node_or_null("Model/RightShoulder")
+					if yrs and is_instance_valid(yrs) and not npc_data.get("smoke"):
+						yrs.rotation.x = lerpf(yrs.rotation.x, -0.5 if yp < 2.0 else 0.0, 4.0 * delta)
+				else:
+					npc_data["yawn_phase"] = 0.0
+					npc_data["yawn_cooldown"] = 40.0
+					if head_node and is_instance_valid(head_node):
+						head_node.scale.y = 1.0
+
+		# Step-over puddle (3% of walking NPCs — wider stride briefly)
+		if npc_data.get("does_step_over", false) and not is_stopped:
+			npc_data["step_over_timer"] = npc_data.get("step_over_timer", 30.0) - delta
+			if npc_data["step_over_timer"] <= 0.0:
+				npc_data["step_over_timer"] = stop_rng.randf_range(20.0, 40.0)
+				npc_data["step_over_active"] = 1.0  # duration of boosted stride
+			var soa: float = npc_data.get("step_over_active", 0.0)
+			if soa > 0.0:
+				npc_data["step_over_active"] = soa - delta
+				var lh := node.get_node_or_null("Model/LeftHip")
+				var rh := node.get_node_or_null("Model/RightHip")
+				if lh and is_instance_valid(lh):
+					lh.rotation.x *= 1.5
+				if rh and is_instance_valid(rh):
+					rh.rotation.x *= 1.5
+
 		# Hand rub for warmth (15% of idle NPCs, both arms forward, slight rub oscillation)
 		if npc_data.get("does_hand_rub", false) and is_stopped and not npc_data["smoke"] and not npc_data.get("arms_crossed", false):
 			npc_data["rub_clock"] = npc_data.get("rub_clock", 0.0) + delta
@@ -1786,6 +1829,10 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		"does_collar_adj": not has_umbrella and not has_phone and rng.randf() < 0.07,
 		"does_watch_check": not has_phone and not has_umbrella and rng.randf() < 0.06,
 		"does_face_wipe": not has_umbrella and not has_phone and rng.randf() < 0.04,
+		"does_yawn": rng.randf() < 0.04,
+		"yawn_cooldown": rng.randf_range(10.0, 30.0),
+		"does_step_over": rng.randf() < 0.03,
+		"step_over_timer": rng.randf_range(20.0, 40.0),
 		"horn_flinch": 0.0,
 		"nod_cooldown": 0.0,
 		"last_cell_x": -999,

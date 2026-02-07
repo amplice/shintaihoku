@@ -316,6 +316,15 @@ var hydraulic_active: bool = false
 var coin_timer: float = 0.0
 var coin_phase: float = 0.0
 var coin_active: bool = false
+var squelch_timer: float = 0.0
+var squelch_phase: float = 0.0
+var squelch_active: bool = false
+var keyjingle_timer: float = 0.0
+var keyjingle_phase: float = 0.0
+var keyjingle_active: bool = false
+var keyjingle_count: int = 0
+var keyjingle_max: int = 0
+var keyjingle_gap: float = 0.0
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -1393,6 +1402,38 @@ func _process(delta: float) -> void:
 		if coin_phase > 0.6:
 			coin_active = false
 
+	# Radio squelch (two-way radio burst)
+	squelch_timer -= delta
+	if squelch_timer <= 0.0 and not squelch_active:
+		squelch_timer = rng.randf_range(80.0, 160.0)
+		squelch_active = true
+		squelch_phase = 0.0
+
+	if squelch_active:
+		squelch_phase += delta
+		if squelch_phase > 0.15:
+			squelch_active = false
+
+	# Key jingle (metallic tinkling cluster)
+	keyjingle_timer -= delta
+	if keyjingle_timer <= 0.0 and not keyjingle_active:
+		keyjingle_timer = rng.randf_range(100.0, 200.0)
+		keyjingle_active = true
+		keyjingle_phase = 0.0
+		keyjingle_count = 0
+		keyjingle_max = rng.randi_range(3, 5)
+		keyjingle_gap = 0.0
+
+	if keyjingle_active:
+		keyjingle_gap -= delta
+		if keyjingle_gap <= 0.0 and keyjingle_count < keyjingle_max:
+			keyjingle_count += 1
+			keyjingle_phase = 0.0
+			keyjingle_gap = rng.randf_range(0.04, 0.08)
+		keyjingle_phase += delta
+		if keyjingle_count >= keyjingle_max and keyjingle_phase > 0.15:
+			keyjingle_active = false
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -2434,6 +2475,24 @@ func _fill_hum_buffer() -> void:
 			ac_tone += sin(t * 150.0 * TAU) * 0.08
 			ac_tone += rng.randf_range(-1.0, 1.0) * 0.1  # motor noise
 			sample += ac_tone * ac_env * 0.004
+
+		# Radio squelch (sharp static burst + tone)
+		if squelch_active:
+			var sq_env := 1.0 - squelch_phase / 0.15
+			var sq_noise := rng.randf_range(-1.0, 1.0) * 0.5
+			sq_noise += sin(t * 1000.0 * TAU) * 0.3  # carrier tone
+			# End click
+			if squelch_phase > 0.12:
+				sq_noise += sin(t * 3000.0 * TAU) * exp(-(squelch_phase - 0.12) * 80.0) * 0.4
+			sample += sq_noise * sq_env * 0.006
+
+		# Key jingle (metallic tinks at random high frequencies)
+		if keyjingle_active and keyjingle_phase < 0.1:
+			var kj_env := exp(-keyjingle_phase * 40.0)
+			var kj_freq := 3000.0 + float(keyjingle_count) * 500.0 + rng.randf_range(-200.0, 200.0)
+			var kj_tone := sin(t * kj_freq * TAU) * 0.4
+			kj_tone += sin(t * kj_freq * 1.5 * TAU) * 0.2  # inharmonic overtone
+			sample += kj_tone * kj_env * 0.005
 
 		# Distant crowd murmur (band-limited noise, 200-800Hz band)
 		var murmur_noise := rng.randf_range(-1.0, 1.0)

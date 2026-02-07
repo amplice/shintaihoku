@@ -77,6 +77,7 @@ var shadow_flicker_amount: float = 0.0  # current flicker vignette boost
 var thunder_flinch: float = 0.0  # involuntary camera dip from thunder
 var thunder_was_active: bool = false  # edge detection for thunder start
 var prev_move_dir: Vector2 = Vector2.ZERO  # for bob phase reset on direction flip
+var was_sprinting_last: bool = false  # edge detect for sprint stop exhale
 
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
@@ -254,6 +255,14 @@ func _physics_process(delta: float) -> void:
 		# Camera jitter
 		camera_pivot.rotation.z += sin(bob_timer * 15.0) * 0.003 * cb_intensity
 		camera.rotation.x += sin(bob_timer * 12.0) * 0.002 * cb_intensity
+
+	# Sprint stop exhale puff (brief camera dip + breath fog on hard stop)
+	if was_sprinting_last and horiz_speed < 0.5 and not is_sprinting:
+		camera.rotation.x -= 0.005
+		if breath_fog:
+			breath_fog.restart()
+			breath_fog.emitting = true
+	was_sprinting_last = is_sprinting
 
 	# Landing recovery limp decay
 	if limp_timer > 0.0:
