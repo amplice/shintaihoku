@@ -25,6 +25,12 @@ const NPC_STEP_RANGE: float = 12.0
 var npc_step_pool: Array[Dictionary] = []
 var step_audio_rng := RandomNumberGenerator.new()
 
+# NPC sigh vocalization audio pool
+const SIGH_POOL_SIZE: int = 1
+const SIGH_RANGE: float = 10.0
+var sigh_pool: Array[Dictionary] = []
+var sigh_rng := RandomNumberGenerator.new()
+
 # NPC outfit color palettes
 var jacket_colors: Array[Color] = [
 	Color(0.12, 0.12, 0.15),  # dark charcoal
@@ -66,6 +72,7 @@ func _ready() -> void:
 	_spawn_conversation_groups(rng)
 	_setup_umbrella_audio()
 	_setup_npc_step_audio()
+	_setup_sigh_audio()
 
 func _setup_umbrella_audio() -> void:
 	umbrella_rng.seed = 7890
@@ -134,6 +141,27 @@ func _process(delta: float) -> void:
 					node.position.z = -grid_extent
 				elif node.position.z < -grid_extent:
 					node.position.z = grid_extent
+
+			# Intersection direction change: turn 90° at grid crossings
+			var cx := int(floor(node.position.x / cell_stride))
+			var cz := int(floor(node.position.z / cell_stride))
+			var lcx: int = npc_data.get("last_cell_x", cx)
+			var lcz: int = npc_data.get("last_cell_z", cz)
+			if cx != lcx or cz != lcz:
+				npc_data["last_cell_x"] = cx
+				npc_data["last_cell_z"] = cz
+				if stop_rng.randf() < 0.3:
+					# Swap axis and pick new lane offset
+					var new_axis := "z" if axis == "x" else "x"
+					npc_data["axis"] = new_axis
+					axis = new_axis
+					npc_data["direction"] = 1.0 if stop_rng.randf() < 0.5 else -1.0
+					direction = npc_data["direction"]
+					# Face new direction
+					if new_axis == "x":
+						node.rotation.y = 0.0 if direction > 0 else PI
+					else:
+						node.rotation.y = PI * 0.5 if direction > 0 else -PI * 0.5
 
 		# Distance-based culling
 		var dist := node.global_position.distance_to(cam_pos)
@@ -596,6 +624,35 @@ func _process(delta: float) -> void:
 				var scroll := sin(npc_data["scroll_t"] * 2.0 * TAU) * 0.05
 				phone_re.rotation.x = lerpf(phone_re.rotation.x, -0.7 + scroll, 6.0 * delta)
 
+		# Sleeve fidget (8% of idle NPCs, periodic cuff adjustment)
+		if npc_data.get("does_sleeve_fidget", false) and is_stopped and not npc_data["smoke"] and not npc_data.get("arms_crossed", false):
+			npc_data["fidget_clock"] = npc_data.get("fidget_clock", 0.0) + delta
+			var fidget_cycle := fmod(npc_data["fidget_clock"], 12.0)
+			if fidget_cycle < 1.5:
+				var frs := node.get_node_or_null("Model/RightShoulder")
+				var fre := node.get_node_or_null("Model/RightShoulder/RightElbow")
+				if frs and fre:
+					var reach := 0.0
+					var bend := 0.0
+					if fidget_cycle < 0.3:
+						reach = (fidget_cycle / 0.3) * -0.4
+						bend = (fidget_cycle / 0.3) * -0.8
+					elif fidget_cycle < 0.9:
+						reach = -0.4
+						bend = -0.8 + sin(fidget_cycle * 8.0) * 0.1  # tug motion
+					else:
+						reach = -0.4 * ((1.5 - fidget_cycle) / 0.6)
+						bend = -0.8 * ((1.5 - fidget_cycle) / 0.6)
+					frs.rotation.x = lerpf(frs.rotation.x, reach, 6.0 * delta)
+					fre.rotation.x = lerpf(fre.rotation.x, bend, 6.0 * delta)
+
+		# Sigh trigger (10% of idle NPCs, sets flag for audio pool to pick up)
+		if npc_data.get("does_sigh", false) and is_stopped:
+			npc_data["sigh_cd"] = npc_data.get("sigh_cd", 0.0) - delta
+			if npc_data["sigh_cd"] <= 0.0:
+				npc_data["sigh_cd"] = stop_rng.randf_range(8.0, 18.0)
+				npc_data["sigh_ready"] = true
+
 		# Conversation gestures: active speaker raises arm emphatically
 		if npc_data.get("is_conversation", false):
 			npc_data["gesture_timer"] = npc_data.get("gesture_timer", 0.0) + delta
@@ -632,6 +689,9 @@ func _process(delta: float) -> void:
 
 	# Update NPC footstep positional audio
 	_update_npc_step_audio(cam_pos)
+
+	# Update NPC sigh vocalization audio
+	_update_sigh_audio(cam_pos)
 
 func _update_umbrella_audio(cam_pos: Vector3) -> void:
 	# Find nearest umbrella NPCs to camera
@@ -753,6 +813,72 @@ func _update_npc_step_audio(cam_pos: Vector3) -> void:
 				var frames := playback.get_frames_available()
 				for _f in range(frames):
 					playback.push_frame(Vector2.ZERO)
+
+func _setup_sigh_audio() -> void:
+	sigh_rng.seed = 6543
+	for _i in range(SIGH_POOL_SIZE):
+		var player := AudioStreamPlayer3D.new()
+		var gen := AudioStreamGenerator.new()
+		gen.mix_rate = 22050.0
+		gen.buffer_length = 0.1
+		player.stream = gen
+		player.volume_db = -20.0
+		player.max_distance = SIGH_RANGE
+		player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+		player.unit_size = 4.0
+		add_child(player)
+		player.play()
+		sigh_pool.append({
+			"player": player,
+			"generator": gen,
+			"playback": player.get_stream_playback(),
+			"burst_remaining": 0,
+			"filter": 0.0,
+		})
+
+func _update_sigh_audio(cam_pos: Vector3) -> void:
+	# Find nearest sighing NPC
+	var best_npc: Dictionary = {}
+	var best_dist := SIGH_RANGE + 1.0
+	for npc_data in npcs:
+		if not npc_data.get("sigh_ready", false):
+			continue
+		var npc_node: Node3D = npc_data["node"]
+		if not npc_node.visible:
+			continue
+		var d := npc_node.global_position.distance_to(cam_pos)
+		if d < best_dist:
+			best_dist = d
+			best_npc = npc_data
+	# Trigger sigh burst
+	if not best_npc.is_empty():
+		best_npc["sigh_ready"] = false
+		for slot in sigh_pool:
+			if slot["burst_remaining"] <= 0:
+				slot["burst_remaining"] = 1200
+				var npc_node: Node3D = best_npc["node"]
+				(slot["player"] as AudioStreamPlayer3D).global_position = npc_node.global_position + Vector3(0, 1.5, 0)
+				break
+	# Fill audio buffers
+	for slot in sigh_pool:
+		var playback: AudioStreamGeneratorPlayback = slot["playback"]
+		if not playback:
+			continue
+		var frames := playback.get_frames_available()
+		var filt: float = slot["filter"]
+		for _f in range(frames):
+			var sample := 0.0
+			if slot["burst_remaining"] > 0:
+				var prog := 1.0 - float(slot["burst_remaining"]) / 1200.0
+				var env := sin(prog * PI) * 0.7  # bell curve envelope
+				var noise := sigh_rng.randf_range(-1.0, 1.0)
+				filt = filt * 0.72 + noise * 0.28
+				var formant := sin(prog * 350.0 * TAU * 0.01) * filt * 0.4
+				formant += sin(prog * 180.0 * TAU * 0.01) * filt * 0.2
+				sample = formant * env * 0.06
+				slot["burst_remaining"] -= 1
+			playback.push_frame(Vector2(sample, sample))
+		slot["filter"] = filt
 
 func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 	var npc := Node3D.new()
@@ -1199,6 +1325,10 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		"does_stretch": not has_umbrella and not has_phone and not has_newspaper and rng.randf() < 0.08,
 		"does_toe_tap": not is_jogger and rng.randf() < 0.08,
 		"swing_mult": rng.randf_range(0.7, 1.3),
+		"does_sigh": rng.randf() < 0.10,
+		"does_sleeve_fidget": not has_umbrella and not has_phone and not has_newspaper and rng.randf() < 0.08,
+		"last_cell_x": -999,
+		"last_cell_z": -999,
 	})
 
 func _add_pivot(parent: Node3D, pivot_name: String, pos: Vector3) -> Node3D:

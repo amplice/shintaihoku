@@ -67,6 +67,8 @@ var footprints: Array[Dictionary] = []  # [{mesh, timer}]
 var footprint_pool_idx: int = 0
 const FOOTPRINT_POOL_SIZE: int = 8
 const FOOTPRINT_LIFETIME: float = 4.0
+var limp_timer: float = 0.0  # recovery limp after hard landing
+var catch_breath_timer: float = 0.0  # heavier breathing after sustained sprint
 
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
@@ -122,6 +124,8 @@ func _physics_process(delta: float) -> void:
 		if fall_speed > 6.0:
 			impact_aberration = clampf((fall_speed - 6.0) * 0.15, 0.0, 1.0)
 		_play_landing_thud(fall_speed)
+		if fall_speed > 6.0:
+			limp_timer = 3.0  # recovery limp for 3 seconds
 		if fall_speed > 4.0 and land_dust:
 			land_dust.restart()
 			land_dust.emitting = true
@@ -210,7 +214,22 @@ func _physics_process(delta: float) -> void:
 	if is_sprinting:
 		sprint_time += delta
 	else:
+		# Trigger catch-breath when stopping after sustained sprint
+		if sprint_time > 5.0 and horiz_speed < 1.0:
+			catch_breath_timer = 3.0
 		sprint_time = maxf(sprint_time - delta * 2.0, 0.0)
+
+	# Catch-breath effect (heavier breathing after sprint, camera jitter)
+	if catch_breath_timer > 0.0:
+		catch_breath_timer -= delta
+		var cb_intensity := clampf(catch_breath_timer / 3.0, 0.0, 1.0)
+		# Camera jitter
+		camera_pivot.rotation.z += sin(bob_timer * 15.0) * 0.003 * cb_intensity
+		camera.rotation.x += sin(bob_timer * 12.0) * 0.002 * cb_intensity
+
+	# Landing recovery limp decay
+	if limp_timer > 0.0:
+		limp_timer -= delta
 
 	# Impact chromatic aberration decay
 	if impact_aberration > 0.0:
@@ -268,10 +287,13 @@ func _physics_process(delta: float) -> void:
 		var buffet := sin(bob_timer * 1.8) * absf(wind_strength) * 0.003
 		camera_pivot.rotation.z += buffet
 
-	# Breath fog puffs (every 2.5-3.5 seconds)
+	# Breath fog puffs (faster when catching breath after sprint)
 	breath_timer -= delta
 	if breath_timer <= 0.0:
-		breath_timer = 2.5 + fmod(bob_timer * 0.1, 1.0)
+		if catch_breath_timer > 0.0:
+			breath_timer = 0.8  # rapid panting
+		else:
+			breath_timer = 2.5 + fmod(bob_timer * 0.1, 1.0)
 		if breath_fog:
 			breath_fog.restart()
 			breath_fog.emitting = true
@@ -337,6 +359,15 @@ func _physics_process(delta: float) -> void:
 	if bob_amplitude_current > 0.001:
 		bob_timer += delta * BOB_FREQUENCY * maxf(horiz_speed / SPEED, 0.3)
 		var bob_offset := sin(bob_timer) * bob_amplitude_current
+		# Landing recovery limp: asymmetric bob + tilt
+		if limp_timer > 0.0:
+			var limp_strength := clampf(limp_timer / 3.0, 0.0, 1.0)
+			var limp_asym := 0.3 * limp_strength  # one side bobs more
+			if sin(bob_timer) > 0.0:
+				bob_offset *= (1.0 + limp_asym)
+			else:
+				bob_offset *= (1.0 - limp_asym)
+			camera_pivot.rotation.z += sin(bob_timer) * 0.01 * limp_strength
 		camera.position.y = camera_base_y + bob_offset
 		camera.position.x = sin(bob_timer * 0.5) * bob_amplitude_current * 0.5
 		# Trigger footstep on bob cycle zero-crossing
