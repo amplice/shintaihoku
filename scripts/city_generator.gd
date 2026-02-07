@@ -78,6 +78,12 @@ func _ready() -> void:
 	_generate_exposed_pipes()
 	_generate_security_cameras()
 	_generate_awning_lights()
+	_generate_chain_link_fences()
+	_generate_trash_bags()
+	_generate_bus_stops()
+	_generate_fire_hydrants()
+	_generate_water_towers()
+	_generate_satellite_dishes()
 	_setup_neon_flicker()
 	print("CityGenerator: generation complete, total children=", get_child_count())
 
@@ -2575,6 +2581,366 @@ func _generate_awning_lights() -> void:
 			"speed": rng.randf_range(10.0, 18.0),
 			"style": "buzz",
 		})
+
+func _generate_chain_link_fences() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 3100
+	var cell_stride := block_size + street_width
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			if rng.randf() > 0.12:
+				continue
+			var cell_x := gx * cell_stride
+			var cell_z := gz * cell_stride
+			# Place fence along one edge of the block
+			var fence_h := rng.randf_range(2.0, 3.5)
+			var fence_len := rng.randf_range(6.0, block_size * 0.8)
+			var along_x := rng.randf() < 0.5
+			var offset := rng.randf_range(-block_size * 0.3, block_size * 0.3)
+			var fence_pos: Vector3
+			if along_x:
+				fence_pos = Vector3(cell_x + offset, fence_h * 0.5, cell_z + block_size * 0.45)
+			else:
+				fence_pos = Vector3(cell_x + block_size * 0.45, fence_h * 0.5, cell_z + offset)
+			# Main fence panel (semi-transparent dark gray)
+			var panel := MeshInstance3D.new()
+			var panel_mesh := BoxMesh.new()
+			if along_x:
+				panel_mesh.size = Vector3(fence_len, fence_h, 0.05)
+			else:
+				panel_mesh.size = Vector3(0.05, fence_h, fence_len)
+			panel.mesh = panel_mesh
+			panel.position = fence_pos
+			var fence_mat := _make_ps1_material(Color(0.35, 0.35, 0.38))
+			fence_mat.set_shader_parameter("albedo_color", Color(0.35, 0.35, 0.38, 0.7))
+			panel.set_surface_override_material(0, fence_mat)
+			add_child(panel)
+			# Top rail (thin cylinder-like bar)
+			var rail := MeshInstance3D.new()
+			var rail_mesh := BoxMesh.new()
+			if along_x:
+				rail_mesh.size = Vector3(fence_len, 0.06, 0.06)
+			else:
+				rail_mesh.size = Vector3(0.06, 0.06, fence_len)
+			rail.mesh = rail_mesh
+			rail.position = fence_pos + Vector3(0, fence_h * 0.5, 0)
+			rail.set_surface_override_material(0, _make_ps1_material(Color(0.4, 0.4, 0.45)))
+			add_child(rail)
+			# Two posts at ends
+			for end in [-1.0, 1.0]:
+				var post := MeshInstance3D.new()
+				var post_mesh := BoxMesh.new()
+				post_mesh.size = Vector3(0.08, fence_h + 0.3, 0.08)
+				post.mesh = post_mesh
+				var post_offset: Vector3
+				if along_x:
+					post_offset = Vector3(fence_len * 0.5 * end, 0.15, 0)
+				else:
+					post_offset = Vector3(0, 0.15, fence_len * 0.5 * end)
+				post.position = fence_pos + post_offset
+				post.set_surface_override_material(0, _make_ps1_material(Color(0.4, 0.4, 0.45)))
+				add_child(post)
+
+func _generate_trash_bags() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 3200
+	for child in get_children():
+		if not (child is MeshInstance3D):
+			continue
+		var mi := child as MeshInstance3D
+		if not (mi.mesh is BoxMesh):
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		if bsize.y < 5.0 or bsize.y > 50.0:
+			continue
+		if rng.randf() > 0.18:
+			continue
+		# Place a cluster of trash bags at building base
+		var face := rng.randi_range(0, 3)
+		var bag_x := mi.position.x
+		var bag_z := mi.position.z
+		match face:
+			0: bag_z += bsize.z * 0.5 + 0.4
+			1: bag_z -= bsize.z * 0.5 + 0.4
+			2: bag_x += bsize.x * 0.5 + 0.4
+			3: bag_x -= bsize.x * 0.5 + 0.4
+		var num_bags := rng.randi_range(2, 5)
+		for _b in range(num_bags):
+			var bag := MeshInstance3D.new()
+			var bag_mesh := SphereMesh.new()
+			var sx := rng.randf_range(0.3, 0.6)
+			var sy := rng.randf_range(0.3, 0.7)
+			bag_mesh.radius = sx
+			bag_mesh.height = sy * 2.0
+			bag.mesh = bag_mesh
+			var scatter_x := rng.randf_range(-0.6, 0.6)
+			var scatter_z := rng.randf_range(-0.6, 0.6)
+			bag.position = Vector3(bag_x + scatter_x, sy * 0.5, bag_z + scatter_z)
+			# Black or dark green bags
+			var bag_color: Color
+			if rng.randf() < 0.6:
+				bag_color = Color(0.05, 0.05, 0.05)
+			else:
+				bag_color = Color(0.03, 0.1, 0.03)
+			bag.set_surface_override_material(0, _make_ps1_material(bag_color))
+			add_child(bag)
+
+func _generate_bus_stops() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 3300
+	var cell_stride := block_size + street_width
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			if rng.randf() > 0.08:
+				continue
+			var cell_x := gx * cell_stride
+			var cell_z := gz * cell_stride
+			var along_x := rng.randf() < 0.5
+			var shelter := Node3D.new()
+			var sx: float
+			var sz: float
+			if along_x:
+				sx = cell_x + block_size * 0.5 + street_width * 0.3
+				sz = cell_z + rng.randf_range(-block_size * 0.2, block_size * 0.2)
+			else:
+				sx = cell_x + rng.randf_range(-block_size * 0.2, block_size * 0.2)
+				sz = cell_z + block_size * 0.5 + street_width * 0.3
+			shelter.position = Vector3(sx, 0, sz)
+			# Roof
+			var roof := MeshInstance3D.new()
+			var roof_mesh := BoxMesh.new()
+			roof_mesh.size = Vector3(3.0, 0.08, 1.8)
+			roof.mesh = roof_mesh
+			roof.position = Vector3(0, 2.8, 0)
+			roof.set_surface_override_material(0, _make_ps1_material(Color(0.2, 0.25, 0.3, 0.5)))
+			shelter.add_child(roof)
+			# Two support poles
+			for side in [-1.0, 1.0]:
+				var pole := MeshInstance3D.new()
+				var pole_mesh := BoxMesh.new()
+				pole_mesh.size = Vector3(0.06, 2.8, 0.06)
+				pole.mesh = pole_mesh
+				pole.position = Vector3(1.3 * side, 1.4, 0.8)
+				pole.set_surface_override_material(0, _make_ps1_material(Color(0.4, 0.4, 0.45)))
+				shelter.add_child(pole)
+			# Back panel (translucent)
+			var back := MeshInstance3D.new()
+			var back_mesh := BoxMesh.new()
+			back_mesh.size = Vector3(3.0, 2.0, 0.04)
+			back.mesh = back_mesh
+			back.position = Vector3(0, 1.2, -0.85)
+			back.set_surface_override_material(0, _make_ps1_material(Color(0.2, 0.25, 0.35, 0.4)))
+			shelter.add_child(back)
+			# Bench
+			var bench := MeshInstance3D.new()
+			var bench_mesh := BoxMesh.new()
+			bench_mesh.size = Vector3(2.0, 0.08, 0.5)
+			bench.mesh = bench_mesh
+			bench.position = Vector3(0, 0.55, -0.5)
+			bench.set_surface_override_material(0, _make_ps1_material(Color(0.3, 0.25, 0.15)))
+			shelter.add_child(bench)
+			# Route sign (emissive)
+			var sign_node := MeshInstance3D.new()
+			var sign_mesh := BoxMesh.new()
+			sign_mesh.size = Vector3(0.6, 0.4, 0.04)
+			sign_node.mesh = sign_mesh
+			sign_node.position = Vector3(1.3, 2.2, 0.82)
+			var sign_col := neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
+			sign_node.set_surface_override_material(0,
+				_make_ps1_material(sign_col, true, sign_col, 2.5))
+			shelter.add_child(sign_node)
+			# Kanji route text
+			if neon_font:
+				var label := Label3D.new()
+				label.text = NEON_TEXTS[rng.randi_range(0, NEON_TEXTS.size() - 1)]
+				label.font = neon_font
+				label.font_size = 32
+				label.pixel_size = 0.008
+				label.modulate = sign_col
+				label.outline_modulate = Color(0, 0, 0, 0.6)
+				label.outline_size = 4
+				label.position = Vector3(1.3, 2.2, 0.86)
+				label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+				shelter.add_child(label)
+			add_child(shelter)
+
+func _generate_fire_hydrants() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 3400
+	var cell_stride := block_size + street_width
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			if rng.randf() > 0.18:
+				continue
+			var cell_x := gx * cell_stride
+			var cell_z := gz * cell_stride
+			var side := rng.randi_range(0, 3)
+			var hx: float
+			var hz: float
+			match side:
+				0:
+					hx = cell_x + block_size * 0.5 + 1.0
+					hz = cell_z + rng.randf_range(-block_size * 0.3, block_size * 0.3)
+				1:
+					hx = cell_x - block_size * 0.5 - 1.0
+					hz = cell_z + rng.randf_range(-block_size * 0.3, block_size * 0.3)
+				2:
+					hx = cell_x + rng.randf_range(-block_size * 0.3, block_size * 0.3)
+					hz = cell_z + block_size * 0.5 + 1.0
+				_:
+					hx = cell_x + rng.randf_range(-block_size * 0.3, block_size * 0.3)
+					hz = cell_z - block_size * 0.5 - 1.0
+			var hydrant := Node3D.new()
+			hydrant.position = Vector3(hx, 0, hz)
+			# Body (main cylinder - box approximation)
+			var body := MeshInstance3D.new()
+			var body_mesh := BoxMesh.new()
+			body_mesh.size = Vector3(0.3, 0.6, 0.3)
+			body.mesh = body_mesh
+			body.position = Vector3(0, 0.3, 0)
+			var hydrant_col := Color(0.7, 0.15, 0.1) if rng.randf() < 0.6 else Color(0.7, 0.6, 0.1)
+			body.set_surface_override_material(0, _make_ps1_material(hydrant_col))
+			hydrant.add_child(body)
+			# Cap top
+			var cap := MeshInstance3D.new()
+			var cap_mesh := BoxMesh.new()
+			cap_mesh.size = Vector3(0.35, 0.12, 0.35)
+			cap.mesh = cap_mesh
+			cap.position = Vector3(0, 0.65, 0)
+			cap.set_surface_override_material(0, _make_ps1_material(hydrant_col * 0.8))
+			hydrant.add_child(cap)
+			# Side nozzles
+			for nz_side in [-1.0, 1.0]:
+				var nozzle := MeshInstance3D.new()
+				var nozzle_mesh := BoxMesh.new()
+				nozzle_mesh.size = Vector3(0.18, 0.12, 0.12)
+				nozzle.mesh = nozzle_mesh
+				nozzle.position = Vector3(0.2 * nz_side, 0.4, 0)
+				nozzle.set_surface_override_material(0, _make_ps1_material(hydrant_col * 0.7))
+				hydrant.add_child(nozzle)
+			add_child(hydrant)
+
+func _generate_water_towers() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 3500
+	for child in get_children():
+		if not (child is MeshInstance3D):
+			continue
+		var mi := child as MeshInstance3D
+		if not (mi.mesh is BoxMesh):
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		if bsize.y < 28.0:
+			continue
+		if rng.randf() > 0.25:
+			continue
+		var tower := Node3D.new()
+		tower.position = Vector3(
+			mi.position.x + rng.randf_range(-bsize.x * 0.2, bsize.x * 0.2),
+			mi.position.y + bsize.y * 0.5,
+			mi.position.z + rng.randf_range(-bsize.z * 0.2, bsize.z * 0.2)
+		)
+		# Tank body (cylinder approximated as octagonal - just use a box for PS1 vibe)
+		var tank := MeshInstance3D.new()
+		var tank_mesh := CylinderMesh.new()
+		tank_mesh.top_radius = 1.2
+		tank_mesh.bottom_radius = 1.2
+		tank_mesh.height = 2.5
+		tank_mesh.radial_segments = 8
+		tank.mesh = tank_mesh
+		tank.position = Vector3(0, 3.5, 0)
+		var wood_col := Color(0.25, 0.15, 0.08)
+		tank.set_surface_override_material(0, _make_ps1_material(wood_col))
+		tower.add_child(tank)
+		# Conical roof
+		var roof := MeshInstance3D.new()
+		var roof_mesh := CylinderMesh.new()
+		roof_mesh.top_radius = 0.1
+		roof_mesh.bottom_radius = 1.4
+		roof_mesh.height = 0.8
+		roof_mesh.radial_segments = 8
+		roof.mesh = roof_mesh
+		roof.position = Vector3(0, 5.15, 0)
+		roof.set_surface_override_material(0, _make_ps1_material(Color(0.15, 0.15, 0.18)))
+		tower.add_child(roof)
+		# Support legs (4 posts)
+		for lx in [-0.7, 0.7]:
+			for lz in [-0.7, 0.7]:
+				var leg := MeshInstance3D.new()
+				var leg_mesh := BoxMesh.new()
+				leg_mesh.size = Vector3(0.1, 2.2, 0.1)
+				leg.mesh = leg_mesh
+				leg.position = Vector3(lx, 1.1, lz)
+				leg.set_surface_override_material(0, _make_ps1_material(Color(0.3, 0.3, 0.35)))
+				tower.add_child(leg)
+		# Cross braces
+		var brace := MeshInstance3D.new()
+		var brace_mesh := BoxMesh.new()
+		brace_mesh.size = Vector3(1.4, 0.06, 0.06)
+		brace.mesh = brace_mesh
+		brace.position = Vector3(0, 1.5, 0)
+		brace.set_surface_override_material(0, _make_ps1_material(Color(0.3, 0.3, 0.35)))
+		tower.add_child(brace)
+		var brace2 := MeshInstance3D.new()
+		var brace2_mesh := BoxMesh.new()
+		brace2_mesh.size = Vector3(0.06, 0.06, 1.4)
+		brace2.mesh = brace2_mesh
+		brace2.position = Vector3(0, 1.5, 0)
+		brace2.set_surface_override_material(0, _make_ps1_material(Color(0.3, 0.3, 0.35)))
+		tower.add_child(brace2)
+		add_child(tower)
+
+func _generate_satellite_dishes() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 3600
+	for child in get_children():
+		if not (child is MeshInstance3D):
+			continue
+		var mi := child as MeshInstance3D
+		if not (mi.mesh is BoxMesh):
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		if bsize.y < 18.0:
+			continue
+		if rng.randf() > 0.20:
+			continue
+		var dish_parent := Node3D.new()
+		dish_parent.position = Vector3(
+			mi.position.x + rng.randf_range(-bsize.x * 0.3, bsize.x * 0.3),
+			mi.position.y + bsize.y * 0.5,
+			mi.position.z + rng.randf_range(-bsize.z * 0.3, bsize.z * 0.3)
+		)
+		# Pole
+		var pole := MeshInstance3D.new()
+		var pole_mesh := BoxMesh.new()
+		pole_mesh.size = Vector3(0.06, 1.2, 0.06)
+		pole.mesh = pole_mesh
+		pole.position = Vector3(0, 0.6, 0)
+		pole.set_surface_override_material(0, _make_ps1_material(Color(0.4, 0.4, 0.45)))
+		dish_parent.add_child(pole)
+		# Dish (tilted cylinder disc)
+		var dish := MeshInstance3D.new()
+		var dish_mesh := CylinderMesh.new()
+		dish_mesh.top_radius = 0.5
+		dish_mesh.bottom_radius = 0.6
+		dish_mesh.height = 0.12
+		dish_mesh.radial_segments = 8
+		dish.mesh = dish_mesh
+		dish.position = Vector3(0, 1.2, 0.1)
+		dish.rotation.x = deg_to_rad(rng.randf_range(30.0, 55.0))
+		dish.rotation.y = rng.randf_range(0, TAU)
+		dish.set_surface_override_material(0, _make_ps1_material(Color(0.6, 0.6, 0.65)))
+		dish_parent.add_child(dish)
+		# Small receiver arm
+		var arm := MeshInstance3D.new()
+		var arm_mesh := BoxMesh.new()
+		arm_mesh.size = Vector3(0.03, 0.03, 0.4)
+		arm.mesh = arm_mesh
+		arm.position = Vector3(0, 1.3, 0.3)
+		arm.rotation.x = deg_to_rad(40.0)
+		arm.set_surface_override_material(0, _make_ps1_material(Color(0.4, 0.4, 0.45)))
+		dish_parent.add_child(arm)
+		add_child(dish_parent)
 
 func _setup_neon_flicker() -> void:
 	# Register existing neon sign lights for flickering
