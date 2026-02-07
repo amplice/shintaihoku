@@ -29,6 +29,11 @@ var hologram_projections: Array[Dictionary] = []  # [{mesh, light, phase, speed}
 var aircraft_node: Node3D = null
 var aircraft_time: float = 0.0
 var aircraft_nav_light: OmniLight3D = null
+var helicopter_node: Node3D = null
+var helicopter_time: float = 0.0
+var helicopter_searchlight: SpotLight3D = null
+var helicopter_nav_red: OmniLight3D = null
+var helicopter_nav_green: OmniLight3D = null
 # Neon buzz audio pool
 const NEON_BUZZ_POOL_SIZE: int = 2
 const NEON_BUZZ_RANGE: float = 10.0
@@ -42,6 +47,7 @@ var radio_pool: Array[Dictionary] = []
 var radio_positions: Array[Vector3] = []
 var radio_rng := RandomNumberGenerator.new()
 var stray_cats: Array[Dictionary] = []  # [{node, home_pos, fleeing, flee_dir}]
+var steam_bursts: Array[Dictionary] = []  # [{particles, timer, interval}]
 
 var neon_colors: Array[Color] = [
 	Color(1.0, 0.05, 0.4),   # hot magenta
@@ -138,6 +144,8 @@ func _ready() -> void:
 	_generate_newspaper_boxes()
 	_generate_crosswalks()
 	_generate_aircraft_flyover()
+	_generate_helicopter_patrol()
+	_generate_subway_entrances()
 	_generate_neon_light_shafts()
 	_generate_distant_city_glow()
 	_generate_rooftop_water_tanks()
@@ -1979,6 +1987,38 @@ func _generate_manholes() -> void:
 				mesh.size = Vector3(0.2, 0.2, 0.2)
 				steam.draw_pass_1 = mesh
 				add_child(steam)
+				# 30% of steam manholes also do periodic bursts
+				if rng.randf() < 0.30:
+					var burst := GPUParticles3D.new()
+					burst.position = Vector3(ix, 0.05, iz)
+					burst.amount = 20
+					burst.lifetime = 1.5
+					burst.one_shot = true
+					burst.emitting = false
+					burst.explosiveness = 0.9
+					burst.visibility_aabb = AABB(Vector3(-2, -1, -2), Vector3(4, 8, 4))
+					var burst_mat := ParticleProcessMaterial.new()
+					burst_mat.direction = Vector3(0, 1, 0)
+					burst_mat.spread = 15.0
+					burst_mat.initial_velocity_min = 3.0
+					burst_mat.initial_velocity_max = 6.0
+					burst_mat.gravity = Vector3(0, -1.0, 0)
+					burst_mat.damping_min = 2.0
+					burst_mat.damping_max = 4.0
+					burst_mat.scale_min = 0.3
+					burst_mat.scale_max = 0.8
+					burst_mat.color = Color(0.6, 0.6, 0.7, 0.15)
+					burst.process_material = burst_mat
+					var burst_mesh := BoxMesh.new()
+					burst_mesh.size = Vector3(0.25, 0.25, 0.25)
+					burst.draw_pass_1 = burst_mesh
+					add_child(burst)
+					steam_bursts.append({
+						"particles": burst,
+						"timer": rng.randf_range(5.0, 15.0),
+						"interval_min": 8.0,
+						"interval_max": 20.0,
+					})
 				# Neon-tinted underglow from below
 				var glow_col := neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
 				var underglow := OmniLight3D.new()
@@ -4463,6 +4503,135 @@ func _generate_aircraft_flyover() -> void:
 	})
 	add_child(aircraft_node)
 
+func _generate_subway_entrances() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7200
+	var stride := block_size + street_width
+	var stair_mat := _make_ps1_material(Color(0.2, 0.2, 0.22))
+	var rail_mat := _make_ps1_material(Color(0.3, 0.3, 0.32))
+	for _i in range(3):
+		var gx := rng.randi_range(-grid_size + 1, grid_size - 1)
+		var gz := rng.randi_range(-grid_size + 1, grid_size - 1)
+		var sx := gx * stride + block_size * 0.5 + street_width * 0.3
+		var sz := gz * stride + block_size * 0.5 + rng.randf_range(-1.0, 1.0)
+		var entrance := Node3D.new()
+		entrance.position = Vector3(sx, 0, sz)
+		entrance.rotation.y = rng.randf_range(0, TAU)
+		# Descending steps (6 steps going down)
+		for step in range(6):
+			var s := MeshInstance3D.new()
+			var s_mesh := BoxMesh.new()
+			s_mesh.size = Vector3(2.0, 0.2, 0.5)
+			s.mesh = s_mesh
+			s.position = Vector3(0, -step * 0.3, -step * 0.5)
+			s.set_surface_override_material(0, stair_mat)
+			entrance.add_child(s)
+		# Side railings
+		for rail_side in [-1.1, 1.1]:
+			var rail := MeshInstance3D.new()
+			var rail_mesh := BoxMesh.new()
+			rail_mesh.size = Vector3(0.05, 1.0, 3.5)
+			rail.mesh = rail_mesh
+			rail.position = Vector3(rail_side, -0.3, -1.5)
+			rail.rotation.x = -0.25
+			rail.set_surface_override_material(0, rail_mat)
+			entrance.add_child(rail)
+		# Warm glow from below
+		var glow := OmniLight3D.new()
+		glow.light_color = Color(1.0, 0.7, 0.3)
+		glow.light_energy = 4.0
+		glow.omni_range = 8.0
+		glow.omni_attenuation = 1.5
+		glow.shadow_enabled = false
+		glow.position = Vector3(0, -1.8, -2.5)
+		entrance.add_child(glow)
+		# 地下鉄 sign above entrance
+		if neon_font:
+			var sign_label := Label3D.new()
+			sign_label.text = "地下鉄"
+			sign_label.font = neon_font
+			sign_label.font_size = 48
+			sign_label.pixel_size = 0.01
+			sign_label.modulate = Color(1.0, 0.7, 0.2)
+			sign_label.outline_modulate = Color(0.5, 0.3, 0.1)
+			sign_label.outline_size = 6
+			sign_label.position = Vector3(0, 1.5, 0.3)
+			entrance.add_child(sign_label)
+			# Sign glow
+			var sign_glow := OmniLight3D.new()
+			sign_glow.light_color = Color(1.0, 0.7, 0.2)
+			sign_glow.light_energy = 2.0
+			sign_glow.omni_range = 4.0
+			sign_glow.shadow_enabled = false
+			sign_glow.position = Vector3(0, 1.5, 0.5)
+			entrance.add_child(sign_glow)
+		add_child(entrance)
+
+func _generate_helicopter_patrol() -> void:
+	helicopter_node = Node3D.new()
+	helicopter_node.position = Vector3(70, 85, 0)
+	# Body (box fuselage)
+	var body := MeshInstance3D.new()
+	var body_mesh := BoxMesh.new()
+	body_mesh.size = Vector3(1.2, 0.8, 2.5)
+	body.mesh = body_mesh
+	body.set_surface_override_material(0, _make_ps1_material(Color(0.1, 0.1, 0.12)))
+	helicopter_node.add_child(body)
+	# Tail boom
+	var tail := MeshInstance3D.new()
+	var tail_mesh := BoxMesh.new()
+	tail_mesh.size = Vector3(0.2, 0.3, 2.0)
+	tail.mesh = tail_mesh
+	tail.position = Vector3(0, 0, -2.0)
+	tail.set_surface_override_material(0, _make_ps1_material(Color(0.08, 0.08, 0.1)))
+	helicopter_node.add_child(tail)
+	# Main rotor disc (flat cylinder)
+	var rotor := MeshInstance3D.new()
+	var rotor_mesh := CylinderMesh.new()
+	rotor_mesh.top_radius = 2.5
+	rotor_mesh.bottom_radius = 2.5
+	rotor_mesh.height = 0.03
+	rotor.mesh = rotor_mesh
+	rotor.position = Vector3(0, 0.5, 0)
+	rotor.set_surface_override_material(0,
+		_make_ps1_material(Color(0.15, 0.15, 0.18, 0.3)))
+	helicopter_node.add_child(rotor)
+	# Searchlight (SpotLight3D pointing down)
+	helicopter_searchlight = SpotLight3D.new()
+	helicopter_searchlight.light_color = Color(1.0, 0.95, 0.85)
+	helicopter_searchlight.light_energy = 8.0
+	helicopter_searchlight.spot_range = 120.0
+	helicopter_searchlight.spot_angle = 12.0
+	helicopter_searchlight.spot_attenuation = 1.2
+	helicopter_searchlight.shadow_enabled = false
+	helicopter_searchlight.position = Vector3(0, -0.5, 0.5)
+	helicopter_searchlight.rotation.x = -1.3  # point downward
+	helicopter_node.add_child(helicopter_searchlight)
+	# Nav lights (red port, green starboard)
+	helicopter_nav_red = OmniLight3D.new()
+	helicopter_nav_red.light_color = Color(1.0, 0.0, 0.0)
+	helicopter_nav_red.light_energy = 0.0
+	helicopter_nav_red.omni_range = 15.0
+	helicopter_nav_red.shadow_enabled = false
+	helicopter_nav_red.position = Vector3(-0.7, 0, 1.0)
+	helicopter_node.add_child(helicopter_nav_red)
+	helicopter_nav_green = OmniLight3D.new()
+	helicopter_nav_green.light_color = Color(0.0, 1.0, 0.0)
+	helicopter_nav_green.light_energy = 0.0
+	helicopter_nav_green.omni_range = 15.0
+	helicopter_nav_green.shadow_enabled = false
+	helicopter_nav_green.position = Vector3(0.7, 0, 1.0)
+	helicopter_node.add_child(helicopter_nav_green)
+	# White belly light (always on, dim)
+	var belly := OmniLight3D.new()
+	belly.light_color = Color(0.8, 0.8, 1.0)
+	belly.light_energy = 1.5
+	belly.omni_range = 10.0
+	belly.shadow_enabled = false
+	belly.position = Vector3(0, -0.5, 0)
+	helicopter_node.add_child(belly)
+	add_child(helicopter_node)
+
 func _setup_neon_flicker() -> void:
 	# Register existing neon sign lights for flickering
 	var rng := RandomNumberGenerator.new()
@@ -4708,6 +4877,28 @@ func _process(_delta: float) -> void:
 		aircraft_node.position.z = sin(aircraft_time * 0.05) * extent * 0.5
 		aircraft_node.position.y = 120.0 + sin(aircraft_time * 0.1) * 10.0
 
+	# Helicopter patrol (circular path with searchlight)
+	if helicopter_node and is_instance_valid(helicopter_node):
+		helicopter_time += _delta
+		var orbit_radius := 70.0
+		var orbit_speed := 0.12
+		var ht := helicopter_time * orbit_speed
+		helicopter_node.position.x = cos(ht) * orbit_radius
+		helicopter_node.position.z = sin(ht) * orbit_radius
+		helicopter_node.position.y = 85.0 + sin(helicopter_time * 0.2) * 5.0
+		# Face direction of travel
+		helicopter_node.rotation.y = -ht + PI * 0.5
+		# Searchlight sweeps in a small circle below
+		if helicopter_searchlight:
+			var sweep_angle := helicopter_time * 0.8
+			helicopter_searchlight.rotation.x = -1.3 + sin(sweep_angle) * 0.15
+			helicopter_searchlight.rotation.z = cos(sweep_angle * 0.7) * 0.2
+		# Blinking nav lights
+		if helicopter_nav_red and helicopter_nav_green:
+			var blink := fmod(time, 1.0)
+			helicopter_nav_red.light_energy = 3.0 if blink < 0.15 else 0.0
+			helicopter_nav_green.light_energy = 3.0 if (blink > 0.5 and blink < 0.65) else 0.0
+
 	# Hologram projection shimmer
 	for hp in hologram_projections:
 		var hp_mesh: MeshInstance3D = hp["mesh"]
@@ -4782,6 +4973,16 @@ func _process(_delta: float) -> void:
 						var frames := playback.get_frames_available()
 						for _f in range(frames):
 							playback.push_frame(Vector2.ZERO)
+
+	# Steam burst timers
+	for sb in steam_bursts:
+		sb["timer"] -= _delta
+		if sb["timer"] <= 0.0:
+			var burst_p: GPUParticles3D = sb["particles"]
+			if is_instance_valid(burst_p):
+				burst_p.restart()
+				burst_p.emitting = true
+			sb["timer"] = randf_range(sb["interval_min"], sb["interval_max"])
 
 	# Stray cat AI (flee from player)
 	var cam2 := get_viewport().get_camera_3d()

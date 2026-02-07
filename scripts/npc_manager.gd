@@ -133,10 +133,25 @@ func _process(delta: float) -> void:
 		# Update walk animation (only for visible NPCs)
 		anim.update(delta, current_speed)
 
-		# Toggle cigarette smoke
+		# Toggle cigarette smoke + smoking arm animation
 		var smoke: GPUParticles3D = npc_data["smoke"]
 		if smoke:
 			smoke.emitting = is_stopped
+			if is_stopped:
+				# Animate right arm raising to mouth (drag cycle ~4s)
+				npc_data["smoke_timer"] = npc_data.get("smoke_timer", 0.0) + delta
+				var st: float = npc_data["smoke_timer"]
+				var cycle := fmod(st, 4.0)
+				var rs := node.get_node_or_null("Model/RightShoulder")
+				if rs:
+					var target_rot := 0.0
+					if cycle < 1.0:
+						target_rot = -cycle * 0.8  # raise
+					elif cycle < 1.5:
+						target_rot = -0.8  # hold at mouth
+					elif cycle < 2.5:
+						target_rot = -0.8 + (cycle - 1.5) * 0.8  # lower
+					rs.rotation.x = lerpf(rs.rotation.x, target_rot, 5.0 * delta)
 
 		# Phone glow: only visible when stopped
 		if npc_data["has_phone"]:
