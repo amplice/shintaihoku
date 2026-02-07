@@ -152,6 +152,7 @@ func _ready() -> void:
 	_setup_neon_buzz_audio()
 	_setup_radio_audio()
 	_generate_stray_cats()
+	_generate_building_entrances()
 	_setup_neon_flicker()
 	_setup_color_shift_signs()
 	print("CityGenerator: generation complete, total children=", get_child_count())
@@ -1804,6 +1805,23 @@ func _create_telephone_pole(pos: Vector3, pole_mat: ShaderMaterial, wire_mat: Sh
 		wire.position = Vector3(ix, 7.65, 0)
 		wire.set_surface_override_material(0, wire_mat)
 		pole_node.add_child(wire)
+
+	# 15% chance of a wanted poster
+	var poster_rng := RandomNumberGenerator.new()
+	poster_rng.seed = hash(pos)
+	if poster_rng.randf() < 0.15 and neon_font:
+		var poster := Label3D.new()
+		var poster_texts := ["指名手配", "WANTED", "懸賞金", "危険人物"]
+		poster.text = poster_texts[poster_rng.randi_range(0, poster_texts.size() - 1)]
+		poster.font = neon_font
+		poster.font_size = 24
+		poster.pixel_size = 0.008
+		poster.modulate = Color(0.8, 0.75, 0.6)  # aged paper yellow
+		poster.outline_modulate = Color(0.3, 0.25, 0.15)
+		poster.outline_size = 3
+		poster.position = Vector3(0.13, 2.5 + poster_rng.randf_range(-0.5, 0.5), 0)
+		poster.rotation.y = poster_rng.randf_range(-0.3, 0.3)
+		pole_node.add_child(poster)
 
 	add_child(pole_node)
 
@@ -5341,3 +5359,82 @@ func _generate_stray_cats() -> void:
 			"fleeing": false,
 			"flee_dir": Vector3.ZERO,
 		})
+
+func _generate_building_entrances() -> void:
+	# Add lobby entrance features (recessed door, overhead light, number plate)
+	# to regular (non-storefront) buildings at ground level
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7300
+	var children_snapshot := get_children()
+	for raw_child in children_snapshot:
+		if not raw_child is MeshInstance3D:
+			continue
+		var child := raw_child as MeshInstance3D
+		if not child.mesh is BoxMesh:
+			continue
+		var bsize: Vector3 = (child.mesh as BoxMesh).size
+		# Only buildings tall enough to have a lobby, not too small
+		if bsize.y < 12.0 or bsize.x < 7.0:
+			continue
+		if rng.randf() > 0.35:
+			continue
+		var half_w := bsize.x * 0.5
+		var half_h := bsize.y * 0.5
+		var half_d := bsize.z * 0.5
+		# Pick a face (+Z front, -Z back, +X right, -X left)
+		var face := rng.randi_range(0, 1)
+		var door_pos := Vector3.ZERO
+		var door_rot := 0.0
+		if face == 0:
+			# +Z face
+			door_pos = Vector3(rng.randf_range(-half_w * 0.3, half_w * 0.3), -half_h + 1.5, half_d + 0.01)
+		else:
+			# -Z face
+			door_pos = Vector3(rng.randf_range(-half_w * 0.3, half_w * 0.3), -half_h + 1.5, -half_d - 0.01)
+			door_rot = PI
+		# Dark recessed door frame
+		var door_frame := MeshInstance3D.new()
+		var frame_mesh := BoxMesh.new()
+		frame_mesh.size = Vector3(1.8, 3.0, 0.15)
+		door_frame.mesh = frame_mesh
+		door_frame.position = door_pos
+		door_frame.rotation.y = door_rot
+		door_frame.set_surface_override_material(0, _make_ps1_material(Color(0.08, 0.07, 0.06)))
+		child.add_child(door_frame)
+		# Warm overhead light above door
+		var door_light := OmniLight3D.new()
+		var light_warm := rng.randf() < 0.7
+		if light_warm:
+			door_light.light_color = Color(1.0, 0.8, 0.5)
+		else:
+			door_light.light_color = Color(0.7, 0.85, 1.0)  # cool fluorescent
+		door_light.light_energy = rng.randf_range(1.5, 3.0)
+		door_light.omni_range = 5.0
+		door_light.omni_attenuation = 1.5
+		door_light.shadow_enabled = false
+		door_light.position = door_pos + Vector3(0, 1.8, 0)
+		child.add_child(door_light)
+		# Small emissive light fixture above door
+		var fixture := MeshInstance3D.new()
+		var fix_mesh := BoxMesh.new()
+		fix_mesh.size = Vector3(0.4, 0.08, 0.12)
+		fixture.mesh = fix_mesh
+		fixture.position = door_pos + Vector3(0, 3.15, 0)
+		var fix_col := door_light.light_color
+		fixture.set_surface_override_material(0,
+			_make_ps1_material(fix_col * 0.5, true, fix_col, 3.0))
+		child.add_child(fixture)
+		# Address number plate (small label beside door)
+		if neon_font and rng.randf() < 0.5:
+			var addr := Label3D.new()
+			addr.text = str(rng.randi_range(100, 9999))
+			addr.font = neon_font
+			addr.font_size = 18
+			addr.pixel_size = 0.006
+			addr.modulate = Color(0.7, 0.65, 0.55)
+			addr.outline_modulate = Color(0.2, 0.18, 0.12)
+			addr.outline_size = 2
+			var side_offset := 1.2 if rng.randf() < 0.5 else -1.2
+			addr.position = door_pos + Vector3(side_offset, 0.5, 0.02)
+			addr.rotation.y = door_rot
+			child.add_child(addr)

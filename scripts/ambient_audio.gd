@@ -30,6 +30,13 @@ var bark_gap_timer: float = 0.0
 var bark_pitch: float = 1.0
 var murmur_filter1: float = 0.0
 var murmur_filter2: float = 0.0
+var crow_timer: float = 0.0
+var crow_phase: float = 0.0
+var crow_active: bool = false
+var crow_count: int = 0
+var crow_max: int = 0
+var crow_gap_timer: float = 0.0
+var crow_pitch: float = 1.0
 var rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
@@ -137,6 +144,28 @@ func _process(delta: float) -> void:
 	if bark_active:
 		bark_phase += delta
 
+	# Distant crow cawing
+	crow_timer -= delta
+	if crow_timer <= 0.0 and not crow_active:
+		crow_timer = rng.randf_range(20.0, 55.0)
+		crow_active = true
+		crow_count = 0
+		crow_max = rng.randi_range(2, 4)
+		crow_gap_timer = 0.0
+		crow_pitch = rng.randf_range(0.85, 1.2)
+
+	if crow_active:
+		crow_gap_timer -= delta
+		if crow_gap_timer <= 0.0 and crow_count < crow_max:
+			crow_phase = 0.0
+			crow_count += 1
+			crow_gap_timer = rng.randf_range(0.3, 0.7)
+		if crow_count >= crow_max and crow_phase > 0.2:
+			crow_active = false
+
+	if crow_active:
+		crow_phase += delta
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -172,6 +201,20 @@ func _fill_hum_buffer() -> void:
 			var bark_tone := sin(t * 350.0 * bark_pitch * TAU) * 0.4
 			bark_tone += sin(t * 700.0 * bark_pitch * TAU) * 0.2
 			sample += (bark_noise * 0.3 + bark_tone) * bark_env * 0.06
+		# Add distant crow caw (harsh nasal tone burst)
+		if crow_active and crow_phase < 0.18:
+			var crow_env := (1.0 - crow_phase / 0.18) * (1.0 - crow_phase / 0.18)
+			# Harsh nasal tone: square-ish wave with overtones
+			var crow_fund := sin(t * 520.0 * crow_pitch * TAU)
+			var crow_harm := sin(t * 1040.0 * crow_pitch * TAU) * 0.4
+			var crow_harm2 := sin(t * 1560.0 * crow_pitch * TAU) * 0.15
+			# Add noise for raspy texture
+			var crow_noise := rng.randf_range(-1.0, 1.0) * 0.25
+			var crow_raw := (crow_fund + crow_harm + crow_harm2 + crow_noise) * crow_env * 0.04
+			# Downward pitch bend at end of caw
+			if crow_phase > 0.1:
+				crow_raw *= 0.7
+			sample += crow_raw
 		# Add distant thunder rumble (low-pass filtered noise burst)
 		if thunder_active:
 			var thunder_env := (1.0 - thunder_phase / 3.5) * (1.0 - thunder_phase / 3.5)

@@ -13,6 +13,9 @@ const FOV_LERP_SPEED = 6.0
 const BOB_FREQUENCY = 10.0
 const BOB_AMPLITUDE = 0.03
 const BOB_SPRINT_MULT = 1.4
+const CROUCH_SPEED_MULT = 0.6
+const CROUCH_HEIGHT = 0.6  # collision shape Y scale when crouched
+const STAND_HEIGHT = 1.0
 
 @onready var camera_pivot: Node3D = $CameraPivot
 @onready var camera: Camera3D = $CameraPivot/Camera3D
@@ -37,6 +40,9 @@ var breath_fog: GPUParticles3D
 var breath_timer: float = 0.0
 var compass_label: Label
 var crt_material: ShaderMaterial
+var is_crouching: bool = false
+var crouch_lerp: float = 1.0  # 1.0 = standing, CROUCH_HEIGHT = crouched
+var model_node: Node3D = null
 
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
@@ -92,15 +98,25 @@ func _physics_process(delta: float) -> void:
 	else:
 		camera_pivot.rotation.z = lerpf(camera_pivot.rotation.z, 0.0, 10.0 * delta)
 
-	# Jump
-	if is_on_floor() and Input.is_action_just_pressed("jump"):
+	# Crouch
+	is_crouching = Input.is_key_pressed(KEY_CTRL) and is_on_floor()
+	var crouch_target := CROUCH_HEIGHT if is_crouching else STAND_HEIGHT
+	crouch_lerp = lerpf(crouch_lerp, crouch_target, 8.0 * delta)
+	# Scale model and adjust camera
+	if model_node:
+		model_node.scale.y = crouch_lerp
+	camera_pivot.position.y = lerpf(1.6, 1.0, 1.0 - crouch_lerp)
+
+	# Jump (can't jump while crouching)
+	if is_on_floor() and Input.is_action_just_pressed("jump") and not is_crouching:
 		velocity.y = JUMP_VELOCITY
 
 	# Get input direction
 	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_backward")
 	var direction := (transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
 
-	var current_speed := SPRINT_SPEED if Input.is_key_pressed(KEY_SHIFT) else SPEED
+	var speed_mult := CROUCH_SPEED_MULT if is_crouching else 1.0
+	var current_speed := (SPRINT_SPEED if Input.is_key_pressed(KEY_SHIFT) else SPEED) * speed_mult
 
 	if direction:
 		velocity.x = direction.x * current_speed
@@ -188,6 +204,7 @@ func _build_humanoid_model() -> void:
 	var model := Node3D.new()
 	model.name = "Model"
 	add_child(model)
+	model_node = model
 
 	var skin_color := Color(0.85, 0.72, 0.6)
 	var jacket_color := Color(0.12, 0.12, 0.15)
