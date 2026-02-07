@@ -426,6 +426,26 @@ func _process(delta: float) -> void:
 				head_node.rotation.y = lerpf(head_node.rotation.y, 0.0, 2.0 * delta)
 				head_node.rotation.x = lerpf(head_node.rotation.x, 0.0, 2.0 * delta)
 
+		# Greeting nod (10% of NPCs, brief head dip when player passes within 3m)
+		if npc_data.get("does_greet", false) and is_stopped and dist < 3.0:
+			if not npc_data.get("greet_done", false):
+				npc_data["greet_done"] = true
+				npc_data["greet_t"] = 0.0
+		if npc_data.get("greet_done", false) and npc_data.get("greet_t", -1.0) >= 0.0:
+			npc_data["greet_t"] = npc_data.get("greet_t", 0.0) + delta
+			var gt2: float = npc_data["greet_t"]
+			if head_node and is_instance_valid(head_node) and head_node.is_inside_tree():
+				var nod_pitch := 0.0
+				if gt2 < 0.2:
+					nod_pitch = (gt2 / 0.2) * 0.25  # dip down
+				elif gt2 < 0.5:
+					nod_pitch = 0.25 * (1.0 - (gt2 - 0.2) / 0.3)  # rise back
+				else:
+					npc_data["greet_t"] = -1.0  # done, won't nod again (greet_done stays true)
+				head_node.rotation.x = lerpf(head_node.rotation.x, head_node.rotation.x + nod_pitch, 8.0 * delta)
+		if npc_data.get("does_greet", false) and dist > 10.0:
+			npc_data["greet_done"] = false  # reset when player is far away
+
 		# Bag bounce (messenger bag/backpack sway when walking)
 		if not is_stopped:
 			var bag_node := node.get_node_or_null("Model/Bag")
@@ -468,6 +488,50 @@ func _process(delta: float) -> void:
 					else:
 						npc_data["stumble_t"] = -1.0  # done
 					stumble_model.rotation.x = lerpf(stumble_model.rotation.x, pitch_fwd, 10.0 * delta)
+
+		# Hand rub for warmth (15% of idle NPCs, both arms forward, slight rub oscillation)
+		if npc_data.get("does_hand_rub", false) and is_stopped and not npc_data["smoke"] and not npc_data.get("arms_crossed", false):
+			npc_data["rub_clock"] = npc_data.get("rub_clock", 0.0) + delta
+			var rub_cycle := fmod(npc_data["rub_clock"], 10.0)
+			if rub_cycle < 3.0:
+				var ls := node.get_node_or_null("Model/LeftShoulder")
+				var rs := node.get_node_or_null("Model/RightShoulder")
+				var le := node.get_node_or_null("Model/LeftShoulder/LeftElbow")
+				var re := node.get_node_or_null("Model/RightShoulder/RightElbow")
+				if ls and rs and le and re:
+					var rub_osc := sin(npc_data["rub_clock"] * 8.0) * 0.05
+					ls.rotation.x = lerpf(ls.rotation.x, -0.4 + rub_osc, 5.0 * delta)
+					rs.rotation.x = lerpf(rs.rotation.x, -0.4 - rub_osc, 5.0 * delta)
+					ls.rotation.z = lerpf(ls.rotation.z, 0.2, 4.0 * delta)
+					rs.rotation.z = lerpf(rs.rotation.z, -0.2, 4.0 * delta)
+					le.rotation.x = lerpf(le.rotation.x, -0.9, 5.0 * delta)
+					re.rotation.x = lerpf(re.rotation.x, -0.9, 5.0 * delta)
+
+		# Stretch gesture (8% of idle NPCs, arms raise up then lower)
+		if npc_data.get("does_stretch", false) and is_stopped and not npc_data["smoke"] and not npc_data.get("arms_crossed", false):
+			npc_data["stretch_clock"] = npc_data.get("stretch_clock", 0.0) + delta
+			var stretch_cycle := fmod(npc_data["stretch_clock"], 20.0)
+			if stretch_cycle < 2.5:
+				var ls := node.get_node_or_null("Model/LeftShoulder")
+				var rs := node.get_node_or_null("Model/RightShoulder")
+				var le := node.get_node_or_null("Model/LeftShoulder/LeftElbow")
+				var re := node.get_node_or_null("Model/RightShoulder/RightElbow")
+				if ls and rs and le and re:
+					var raise := 0.0
+					if stretch_cycle < 0.5:
+						raise = (stretch_cycle / 0.5) * -2.5  # arms up
+					elif stretch_cycle < 1.8:
+						raise = -2.5  # hold
+					else:
+						raise = -2.5 * ((2.5 - stretch_cycle) / 0.7)  # arms down
+					ls.rotation.x = lerpf(ls.rotation.x, raise, 5.0 * delta)
+					rs.rotation.x = lerpf(rs.rotation.x, raise, 5.0 * delta)
+					le.rotation.x = lerpf(le.rotation.x, 0.0, 4.0 * delta)
+					re.rotation.x = lerpf(re.rotation.x, 0.0, 4.0 * delta)
+					# Slight back arch
+					var mdl := node.get_node_or_null("Model")
+					if mdl and stretch_cycle > 0.3 and stretch_cycle < 2.0:
+						mdl.rotation.x = lerpf(mdl.rotation.x, -0.08, 3.0 * delta)
 
 		# Conversation gestures: active speaker raises arm emphatically
 		if npc_data.get("is_conversation", false):
@@ -1067,6 +1131,9 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		"looks_at_rain": rng.randf() < 0.05,
 		"can_stumble": rng.randf() < 0.03,
 		"does_yawn": rng.randf() < 0.05,
+		"does_greet": rng.randf() < 0.10,
+		"does_hand_rub": not has_umbrella and not has_phone and not has_newspaper and rng.randf() < 0.15,
+		"does_stretch": not has_umbrella and not has_phone and not has_newspaper and rng.randf() < 0.08,
 	})
 
 func _add_pivot(parent: Node3D, pivot_name: String, pos: Vector3) -> Node3D:

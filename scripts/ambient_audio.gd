@@ -231,6 +231,14 @@ var neonbuzz_timer: float = 0.0
 var neonbuzz_phase: float = 0.0
 var neonbuzz_active: bool = false
 var neonbuzz_duration: float = 2.0
+var jet_timer: float = 0.0
+var jet_phase: float = 0.0
+var jet_active: bool = false
+var jet_duration: float = 4.0
+var cart_timer: float = 0.0
+var cart_phase: float = 0.0
+var cart_active: bool = false
+var cart_duration: float = 2.0
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -1025,6 +1033,32 @@ func _process(delta: float) -> void:
 		if neonbuzz_phase > neonbuzz_duration:
 			neonbuzz_active = false
 
+	# Distant jet flyover
+	jet_timer -= delta
+	if jet_timer <= 0.0 and not jet_active:
+		jet_timer = rng.randf_range(120.0, 240.0)
+		jet_active = true
+		jet_phase = 0.0
+		jet_duration = rng.randf_range(3.5, 5.0)
+
+	if jet_active:
+		jet_phase += delta
+		if jet_phase > jet_duration:
+			jet_active = false
+
+	# Shopping cart rattle
+	cart_timer -= delta
+	if cart_timer <= 0.0 and not cart_active:
+		cart_timer = rng.randf_range(80.0, 160.0)
+		cart_active = true
+		cart_phase = 0.0
+		cart_duration = rng.randf_range(1.5, 3.0)
+
+	if cart_active:
+		cart_phase += delta
+		if cart_phase > cart_duration:
+			cart_active = false
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -1746,6 +1780,36 @@ func _fill_hum_buffer() -> void:
 			buzz += sin(t * 240.0 * TAU) * 0.3
 			buzz += sin(t * 360.0 * TAU) * 0.15
 			sample += buzz * nb_env * flicker * 0.012
+
+		# Distant jet flyover (low rumble with slow volume swell)
+		if jet_active:
+			var jet_env := 0.0
+			if jet_phase < jet_duration * 0.4:
+				jet_env = jet_phase / (jet_duration * 0.4)  # swell in
+			elif jet_phase < jet_duration * 0.6:
+				jet_env = 1.0  # peak
+			else:
+				jet_env = (jet_duration - jet_phase) / (jet_duration * 0.4)  # fade out
+			jet_env = maxf(0.0, jet_env)
+			var jet_noise := rng.randf_range(-1.0, 1.0)
+			var jet_rumble := sin(t * 45.0 * TAU) * 0.3 + sin(t * 90.0 * TAU) * 0.2
+			jet_rumble += jet_noise * 0.15
+			sample += jet_rumble * jet_env * jet_env * 0.018
+
+		# Shopping cart rattle (metallic jingle + wheel clatter)
+		if cart_active:
+			var cart_env := 1.0
+			if cart_phase < 0.15:
+				cart_env = cart_phase / 0.15
+			elif cart_phase > cart_duration - 0.3:
+				cart_env = maxf(0.0, (cart_duration - cart_phase) / 0.3)
+			# Rapid metallic pings at ~12Hz
+			var ping_rate := 12.0 + sin(cart_phase * 3.0) * 2.0
+			var ping := sin(cart_phase * ping_rate * TAU) * 0.4
+			ping += sin(cart_phase * ping_rate * 2.3 * TAU) * 0.25
+			# Wheel rumble (low noise)
+			var wheel := rng.randf_range(-1.0, 1.0) * 0.2
+			sample += (ping + wheel) * cart_env * 0.008
 
 		# Distant crowd murmur (band-limited noise, 200-800Hz band)
 		var murmur_noise := rng.randf_range(-1.0, 1.0)
