@@ -717,6 +717,18 @@ func _add_neon_sign(building: MeshInstance3D, size: Vector3, rng: RandomNumberGe
 		light.shadow_enabled = false
 		light.position = Vector3(0, 0, 0.5)
 		label.add_child(light)
+
+		# 10% of text signs get pop-on flicker
+		if rng.randf() < 0.10:
+			flickering_lights.append({
+				"node": light,
+				"base_energy": light.light_energy,
+				"phase": rng.randf() * 20.0,
+				"speed": rng.randf_range(0.8, 1.5),
+				"style": "pop_on",
+				"mesh": null,
+				"label": label,
+			})
 	else:
 		# Quad sign (original behavior)
 		var sign_mesh := MeshInstance3D.new()
@@ -739,6 +751,18 @@ func _add_neon_sign(building: MeshInstance3D, size: Vector3, rng: RandomNumberGe
 		light.shadow_enabled = false
 		light.position = Vector3(0, 0, 0.5)
 		sign_mesh.add_child(light)
+
+		# 10% of quad signs get pop-on flicker
+		if rng.randf() < 0.10:
+			flickering_lights.append({
+				"node": light,
+				"base_energy": light.light_energy,
+				"phase": rng.randf() * 20.0,
+				"speed": rng.randf_range(0.8, 1.5),
+				"style": "pop_on",
+				"mesh": sign_mesh,
+				"label": null,
+			})
 
 		building.add_child(sign_mesh)
 
@@ -4986,6 +5010,25 @@ func _process(_delta: float) -> void:
 			var dying_label = data.get("label")
 			if dying_label and is_instance_valid(dying_label):
 				(dying_label as Label3D).modulate.a = clampf(energy_mult, 0.1, 1.0)
+		elif style == "pop_on":
+			# Long off period then sudden pop back on with bright flash
+			var pop_cycle := fmod(time * speed * 0.15 + phase, 8.0)
+			var pop_energy := 0.0
+			if pop_cycle < 5.0:
+				pop_energy = 1.0  # normal on
+			elif pop_cycle < 6.8:
+				pop_energy = 0.0  # dead (off)
+			elif pop_cycle < 6.85:
+				pop_energy = 2.5  # bright pop-on flash
+			else:
+				pop_energy = 1.0  # back to normal
+			light.light_energy = base * pop_energy
+			var pop_mesh = data.get("mesh")
+			if pop_mesh and is_instance_valid(pop_mesh):
+				(pop_mesh as MeshInstance3D).visible = pop_energy > 0.01
+			var pop_label = data.get("label")
+			if pop_label and is_instance_valid(pop_label):
+				(pop_label as Label3D).modulate.a = clampf(pop_energy, 0.0, 1.0)
 		else:
 			var flick := sin(time * speed + phase) * sin(time * speed * 1.7 + phase * 0.5)
 			var sputter := 1.0
@@ -6155,6 +6198,30 @@ func _generate_balcony_ledges() -> void:
 			top_rail.set_surface_override_material(0, rail_mat)
 			top_rail.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			add_child(top_rail)
+			# Potted plant on balcony (25% chance)
+			if rng.randf() < 0.25:
+				var pot := MeshInstance3D.new()
+				var pot_mesh := CylinderMesh.new()
+				pot_mesh.top_radius = 0.12
+				pot_mesh.bottom_radius = 0.08
+				pot_mesh.height = 0.2
+				pot.mesh = pot_mesh
+				var pot_x := balc_x + rng.randf_range(-balc_w * 0.25, balc_w * 0.25)
+				pot.position = Vector3(pot_x, balc_y + 0.14, balc_z)
+				pot.set_surface_override_material(0, _make_ps1_material(Color(0.35, 0.18, 0.08)))
+				pot.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				add_child(pot)
+				# Green foliage ball
+				var leaf := MeshInstance3D.new()
+				var leaf_mesh := SphereMesh.new()
+				leaf_mesh.radius = 0.15
+				leaf_mesh.height = 0.25
+				leaf.mesh = leaf_mesh
+				leaf.position = Vector3(pot_x, balc_y + 0.36, balc_z)
+				var green := Color(rng.randf_range(0.1, 0.2), rng.randf_range(0.25, 0.45), rng.randf_range(0.05, 0.15))
+				leaf.set_surface_override_material(0, _make_ps1_material(green))
+				leaf.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				add_child(leaf)
 
 func _generate_roof_parapets() -> void:
 	# Raised lip around building rooftop edges

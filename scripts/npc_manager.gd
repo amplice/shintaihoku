@@ -163,6 +163,16 @@ func _process(delta: float) -> void:
 				var limp_bob := sin(anim.walk_cycle) * 0.04
 				mdl.position.y = lerpf(mdl.position.y, limp_bob, 10.0 * delta)
 
+		# Jogger forward lean
+		if npc_data.get("is_jogger", false) and not is_stopped:
+			var mdl2 := node.get_node_or_null("Model")
+			if mdl2:
+				mdl2.rotation.x = lerpf(mdl2.rotation.x, 0.12, 8.0 * delta)
+		elif npc_data.get("is_jogger", false) and is_stopped:
+			var mdl2 := node.get_node_or_null("Model")
+			if mdl2:
+				mdl2.rotation.x = lerpf(mdl2.rotation.x, 0.0, 8.0 * delta)
+
 		# Track footstep triggers via walk cycle zero-crossing
 		if current_speed > 0.5:
 			var cur_sign := signf(sin(anim.walk_cycle))
@@ -404,6 +414,9 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 	var along_pos := rng.randf_range(-grid_extent, grid_extent)
 	var direction := 1.0 if rng.randf() < 0.5 else -1.0
 	var speed := rng.randf_range(1.5, 3.5)
+	var is_jogger := rng.randf() < 0.05
+	if is_jogger:
+		speed = rng.randf_range(5.5, 7.0)
 
 	if axis == "x":
 		npc.position = Vector3(along_pos, 0, lane_pos + sidewalk_offset)
@@ -733,6 +746,7 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		"splash": npc_splash,
 		"pocket_hand": not has_umbrella and rng.randf() < 0.30,
 		"has_limp": rng.randf() < 0.05,
+		"is_jogger": is_jogger,
 	})
 
 func _add_pivot(parent: Node3D, pivot_name: String, pos: Vector3) -> Node3D:

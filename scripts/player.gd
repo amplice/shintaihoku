@@ -55,6 +55,10 @@ var accent_stripe_mat: ShaderMaterial = null  # for glow pulse
 var accent_pulse_time: float = 0.0
 var turn_lean: float = 0.0  # camera lean from turning
 var head_node: Node3D = null  # for head look direction
+var footprints: Array[Dictionary] = []  # [{mesh, timer}]
+var footprint_pool_idx: int = 0
+const FOOTPRINT_POOL_SIZE: int = 8
+const FOOTPRINT_LIFETIME: float = 4.0
 
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
@@ -72,6 +76,7 @@ func _ready() -> void:
 	_setup_interaction_prompt()
 	_setup_shadow_blob()
 	_setup_head_rain_splash()
+	_setup_footprint_pool()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
@@ -199,6 +204,9 @@ func _physics_process(delta: float) -> void:
 			if base_aberration_val != null:
 				base_aberration = float(base_aberration_val)
 			crt_material.set_shader_parameter("aberration_amount", base_aberration + impact_aberration * 3.0)
+
+	# Fade out wet footprints
+	_update_footprints(delta)
 
 	# Accent stripe glow pulse (slow cyberpunk heartbeat)
 	accent_pulse_time += delta
@@ -468,6 +476,7 @@ func _setup_footstep_audio() -> void:
 	step_playback = step_player.get_stream_playback()
 
 func _trigger_footstep(sprinting: bool) -> void:
+	_place_footprint()
 	if not step_playback:
 		return
 	# Randomly vary between dry and wet footstep sounds
@@ -697,3 +706,48 @@ func _setup_head_rain_splash() -> void:
 	head_rain_splash.draw_pass_1 = hmesh
 	head_rain_splash.position = Vector3(0, 1.65, 0)
 	add_child(head_rain_splash)
+
+func _setup_footprint_pool() -> void:
+	var fp_mat := StandardMaterial3D.new()
+	fp_mat.albedo_color = Color(0.02, 0.02, 0.03, 0.5)
+	fp_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	fp_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	for _i in range(FOOTPRINT_POOL_SIZE):
+		var fp := MeshInstance3D.new()
+		var q := QuadMesh.new()
+		q.size = Vector2(0.25, 0.4)
+		fp.mesh = q
+		fp.set_surface_override_material(0, fp_mat.duplicate())
+		fp.rotation.x = -PI * 0.5  # lay flat on ground
+		fp.visible = false
+		get_tree().root.call_deferred("add_child", fp)
+		footprints.append({"mesh": fp, "timer": 0.0})
+
+func _place_footprint() -> void:
+	if footprints.is_empty():
+		return
+	var data: Dictionary = footprints[footprint_pool_idx]
+	var fp: MeshInstance3D = data["mesh"]
+	if not is_instance_valid(fp):
+		return
+	fp.global_position = global_position + Vector3(0, 0.01, 0)
+	fp.rotation.y = rotation.y
+	fp.visible = true
+	var mat := fp.get_surface_override_material(0) as StandardMaterial3D
+	if mat:
+		mat.albedo_color.a = 0.5
+	data["timer"] = FOOTPRINT_LIFETIME
+	footprint_pool_idx = (footprint_pool_idx + 1) % FOOTPRINT_POOL_SIZE
+
+func _update_footprints(delta: float) -> void:
+	for data in footprints:
+		if data["timer"] > 0.0:
+			data["timer"] -= delta
+			var fp: MeshInstance3D = data["mesh"]
+			if is_instance_valid(fp):
+				var alpha := clampf(data["timer"] / FOOTPRINT_LIFETIME, 0.0, 1.0)
+				var mat := fp.get_surface_override_material(0) as StandardMaterial3D
+				if mat:
+					mat.albedo_color.a = alpha * 0.5
+				if data["timer"] <= 0.0:
+					fp.visible = false

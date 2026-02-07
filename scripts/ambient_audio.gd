@@ -201,6 +201,10 @@ var rat_active: bool = false
 var rat_count: int = 0
 var rat_max: int = 0
 var rat_gap_timer: float = 0.0
+var organ_timer: float = 0.0
+var organ_phase: float = 0.0
+var organ_active: bool = false
+var organ_duration: float = 6.0
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -896,6 +900,19 @@ func _process(delta: float) -> void:
 	if rat_active:
 		rat_phase += delta
 
+	# Distant church organ drone (very rare, eerie)
+	organ_timer -= delta
+	if organ_timer <= 0.0 and not organ_active:
+		organ_timer = rng.randf_range(400.0, 700.0)
+		organ_active = true
+		organ_phase = 0.0
+		organ_duration = rng.randf_range(5.0, 8.0)
+
+	if organ_active:
+		organ_phase += delta
+		if organ_phase > organ_duration:
+			organ_active = false
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -1516,6 +1533,24 @@ func _fill_hum_buffer() -> void:
 			var rt_tone := sin(t * rt_freq * TAU) * 0.15
 			rt_tone += sin(t * rt_freq * 1.6 * TAU) * 0.06
 			sample += rt_tone * rt_env * 0.015
+		# Distant church organ drone (eerie sustained chord)
+		if organ_active:
+			var og_env := 1.0
+			if organ_phase < 1.5:
+				og_env = organ_phase / 1.5  # slow swell in
+			elif organ_phase > organ_duration - 2.0:
+				og_env = maxf(0.0, (organ_duration - organ_phase) / 2.0)
+			og_env = og_env * og_env  # smooth curve
+			# C2 + E3 + G3 chord with organ-like harmonics
+			var og_c := sin(t * 130.8 * TAU) * 0.15
+			og_c += sin(t * 261.6 * TAU) * 0.08  # octave
+			var og_e := sin(t * 164.8 * TAU) * 0.12
+			og_e += sin(t * 329.6 * TAU) * 0.06  # octave
+			var og_g := sin(t * 196.0 * TAU) * 0.10
+			og_g += sin(t * 392.0 * TAU) * 0.05  # octave
+			# Slight tremolo for pipe organ vibrato
+			var og_trem := 1.0 + sin(t * 5.5 * TAU) * 0.06
+			sample += (og_c + og_e + og_g) * og_env * og_trem * 0.012
 		# Distant crowd murmur (band-limited noise, 200-800Hz band)
 		var murmur_noise := rng.randf_range(-1.0, 1.0)
 		murmur_filter1 = murmur_filter1 * 0.85 + murmur_noise * 0.15
