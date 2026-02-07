@@ -25,6 +25,9 @@ var pipe_arcs: Array[Dictionary] = []  # [{light, phase, speed}]
 var police_red_light: OmniLight3D = null
 var police_blue_light: OmniLight3D = null
 var hologram_projections: Array[Dictionary] = []  # [{mesh, light, phase, speed}]
+var aircraft_node: Node3D = null
+var aircraft_time: float = 0.0
+var aircraft_nav_light: OmniLight3D = null
 var neon_colors: Array[Color] = [
 	Color(1.0, 0.05, 0.4),   # hot magenta
 	Color(0.0, 0.9, 1.0),    # cyan
@@ -116,6 +119,9 @@ func _ready() -> void:
 	_generate_neon_reflections()
 	_generate_rooftop_exhaust()
 	_generate_hologram_projections()
+	_generate_newspaper_boxes()
+	_generate_crosswalks()
+	_generate_aircraft_flyover()
 	_setup_neon_flicker()
 	_setup_color_shift_signs()
 	print("CityGenerator: generation complete, total children=", get_child_count())
@@ -4247,6 +4253,112 @@ func _generate_hologram_projections() -> void:
 			"base_hue": holo_col.h,
 		})
 
+func _generate_newspaper_boxes() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 6200
+	var cell_stride_local := block_size + street_width
+	var box_colors: Array[Color] = [
+		Color(0.05, 0.1, 0.3),  # dark blue
+		Color(0.3, 0.05, 0.05), # dark red
+		Color(0.05, 0.2, 0.08), # dark green
+		Color(0.25, 0.2, 0.0),  # dark yellow
+	]
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			if rng.randf() > 0.10:
+				continue
+			var cell_x := gx * cell_stride_local
+			var cell_z := gz * cell_stride_local
+			var bx := cell_x + block_size * 0.5 + street_width * rng.randf_range(0.15, 0.35)
+			var bz := cell_z + rng.randf_range(-block_size * 0.3, block_size * 0.3)
+			var box := Node3D.new()
+			box.position = Vector3(bx, 0, bz)
+			var bcol := box_colors[rng.randi_range(0, box_colors.size() - 1)]
+			# Body
+			var body := MeshInstance3D.new()
+			var body_mesh := BoxMesh.new()
+			body_mesh.size = Vector3(0.5, 1.0, 0.4)
+			body.mesh = body_mesh
+			body.position = Vector3(0, 0.5, 0)
+			body.set_surface_override_material(0, _make_ps1_material(bcol))
+			box.add_child(body)
+			# Glass panel
+			var glass := MeshInstance3D.new()
+			var glass_mesh := BoxMesh.new()
+			glass_mesh.size = Vector3(0.35, 0.5, 0.02)
+			glass.mesh = glass_mesh
+			glass.position = Vector3(0, 0.6, 0.21)
+			glass.set_surface_override_material(0,
+				_make_ps1_material(Color(0.15, 0.2, 0.25, 0.6)))
+			box.add_child(glass)
+			add_child(box)
+
+func _generate_crosswalks() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 6400
+	var cell_stride_local := block_size + street_width
+	var stripe_mat := _make_ps1_material(Color(0.7, 0.7, 0.7), true, Color(0.8, 0.8, 0.8), 0.5)
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			if rng.randf() > 0.60:
+				continue
+			var cell_x := gx * cell_stride_local
+			var cell_z := gz * cell_stride_local
+			# Crosswalk across X-street (north-south crossing)
+			var cross_x := cell_x + block_size * 0.5 + street_width * 0.5
+			var cross_z := cell_z + block_size * 0.5
+			var num_stripes := 5
+			for s in range(num_stripes):
+				var stripe := MeshInstance3D.new()
+				var stripe_mesh := BoxMesh.new()
+				stripe_mesh.size = Vector3(street_width * 0.7, 0.02, 0.4)
+				stripe.mesh = stripe_mesh
+				stripe.position = Vector3(cross_x, 0.015, cross_z + (s - 2) * 0.8)
+				stripe.set_surface_override_material(0, stripe_mat)
+				add_child(stripe)
+
+func _generate_aircraft_flyover() -> void:
+	aircraft_node = Node3D.new()
+	aircraft_node.position = Vector3(-200, 120, -200)
+	# Body (very simple - just lights visible from distance)
+	var body := MeshInstance3D.new()
+	var body_mesh := BoxMesh.new()
+	body_mesh.size = Vector3(2.0, 0.5, 0.8)
+	body.mesh = body_mesh
+	body.set_surface_override_material(0, _make_ps1_material(Color(0.15, 0.15, 0.18)))
+	aircraft_node.add_child(body)
+	# White strobe (main nav light)
+	aircraft_nav_light = OmniLight3D.new()
+	aircraft_nav_light.light_color = Color(1.0, 1.0, 1.0)
+	aircraft_nav_light.light_energy = 0.0
+	aircraft_nav_light.omni_range = 40.0
+	aircraft_nav_light.omni_attenuation = 1.0
+	aircraft_nav_light.shadow_enabled = false
+	aircraft_nav_light.position = Vector3(0, -0.3, 0)
+	aircraft_node.add_child(aircraft_nav_light)
+	# Red port light
+	var red_light := OmniLight3D.new()
+	red_light.light_color = Color(1.0, 0.0, 0.0)
+	red_light.light_energy = 1.5
+	red_light.omni_range = 8.0
+	red_light.shadow_enabled = false
+	red_light.position = Vector3(-1.0, 0, 0.5)
+	aircraft_node.add_child(red_light)
+	# Green starboard light
+	var green_light := OmniLight3D.new()
+	green_light.light_color = Color(0.0, 1.0, 0.0)
+	green_light.light_energy = 1.5
+	green_light.omni_range = 8.0
+	green_light.shadow_enabled = false
+	green_light.position = Vector3(1.0, 0, 0.5)
+	aircraft_node.add_child(green_light)
+	# Register strobe for blinking
+	flickering_lights.append({
+		"node": aircraft_nav_light, "mesh": null, "base_energy": 5.0,
+		"phase": 0.0, "speed": 3.0, "style": "blink",
+	})
+	add_child(aircraft_node)
+
 func _setup_neon_flicker() -> void:
 	# Register existing neon sign lights for flickering
 	var rng := RandomNumberGenerator.new()
@@ -4447,6 +4559,15 @@ func _process(_delta: float) -> void:
 		else:
 			police_red_light.light_energy = 0.0
 			police_blue_light.light_energy = 0.0
+
+	# Aircraft flyover (slow linear path, wraps)
+	if aircraft_node and is_instance_valid(aircraft_node):
+		aircraft_time += _delta
+		var flight_speed := 15.0
+		var extent := grid_size * (block_size + street_width)
+		aircraft_node.position.x = -extent * 1.5 + fmod(aircraft_time * flight_speed, extent * 3.0)
+		aircraft_node.position.z = sin(aircraft_time * 0.05) * extent * 0.5
+		aircraft_node.position.y = 120.0 + sin(aircraft_time * 0.1) * 10.0
 
 	# Hologram projection shimmer
 	for hp in hologram_projections:

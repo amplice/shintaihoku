@@ -27,6 +27,7 @@ var step_generator: AudioStreamGenerator
 var step_playback: AudioStreamGeneratorPlayback
 var step_rng := RandomNumberGenerator.new()
 var last_step_sign: float = 1.0  # tracks bob_timer sin sign for step triggers
+var flashlight: SpotLight3D
 
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
@@ -36,6 +37,7 @@ func _ready() -> void:
 	_build_humanoid_model()
 	_setup_crt_overlay()
 	_setup_footstep_audio()
+	_setup_flashlight()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
@@ -51,6 +53,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 		else:
 			Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+
+	if event is InputEventKey and event.pressed and not event.echo:
+		if (event as InputEventKey).keycode == KEY_F:
+			if flashlight:
+				flashlight.visible = not flashlight.visible
 
 func _physics_process(delta: float) -> void:
 	# Gravity
@@ -256,6 +263,18 @@ func _trigger_footstep(sprinting: bool) -> void:
 			sample = (noise * 0.6 + thump * 0.4) * env * volume
 		if step_playback.can_push_buffer(1):
 			step_playback.push_frame(Vector2(sample, sample))
+
+func _setup_flashlight() -> void:
+	flashlight = SpotLight3D.new()
+	flashlight.light_color = Color(0.95, 0.9, 0.8)
+	flashlight.light_energy = 3.0
+	flashlight.spot_range = 18.0
+	flashlight.spot_angle = 25.0
+	flashlight.spot_attenuation = 1.2
+	flashlight.shadow_enabled = false
+	flashlight.position = Vector3(0.3, 0, -0.5)
+	flashlight.visible = false  # start off
+	camera.add_child(flashlight)
 
 func _setup_crt_overlay() -> void:
 	var crt_shader_path := "res://shaders/crt.gdshader"

@@ -3,16 +3,28 @@ extends GPUParticles3D
 ## Rain system that follows the camera with ground-level splashes.
 
 var splash_particles: GPUParticles3D
+var rain_time: float = 0.0
+var base_amount: int = 0
+var base_splash_amount: int = 0
 
 func _ready() -> void:
 	_setup_splash_particles()
+	base_amount = amount
+	base_splash_amount = 40
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	var cam := get_viewport().get_camera_3d()
 	if cam:
 		global_position = cam.global_position + Vector3(0, 15, 0)
 		if splash_particles:
 			splash_particles.global_position = Vector3(cam.global_position.x, 0.05, cam.global_position.z)
+
+	# Rain intensity variation (~60s cycle)
+	rain_time += delta
+	var intensity := 0.5 + 0.5 * sin(rain_time * 0.1)  # 0.0 to 1.0
+	amount = int(base_amount * (0.4 + 0.6 * intensity))
+	if splash_particles:
+		splash_particles.amount = int(base_splash_amount * (0.3 + 0.7 * intensity))
 
 func _setup_splash_particles() -> void:
 	splash_particles = GPUParticles3D.new()
