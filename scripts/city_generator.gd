@@ -457,6 +457,20 @@ func _add_windows(building: MeshInstance3D, size: Vector3, rng: RandomNumberGene
 				win.set_surface_override_material(0,
 					_make_ps1_material(wc * 0.3, true, wc, rng.randf_range(2.5, 5.0)))
 				building.add_child(win)
+				# 8% of lit windows get a person silhouette
+				if rng.randf() < 0.08:
+					var sil := MeshInstance3D.new()
+					var sil_mesh := QuadMesh.new()
+					sil_mesh.size = Vector2(0.4, 0.9)
+					sil.mesh = sil_mesh
+					var sil_offset_x := rng.randf_range(-0.2, 0.2)
+					sil.position = Vector3(wx + sil_offset_x, wy + 0.1, face * (size.z * 0.51 + 0.01))
+					if face < 0:
+						sil.rotation.y = PI
+					sil.set_surface_override_material(0,
+						_make_ps1_material(Color(0.02, 0.02, 0.03)))
+					sil.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+					building.add_child(sil)
 				# 5% of lit windows get a TV glow
 				if rng.randf() < 0.05:
 					var tv_light := OmniLight3D.new()
@@ -497,6 +511,21 @@ func _add_windows(building: MeshInstance3D, size: Vector3, rng: RandomNumberGene
 				win.set_surface_override_material(0,
 					_make_ps1_material(wc * 0.3, true, wc, rng.randf_range(2.5, 5.0)))
 				building.add_child(win)
+				# 8% silhouette on side windows too
+				if rng.randf() < 0.08:
+					var sil := MeshInstance3D.new()
+					var sil_mesh := QuadMesh.new()
+					sil_mesh.size = Vector2(0.4, 0.9)
+					sil.mesh = sil_mesh
+					var sil_off_z := rng.randf_range(-0.2, 0.2)
+					sil.position = Vector3(face * (size.x * 0.51 + 0.01), wy + 0.1, wz + sil_off_z)
+					sil.rotation.y = PI * 0.5
+					if face < 0:
+						sil.rotation.y = -PI * 0.5
+					sil.set_surface_override_material(0,
+						_make_ps1_material(Color(0.02, 0.02, 0.03)))
+					sil.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+					building.add_child(sil)
 				if rng.randf() < 0.05:
 					var tv_light := OmniLight3D.new()
 					tv_light.light_color = Color(0.3, 0.4, 0.9)
@@ -1674,6 +1703,30 @@ func _generate_window_ac_units() -> void:
 					unit.rotation.y = PI * 0.5
 
 			mi.add_child(unit)
+			# 15% of AC units drip water
+			if rng.randf() < 0.15:
+				var drip := GPUParticles3D.new()
+				drip.amount = 2
+				drip.lifetime = 1.5
+				drip.visibility_aabb = AABB(Vector3(-1, -4, -1), Vector3(2, 5, 2))
+				var drip_mat := ParticleProcessMaterial.new()
+				drip_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+				drip_mat.emission_box_extents = Vector3(0.15, 0, 0.15)
+				drip_mat.direction = Vector3(0, -1, 0)
+				drip_mat.spread = 5.0
+				drip_mat.initial_velocity_min = 0.3
+				drip_mat.initial_velocity_max = 0.8
+				drip_mat.gravity = Vector3(0, -6.0, 0)
+				drip_mat.scale_min = 0.01
+				drip_mat.scale_max = 0.025
+				drip_mat.color = Color(0.4, 0.45, 0.6, 0.2)
+				drip.process_material = drip_mat
+				var drip_mesh := SphereMesh.new()
+				drip_mesh.radius = 0.015
+				drip_mesh.height = 0.03
+				drip.draw_pass_1 = drip_mesh
+				drip.position = Vector3(0, -0.25, 0)
+				unit.add_child(drip)
 
 func _generate_telephone_poles() -> void:
 	# Wooden/metal telephone poles along streets with crossarms
@@ -1759,6 +1812,11 @@ func _generate_graffiti() -> void:
 		Color(0.0, 1.0, 0.5),    # green
 		Color(1.0, 1.0, 0.0),    # yellow
 	]
+	var graffiti_texts: Array[String] = [
+		"FREEDOM", "WAKE UP", "404", "NO GODS", "RESIST", "WHY",
+		"VOID", "GLITCH", "RUN", "0xFF", "OBEY", "REBEL",
+		"龍", "闇", "鬼", "火", "危険", "禁止", "未来", "自由",
+	]
 
 	for child in get_children():
 		if not child is MeshInstance3D:
@@ -1773,18 +1831,31 @@ func _generate_graffiti() -> void:
 		var num_tags := rng.randi_range(1, 3)
 		for _t in range(num_tags):
 			var gc := graffiti_colors[rng.randi_range(0, graffiti_colors.size() - 1)]
-			var tag_w := rng.randf_range(1.0, 3.0)
-			var tag_h := rng.randf_range(0.5, 1.5)
-
 			var face := rng.randi_range(0, 3)
-			var tag_y := -bsize.y * 0.5 + rng.randf_range(0.5, 3.0)  # near ground level
+			var tag_y := -bsize.y * 0.5 + rng.randf_range(0.5, 3.0)
+			var use_text := rng.randf() < 0.5 and neon_font != null
 
-			var tag := MeshInstance3D.new()
-			var tag_mesh := QuadMesh.new()
-			tag_mesh.size = Vector2(tag_w, tag_h)
-			tag.mesh = tag_mesh
-			tag.set_surface_override_material(0,
-				_make_ps1_material(gc * 0.2, true, gc, rng.randf_range(0.5, 1.5)))
+			var tag: Node3D
+			if use_text:
+				var label := Label3D.new()
+				label.text = graffiti_texts[rng.randi_range(0, graffiti_texts.size() - 1)]
+				label.font = neon_font
+				label.font_size = rng.randi_range(32, 72)
+				label.pixel_size = 0.01
+				label.modulate = gc * 0.6
+				label.outline_modulate = gc * 0.2
+				label.outline_size = 4
+				label.no_depth_test = false
+				label.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+				tag = label
+			else:
+				var mesh_tag := MeshInstance3D.new()
+				var tag_mesh := QuadMesh.new()
+				tag_mesh.size = Vector2(rng.randf_range(1.0, 3.0), rng.randf_range(0.5, 1.5))
+				mesh_tag.mesh = tag_mesh
+				mesh_tag.set_surface_override_material(0,
+					_make_ps1_material(gc * 0.2, true, gc, rng.randf_range(0.5, 1.5)))
+				tag = mesh_tag
 
 			match face:
 				0:
@@ -2036,8 +2107,8 @@ func _generate_skyline_warning_lights() -> void:
 		if not mi.mesh is BoxMesh:
 			continue
 		var bsize: Vector3 = (mi.mesh as BoxMesh).size
-		# Only skyline buildings (very tall, dark material)
-		if bsize.y < 40.0 or rng.randf() > 0.4:
+		# Buildings 25m+ get aviation warning lights
+		if bsize.y < 25.0 or rng.randf() > 0.35:
 			continue
 
 		var roof_y := bsize.y * 0.5
@@ -4411,13 +4482,25 @@ func _collect_neon_lights(node: Node, rng: RandomNumberGenerator) -> void:
 					is_neon = true
 					break
 			if is_neon and rng.randf() < 0.15:  # 15% of neon lights flicker
+				# Find parent Label3D if any (to flicker the text too)
+				var parent_node: Node = light.get_parent()
+				var label_ref: Label3D = null
+				if parent_node is Label3D:
+					label_ref = parent_node as Label3D
+				var style_roll := rng.randi_range(0, 2)
+				var pick: String = "flicker"
+				if style_roll == 1:
+					pick = "stutter"
+				elif style_roll == 2:
+					pick = "dying"
 				flickering_lights.append({
 					"node": light,
 					"mesh": null,
+					"label": label_ref,
 					"base_energy": light.light_energy,
 					"phase": rng.randf() * TAU,
 					"speed": rng.randf_range(3.0, 12.0),
-					"style": "flicker",
+					"style": pick,
 				})
 		_collect_neon_lights(child, rng)
 
@@ -4464,12 +4547,35 @@ func _process(_delta: float) -> void:
 			var mesh_node = data["mesh"]
 			if mesh_node and is_instance_valid(mesh_node):
 				(mesh_node as MeshInstance3D).visible = dropout > 0.1
+		elif style == "stutter":
+			# Rapid on-off stutter
+			var stut := sin(time * speed * 8.0 + phase) * sin(time * speed * 5.3 + phase * 2.1)
+			var on_val := 1.0 if stut > -0.3 else 0.0
+			light.light_energy = base * on_val
+			var stut_label = data.get("label")
+			if stut_label and is_instance_valid(stut_label):
+				(stut_label as Label3D).modulate.a = on_val
+		elif style == "dying":
+			# Slow fade out then snap back on
+			var fade_cycle := fmod(time * speed * 0.3 + phase, 6.0)
+			var energy_mult := 1.0
+			if fade_cycle > 4.0:
+				energy_mult = maxf(0.0, 1.0 - (fade_cycle - 4.0))
+			elif fade_cycle > 3.8:
+				energy_mult = 0.05  # almost dead
+			light.light_energy = base * energy_mult
+			var dying_label = data.get("label")
+			if dying_label and is_instance_valid(dying_label):
+				(dying_label as Label3D).modulate.a = clampf(energy_mult, 0.1, 1.0)
 		else:
 			var flick := sin(time * speed + phase) * sin(time * speed * 1.7 + phase * 0.5)
 			var sputter := 1.0
 			if sin(time * speed * 3.0 + phase * 2.0) > 0.92:
 				sputter = 0.1
 			light.light_energy = base * (0.5 + 0.5 * flick) * sputter
+			var flick_label = data.get("label")
+			if flick_label and is_instance_valid(flick_label):
+				(flick_label as Label3D).modulate.a = 0.3 + 0.7 * (0.5 + 0.5 * flick) * sputter
 
 	# Traffic light cycling (10s cycle: 5s green, 1s yellow, 4s red)
 	for tl_data in traffic_lights:
