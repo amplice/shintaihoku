@@ -56,6 +56,11 @@ var radio_phase: float = 0.0
 var radio_active: bool = false
 var radio_duration: float = 0.8
 var radio_filter: float = 0.0
+var bass_timer: float = 0.0
+var bass_phase: float = 0.0
+var bass_active: bool = false
+var bass_duration: float = 10.0
+var bass_bpm: float = 120.0
 var rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
@@ -251,6 +256,20 @@ func _process(delta: float) -> void:
 		if radio_phase > radio_duration:
 			radio_active = false
 
+	# Distant club bass thump
+	bass_timer -= delta
+	if bass_timer <= 0.0 and not bass_active:
+		bass_timer = rng.randf_range(30.0, 80.0)
+		bass_active = true
+		bass_phase = 0.0
+		bass_duration = rng.randf_range(8.0, 15.0)
+		bass_bpm = rng.randf_range(115.0, 130.0)
+
+	if bass_active:
+		bass_phase += delta
+		if bass_phase > bass_duration:
+			bass_active = false
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -367,6 +386,24 @@ func _fill_hum_buffer() -> void:
 				var tinkle_noise := rng.randf_range(-1.0, 1.0) * 0.2
 				glass_sample += (tinkle1 + tinkle2 + tinkle3 + tinkle_noise) * glass_env * glass_env
 			sample += glass_sample * 0.04
+		# Distant club bass thump (4-on-the-floor kick)
+		if bass_active:
+			var beat_period := 60.0 / bass_bpm
+			var beat_pos := fmod(bass_phase, beat_period)
+			# Short low kick drum (sine wave with pitch decay)
+			if beat_pos < 0.08:
+				var kick_env := (1.0 - beat_pos / 0.08)
+				kick_env = kick_env * kick_env  # squared envelope
+				# Pitch drops from 150Hz to 50Hz during kick
+				var kick_freq := 150.0 - beat_pos * 1200.0
+				var kick := sin(t * kick_freq * TAU) * kick_env * 0.06
+				# Fade in/out over duration
+				var bass_env := 1.0
+				if bass_phase < 1.0:
+					bass_env = bass_phase
+				elif bass_phase > bass_duration - 2.0:
+					bass_env = (bass_duration - bass_phase) / 2.0
+				sample += kick * clampf(bass_env, 0.0, 1.0)
 		# Radio chatter burst (band-pass filtered noise, walkie-talkie texture)
 		if radio_active:
 			var radio_env := 1.0

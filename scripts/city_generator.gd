@@ -166,6 +166,9 @@ func _ready() -> void:
 	_generate_roof_parapets()
 	_generate_building_cornices()
 	_generate_window_frames()
+	_generate_building_stoops()
+	_generate_exit_signs()
+	_generate_puddle_splash_rings()
 	_setup_neon_flicker()
 	_setup_color_shift_signs()
 	print("CityGenerator: generation complete, total children=", get_child_count())
@@ -6202,3 +6205,147 @@ func _generate_window_frames() -> void:
 			fright.set_surface_override_material(0, frame_mat)
 			fright.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			mi.add_child(fright)
+
+func _generate_building_stoops() -> void:
+	# Small concrete steps at building ground level
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 8400
+	var step_mat := _make_ps1_material(Color(0.3, 0.28, 0.26))
+	var count := 0
+	for child in get_children():
+		if count >= 20:
+			break
+		if not child is MeshInstance3D:
+			continue
+		var mi := child as MeshInstance3D
+		if not mi.mesh is BoxMesh:
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		if bsize.y < 10.0:
+			continue
+		if rng.randf() > 0.08:
+			continue
+		count += 1
+		var face_sign := 1.0 if rng.randf() < 0.5 else -1.0
+		var stoop_x := mi.position.x + rng.randf_range(-bsize.x * 0.25, bsize.x * 0.25)
+		var stoop_z := mi.position.z + face_sign * (bsize.z * 0.5)
+		var base_y := mi.position.y - bsize.y * 0.5
+		# 2-3 steps
+		var num_steps := rng.randi_range(2, 3)
+		for si in range(num_steps):
+			var step := MeshInstance3D.new()
+			var step_mesh := BoxMesh.new()
+			var step_w := 1.8 - si * 0.15
+			step_mesh.size = Vector3(step_w, 0.18, 0.4)
+			step.mesh = step_mesh
+			step.position = Vector3(stoop_x, base_y + si * 0.18 + 0.09, stoop_z + face_sign * (si * 0.35 + 0.2))
+			step.set_surface_override_material(0, step_mat)
+			step.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			add_child(step)
+
+func _generate_exit_signs() -> void:
+	# Green "非常口" / "EXIT" signs on building walls near ground level
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 8500
+	var exit_color := Color(0.0, 0.9, 0.3)
+	var count := 0
+	for child in get_children():
+		if count >= 25:
+			break
+		if not child is MeshInstance3D:
+			continue
+		var mi := child as MeshInstance3D
+		if not mi.mesh is BoxMesh:
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		if bsize.y < 10.0:
+			continue
+		if rng.randf() > 0.15:
+			continue
+		count += 1
+		var sign_y := mi.position.y - bsize.y * 0.5 + rng.randf_range(2.5, 4.0)
+		var face_side := rng.randi_range(0, 1)
+		var face_sign := 1.0 if face_side == 0 else -1.0
+		var sign_x := mi.position.x + rng.randf_range(-bsize.x * 0.3, bsize.x * 0.3)
+		var sign_z := mi.position.z + face_sign * (bsize.z * 0.51 + 0.01)
+		# Sign backing (small dark green quad)
+		var backing := MeshInstance3D.new()
+		var back_mesh := BoxMesh.new()
+		back_mesh.size = Vector3(0.6, 0.25, 0.03)
+		backing.mesh = back_mesh
+		backing.position = Vector3(sign_x, sign_y, sign_z)
+		backing.set_surface_override_material(0, _make_ps1_material(Color(0.02, 0.08, 0.02), true, exit_color, 2.0))
+		backing.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(backing)
+		# Text label
+		if neon_font:
+			var label := Label3D.new()
+			var use_kanji := rng.randf() < 0.6
+			if use_kanji:
+				label.text = "非常口"
+			else:
+				label.text = "EXIT"
+			label.font = neon_font
+			label.font_size = 24
+			label.pixel_size = 0.008
+			label.modulate = exit_color
+			label.outline_modulate = exit_color * 0.3
+			label.outline_size = 2
+			label.no_depth_test = false
+			label.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+			label.position = Vector3(sign_x, sign_y, sign_z + face_sign * 0.02)
+			if face_sign < 0:
+				label.rotation.y = PI
+			add_child(label)
+		# Small green glow
+		var glow := OmniLight3D.new()
+		glow.light_color = exit_color
+		glow.light_energy = 0.5
+		glow.omni_range = 2.5
+		glow.omni_attenuation = 2.0
+		glow.shadow_enabled = false
+		glow.position = Vector3(sign_x, sign_y, sign_z + face_sign * 0.1)
+		add_child(glow)
+
+func _generate_puddle_splash_rings() -> void:
+	# Rain impact particles at puddle locations
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 8600
+	var count := 0
+	for child in get_children():
+		if count >= 12:
+			break
+		if not child is MeshInstance3D:
+			continue
+		var mi := child as MeshInstance3D
+		if not mi.mesh is QuadMesh:
+			continue
+		# Only ground-level quads (puddles are at y=0.02)
+		if absf(mi.position.y - 0.02) > 0.05:
+			continue
+		if rng.randf() > 0.15:
+			continue
+		count += 1
+		var qsize: Vector2 = (mi.mesh as QuadMesh).size
+		var splash := GPUParticles3D.new()
+		splash.position = mi.position + Vector3(0, 0.03, 0)
+		splash.amount = 4
+		splash.lifetime = 0.6
+		splash.visibility_aabb = AABB(Vector3(-3, -1, -3), Vector3(6, 2, 6))
+		var smat := ParticleProcessMaterial.new()
+		smat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+		smat.emission_box_extents = Vector3(qsize.x * 0.4, 0, qsize.y * 0.4)
+		smat.direction = Vector3(0, 1, 0)
+		smat.spread = 10.0
+		smat.initial_velocity_min = 0.3
+		smat.initial_velocity_max = 0.8
+		smat.gravity = Vector3(0, -3.0, 0)
+		smat.scale_min = 0.03
+		smat.scale_max = 0.08
+		smat.color = Color(0.4, 0.45, 0.55, 0.15)
+		splash.process_material = smat
+		var smesh := SphereMesh.new()
+		smesh.radius = 0.04
+		smesh.height = 0.02
+		splash.draw_pass_1 = smesh
+		add_child(splash)
