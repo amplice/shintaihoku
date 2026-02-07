@@ -785,6 +785,16 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		_add_body_part(model, "Scarf", BoxMesh.new(), Vector3(0, 1.38, 0.08),
 			accent, Vector3(0.42, 0.06, 0.18), true, accent, 1.5)
 
+	# Popped collar (8% of NPCs without scarf)
+	var has_scarf := model.get_node_or_null("Scarf") != null
+	if not has_scarf and rng.randf() < 0.08:
+		# Left collar flap
+		_add_body_part(model, "CollarL", BoxMesh.new(), Vector3(-0.18, 1.4, -0.08),
+			jacket_color * 1.1, Vector3(0.16, 0.12, 0.04))
+		# Right collar flap
+		_add_body_part(model, "CollarR", BoxMesh.new(), Vector3(0.18, 1.4, -0.08),
+			jacket_color * 1.1, Vector3(0.16, 0.12, 0.04))
+
 	# Hoodie (8% of NPCs without hats)
 	var has_hat := model.get_node_or_null("Hat") != null
 	if not has_hat and rng.randf() < 0.08:
@@ -838,6 +848,33 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 			led_col * 0.3, Vector3(0.12, 0.015, 0.06), true, led_col, 3.0)
 		_add_body_part(model, "LedR", BoxMesh.new(), Vector3(0.08, 0.02, 0.04),
 			led_col * 0.3, Vector3(0.12, 0.015, 0.06), true, led_col, 3.0)
+
+	# Rain drip particles (non-umbrella NPCs - water dripping off clothes)
+	var rain_drip: GPUParticles3D = null
+	if not has_umbrella:
+		rain_drip = GPUParticles3D.new()
+		rain_drip.amount = 4
+		rain_drip.lifetime = 0.4
+		rain_drip.emitting = true
+		rain_drip.visibility_aabb = AABB(Vector3(-0.5, -1, -0.5), Vector3(1, 2, 1))
+		var rd_mat := ParticleProcessMaterial.new()
+		rd_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+		rd_mat.emission_box_extents = Vector3(0.2, 0.3, 0.1)
+		rd_mat.direction = Vector3(0, -1, 0)
+		rd_mat.spread = 10.0
+		rd_mat.initial_velocity_min = 0.8
+		rd_mat.initial_velocity_max = 1.5
+		rd_mat.gravity = Vector3(0, -6.0, 0)
+		rd_mat.scale_min = 0.01
+		rd_mat.scale_max = 0.02
+		rd_mat.color = Color(0.5, 0.55, 0.7, 0.15)
+		rain_drip.process_material = rd_mat
+		var rd_mesh := SphereMesh.new()
+		rd_mesh.radius = 0.015
+		rd_mesh.height = 0.03
+		rain_drip.draw_pass_1 = rd_mesh
+		rain_drip.position = Vector3(0, 1.1, 0)
+		model.add_child(rain_drip)
 
 	# Foot splash particles (wet ground)
 	var npc_splash := GPUParticles3D.new()

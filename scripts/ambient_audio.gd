@@ -219,6 +219,10 @@ var tvstatic_phase: float = 0.0
 var tvstatic_active: bool = false
 var tvstatic_duration: float = 0.5
 var tvstatic_filter: float = 0.0
+var clang_timer: float = 0.0
+var clang_phase: float = 0.0
+var clang_active: bool = false
+var clang_pitch: float = 1.0
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -970,6 +974,19 @@ func _process(delta: float) -> void:
 		if tvstatic_phase > tvstatic_duration:
 			tvstatic_active = false
 
+	# Distant industrial metal clang
+	clang_timer -= delta
+	if clang_timer <= 0.0 and not clang_active:
+		clang_timer = rng.randf_range(80.0, 150.0)
+		clang_active = true
+		clang_phase = 0.0
+		clang_pitch = rng.randf_range(0.8, 1.2)
+
+	if clang_active:
+		clang_phase += delta
+		if clang_phase > 0.3:
+			clang_active = false
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -1652,6 +1669,15 @@ func _fill_hum_buffer() -> void:
 			var tv_bp := sin(t * 1200.0 * TAU) * tvstatic_filter * 0.2
 			tv_bp += sin(t * 2400.0 * TAU) * tvstatic_filter * 0.1
 			sample += tv_bp * tv_env * 0.02
+		# Distant industrial metal clang (resonant low-mid impact)
+		if clang_active and clang_phase < 0.3:
+			var cl_env := (1.0 - clang_phase / 0.3)
+			cl_env = cl_env * cl_env * cl_env
+			var cl_ring := sin(t * 250.0 * clang_pitch * TAU) * 0.3
+			cl_ring += sin(t * 400.0 * clang_pitch * TAU) * 0.15
+			cl_ring += sin(t * 630.0 * clang_pitch * TAU) * 0.08
+			var cl_noise := rng.randf_range(-1.0, 1.0) * 0.2
+			sample += (cl_ring + cl_noise) * cl_env * 0.03
 		# Distant crowd murmur (band-limited noise, 200-800Hz band)
 		var murmur_noise := rng.randf_range(-1.0, 1.0)
 		murmur_filter1 = murmur_filter1 * 0.85 + murmur_noise * 0.15

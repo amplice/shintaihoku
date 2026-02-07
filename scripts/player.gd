@@ -279,6 +279,22 @@ func _physics_process(delta: float) -> void:
 			time_str = "  %02d:%02d" % [hours, minutes]
 		compass_label.text = "SHINTAIHOKU  [ %s %d° ]%s" % [directions[idx], int(heading), time_str]
 
+	# Night vignette: stronger vignette during nighttime hours
+	if crt_material:
+		var dnc_node := get_node_or_null("../DayNightCycle")
+		var target_vignette := 0.3  # default daytime
+		if dnc_node and "time_of_day" in dnc_node:
+			var tod_val: float = dnc_node.time_of_day
+			if tod_val > 21.0 or tod_val < 5.0:
+				target_vignette = 0.5  # night: stronger vignette
+			elif tod_val > 17.0:
+				target_vignette = lerpf(0.3, 0.5, (tod_val - 17.0) / 4.0)  # dusk transition
+			elif tod_val < 7.0:
+				target_vignette = lerpf(0.5, 0.3, (tod_val - 5.0) / 2.0)  # dawn transition
+		var cur_vig = crt_material.get_shader_parameter("vignette_intensity")
+		var cur_vig_f: float = cur_vig if cur_vig != null else 0.3
+		crt_material.set_shader_parameter("vignette_intensity", lerpf(cur_vig_f, target_vignette, 2.0 * delta))
+
 	# Interaction prompt (proximity + look direction NPC detection)
 	if interact_label:
 		var npc_mgr := get_node_or_null("../NpcManager")
@@ -328,6 +344,11 @@ func _physics_process(delta: float) -> void:
 		var breathe_x := sin(bob_timer * 0.5) * 0.002
 		camera.position.y = lerpf(camera.position.y, camera_base_y + breathe_y, 5.0 * delta)
 		camera.position.x = lerpf(camera.position.x, breathe_x, 5.0 * delta)
+		# Micro-rotation drift (handheld camera feel)
+		var drift_z := sin(bob_timer * 0.3) * 0.0015 + sin(bob_timer * 0.7) * 0.001
+		var drift_x := sin(bob_timer * 0.4) * 0.001
+		camera.rotation.z = lerpf(camera.rotation.z, drift_z, 3.0 * delta)
+		camera.rotation.x = lerpf(camera.rotation.x, drift_x, 3.0 * delta)
 
 func _build_humanoid_model() -> void:
 	# Remove the old capsule mesh from the scene
