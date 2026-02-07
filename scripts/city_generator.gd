@@ -14,6 +14,7 @@ var ps1_shader: Shader
 var neon_font: Font
 var flickering_lights: Array[Dictionary] = []  # [{node, base_energy, phase, speed, style}]
 var traffic_lights: Array[Dictionary] = []  # [{red, yellow, green, phase}]
+var holo_signs: Array[Dictionary] = []  # [{node, base_y, phase, speed}]
 var neon_colors: Array[Color] = [
 	Color(1.0, 0.05, 0.4),   # hot magenta
 	Color(0.0, 0.9, 1.0),    # cyan
@@ -63,6 +64,10 @@ func _ready() -> void:
 	_generate_neon_underglow()
 	_generate_manholes()
 	_generate_litter()
+	_generate_overhead_cables()
+	_generate_skyline_warning_lights()
+	_generate_holographic_signs()
+	_generate_phone_booths()
 	_setup_neon_flicker()
 	print("CityGenerator: generation complete, total children=", get_child_count())
 
@@ -1784,6 +1789,256 @@ func _generate_litter() -> void:
 				piece.set_surface_override_material(0, _make_ps1_material(lc))
 				add_child(piece)
 
+func _generate_overhead_cables() -> void:
+	# Thin wires stretched across streets between buildings
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 1800
+	var cell_stride := block_size + street_width
+	var wire_mat := _make_ps1_material(Color(0.08, 0.08, 0.1))
+
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			if rng.randf() > 0.35:  # 35% of street segments get overhead cables
+				continue
+			var cell_x := gx * cell_stride
+			var cell_z := gz * cell_stride
+
+			var cable_type := rng.randi_range(0, 1)
+			var num_cables := rng.randi_range(1, 3)
+
+			for _c in range(num_cables):
+				var cable_y := rng.randf_range(8.0, 16.0)
+				var offset := rng.randf_range(-block_size * 0.3, block_size * 0.3)
+
+				if cable_type == 0:
+					# Cable across Z-street (east-west direction)
+					var cx := cell_x + block_size * 0.5 + street_width * 0.5
+					var cz := cell_z + offset
+					# Main span
+					var cable := MeshInstance3D.new()
+					var cable_mesh := BoxMesh.new()
+					cable_mesh.size = Vector3(street_width * 0.9, 0.02, 0.02)
+					cable.mesh = cable_mesh
+					cable.position = Vector3(cx, cable_y, cz)
+					cable.set_surface_override_material(0, wire_mat)
+					add_child(cable)
+					# Slight sag in middle (second segment angled down)
+					var sag := MeshInstance3D.new()
+					var sag_mesh := BoxMesh.new()
+					sag_mesh.size = Vector3(street_width * 0.4, 0.02, 0.02)
+					sag.mesh = sag_mesh
+					sag.position = Vector3(cx, cable_y - 0.3, cz)
+					sag.set_surface_override_material(0, wire_mat)
+					add_child(sag)
+				else:
+					# Cable across X-street (north-south direction)
+					var cx := cell_x + offset
+					var cz := cell_z + block_size * 0.5 + street_width * 0.5
+					var cable := MeshInstance3D.new()
+					var cable_mesh := BoxMesh.new()
+					cable_mesh.size = Vector3(0.02, 0.02, street_width * 0.9)
+					cable.mesh = cable_mesh
+					cable.position = Vector3(cx, cable_y, cz)
+					cable.set_surface_override_material(0, wire_mat)
+					add_child(cable)
+					var sag := MeshInstance3D.new()
+					var sag_mesh := BoxMesh.new()
+					sag_mesh.size = Vector3(0.02, 0.02, street_width * 0.4)
+					sag.mesh = sag_mesh
+					sag.position = Vector3(cx, cable_y - 0.3, cz)
+					sag.set_surface_override_material(0, wire_mat)
+					add_child(sag)
+
+func _generate_skyline_warning_lights() -> void:
+	# Add prominent red blinking lights to skyline buildings
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 1900
+	var red_col := Color(1.0, 0.0, 0.0)
+	var red_mat := _make_ps1_material(red_col * 0.3, true, red_col, 5.0)
+
+	for child in get_children():
+		if not child is MeshInstance3D:
+			continue
+		var mi := child as MeshInstance3D
+		if not mi.mesh is BoxMesh:
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		# Only skyline buildings (very tall, dark material)
+		if bsize.y < 40.0 or rng.randf() > 0.4:
+			continue
+
+		var roof_y := bsize.y * 0.5
+		var blinker := MeshInstance3D.new()
+		var blinker_mesh := SphereMesh.new()
+		blinker_mesh.radius = 0.2
+		blinker_mesh.height = 0.4
+		blinker.mesh = blinker_mesh
+		blinker.position = Vector3(0, roof_y + 0.3, 0)
+		blinker.set_surface_override_material(0, red_mat)
+		mi.add_child(blinker)
+
+		var light := OmniLight3D.new()
+		light.light_color = red_col
+		light.light_energy = 3.0
+		light.omni_range = 15.0
+		light.omni_attenuation = 1.2
+		light.shadow_enabled = false
+		light.position = blinker.position
+		mi.add_child(light)
+
+		flickering_lights.append({
+			"node": light,
+			"mesh": blinker,
+			"base_energy": 3.0,
+			"phase": rng.randf() * TAU,
+			"speed": rng.randf_range(1.5, 2.5),
+			"style": "blink",
+		})
+
+func _generate_holographic_signs() -> void:
+	# Floating semi-transparent kanji text above some buildings
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 2000
+
+	if not neon_font:
+		return
+
+	for child in get_children():
+		if not child is MeshInstance3D:
+			continue
+		var mi := child as MeshInstance3D
+		if not mi.mesh is BoxMesh:
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		if bsize.y < 20.0 or rng.randf() > 0.08:  # 8% of tall buildings
+			continue
+
+		var neon_col := neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
+		var holo_text := NEON_TEXTS[rng.randi_range(0, NEON_TEXTS.size() - 1)]
+		var roof_y := bsize.y * 0.5
+
+		var label := Label3D.new()
+		label.text = holo_text
+		label.font = neon_font
+		label.font_size = rng.randi_range(120, 200)
+		label.pixel_size = 0.01
+		label.modulate = Color(neon_col.r, neon_col.g, neon_col.b, 0.5)
+		label.outline_modulate = Color(neon_col.r, neon_col.g, neon_col.b, 0.3)
+		label.outline_size = 4
+		label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		label.no_depth_test = true
+		var float_height := rng.randf_range(3.0, 6.0)
+		label.position = Vector3(0, roof_y + float_height, 0)
+		mi.add_child(label)
+
+		holo_signs.append({
+			"node": label,
+			"base_y": label.position.y,
+			"phase": rng.randf() * TAU,
+			"speed": rng.randf_range(0.5, 1.5),
+		})
+
+func _generate_phone_booths() -> void:
+	# Enclosed glass/metal boxes on sidewalks with interior light
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 2100
+	var cell_stride := block_size + street_width
+	var frame_mat := _make_ps1_material(Color(0.15, 0.15, 0.18))
+	var glass_mat := _make_ps1_material(Color(0.2, 0.3, 0.4) * 0.3, true,
+		Color(0.3, 0.4, 0.5), 0.5)
+
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			if rng.randf() > 0.15:  # 15% of blocks
+				continue
+			var cell_x := gx * cell_stride
+			var cell_z := gz * cell_stride
+
+			var side := rng.randi_range(0, 1)
+			var bx: float
+			var bz: float
+			if side == 0:
+				bx = cell_x + block_size * 0.5 + 1.2
+				bz = cell_z + rng.randf_range(-block_size * 0.3, block_size * 0.3)
+			else:
+				bx = cell_x + rng.randf_range(-block_size * 0.3, block_size * 0.3)
+				bz = cell_z + block_size * 0.5 + 1.2
+
+			var booth := Node3D.new()
+			booth.position = Vector3(bx, 0, bz)
+
+			# Frame (vertical pillars at corners)
+			for fx in [-0.4, 0.4]:
+				for fz in [-0.4, 0.4]:
+					var pillar := MeshInstance3D.new()
+					var pillar_mesh := BoxMesh.new()
+					pillar_mesh.size = Vector3(0.06, 2.4, 0.06)
+					pillar.mesh = pillar_mesh
+					pillar.position = Vector3(fx, 1.2, fz)
+					pillar.set_surface_override_material(0, frame_mat)
+					booth.add_child(pillar)
+
+			# Roof
+			var roof := MeshInstance3D.new()
+			var roof_mesh := BoxMesh.new()
+			roof_mesh.size = Vector3(0.9, 0.06, 0.9)
+			roof.mesh = roof_mesh
+			roof.position = Vector3(0, 2.4, 0)
+			roof.set_surface_override_material(0, frame_mat)
+			booth.add_child(roof)
+
+			# Glass panels (3 sides, front open)
+			for panel_face in [0, 1, 2]:
+				var panel := MeshInstance3D.new()
+				var panel_mesh := QuadMesh.new()
+				panel_mesh.size = Vector2(0.8, 2.2)
+				panel.mesh = panel_mesh
+				panel.set_surface_override_material(0, glass_mat)
+				match panel_face:
+					0:  # back
+						panel.position = Vector3(0, 1.2, -0.4)
+						panel.rotation.y = PI
+					1:  # left
+						panel.position = Vector3(-0.4, 1.2, 0)
+						panel.rotation.y = -PI * 0.5
+					2:  # right
+						panel.position = Vector3(0.4, 1.2, 0)
+						panel.rotation.y = PI * 0.5
+				booth.add_child(panel)
+
+			# Screen panel inside (glowing)
+			var screen_col := neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
+			var screen := MeshInstance3D.new()
+			var screen_mesh := QuadMesh.new()
+			screen_mesh.size = Vector2(0.4, 0.3)
+			screen.mesh = screen_mesh
+			screen.position = Vector3(0, 1.5, -0.35)
+			screen.set_surface_override_material(0,
+				_make_ps1_material(screen_col * 0.3, true, screen_col, 2.5))
+			booth.add_child(screen)
+
+			# Interior light
+			var interior := OmniLight3D.new()
+			interior.light_color = Color(0.8, 0.9, 1.0)
+			interior.light_energy = 1.0
+			interior.omni_range = 3.0
+			interior.omni_attenuation = 1.5
+			interior.shadow_enabled = false
+			interior.position = Vector3(0, 2.0, 0)
+			booth.add_child(interior)
+
+			# Collision
+			var sb := StaticBody3D.new()
+			var col := CollisionShape3D.new()
+			var shape := BoxShape3D.new()
+			shape.size = Vector3(0.9, 2.4, 0.9)
+			col.shape = shape
+			col.position = Vector3(0, 1.2, 0)
+			sb.add_child(col)
+			booth.add_child(sb)
+
+			add_child(booth)
+
 func _setup_neon_flicker() -> void:
 	# Register existing neon sign lights for flickering
 	var rng := RandomNumberGenerator.new()
@@ -1877,3 +2132,16 @@ func _process(_delta: float) -> void:
 			red_node.set_surface_override_material(0, tl_data["red_mat_on"])
 			yellow_node.set_surface_override_material(0, tl_data["yellow_mat_off"])
 			green_node.set_surface_override_material(0, tl_data["green_mat_off"])
+
+	# Holographic sign floating animation
+	for holo in holo_signs:
+		var node: Label3D = holo["node"]
+		if not is_instance_valid(node):
+			continue
+		var base_y: float = holo["base_y"]
+		var phase: float = holo["phase"]
+		var speed: float = holo["speed"]
+		node.position.y = base_y + sin(time * speed + phase) * 0.5
+		# Subtle alpha pulse
+		var alpha := 0.35 + 0.15 * sin(time * speed * 0.7 + phase)
+		node.modulate.a = alpha

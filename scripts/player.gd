@@ -22,6 +22,11 @@ var ps1_shader: Shader
 var anim: HumanoidAnimation
 var bob_timer: float = 0.0
 var camera_base_y: float = 0.0
+var step_player: AudioStreamPlayer
+var step_generator: AudioStreamGenerator
+var step_playback: AudioStreamGeneratorPlayback
+var step_rng := RandomNumberGenerator.new()
+var last_step_sign: float = 1.0  # tracks bob_timer sin sign for step triggers
 
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
@@ -30,6 +35,7 @@ func _ready() -> void:
 	camera_base_y = camera.position.y
 	_build_humanoid_model()
 	_setup_crt_overlay()
+	_setup_footstep_audio()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
@@ -89,6 +95,11 @@ func _physics_process(delta: float) -> void:
 		camera.position.y = camera_base_y + bob_offset
 		# Subtle horizontal sway
 		camera.position.x = sin(bob_timer * 0.5) * BOB_AMPLITUDE * 0.5 * bob_mult
+		# Trigger footstep on bob cycle zero-crossing (each half-cycle = one step)
+		var current_sign := signf(sin(bob_timer))
+		if current_sign != last_step_sign and current_sign != 0.0:
+			last_step_sign = current_sign
+			_trigger_footstep(is_sprinting)
 	else:
 		# Smoothly return to center
 		camera.position.y = lerpf(camera.position.y, camera_base_y, 10.0 * delta)
@@ -197,6 +208,39 @@ func _add_body_part(parent: Node3D, part_name: String, mesh: Mesh, pos: Vector3,
 	mi.set_surface_override_material(0, mat)
 
 	parent.add_child(mi)
+
+func _setup_footstep_audio() -> void:
+	step_rng.seed = 7777
+	step_player = AudioStreamPlayer.new()
+	step_generator = AudioStreamGenerator.new()
+	step_generator.mix_rate = 22050.0
+	step_generator.buffer_length = 0.1
+	step_player.stream = step_generator
+	step_player.volume_db = -8.0
+	step_player.bus = "Master"
+	add_child(step_player)
+	step_player.play()
+	step_playback = step_player.get_stream_playback()
+
+func _trigger_footstep(sprinting: bool) -> void:
+	if not step_playback:
+		return
+	# Generate a short percussive noise burst (footstep on wet concrete)
+	var num_samples := 800 if sprinting else 600
+	var pitch := step_rng.randf_range(0.7, 1.0) if sprinting else step_rng.randf_range(0.9, 1.3)
+	var volume := 0.35 if sprinting else 0.2
+	var phase := 0.0
+	for i in range(num_samples):
+		var t := float(i) / float(num_samples)
+		# Envelope: sharp attack, fast decay
+		var env := (1.0 - t) * (1.0 - t)
+		# Noise + low thump
+		var noise := step_rng.randf_range(-1.0, 1.0)
+		phase += pitch * 0.02
+		var thump := sin(phase * 80.0 * TAU) * 0.5
+		var sample := (noise * 0.6 + thump * 0.4) * env * volume
+		if step_playback.can_push_buffer(1):
+			step_playback.push_frame(Vector2(sample, sample))
 
 func _setup_crt_overlay() -> void:
 	var crt_shader_path := "res://shaders/crt.gdshader"
