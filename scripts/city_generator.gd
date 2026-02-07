@@ -44,6 +44,8 @@ func _ready() -> void:
 	_generate_city()
 	_generate_cars()
 	_generate_street_lights()
+	_generate_puddles()
+	_generate_steam_vents()
 	print("CityGenerator: generation complete, total children=", get_child_count())
 
 func _make_ps1_material(color: Color, is_emissive: bool = false,
@@ -122,6 +124,10 @@ func _create_building(pos: Vector3, size: Vector3, rng: RandomNumberGenerator) -
 	for _s in range(num_signs):
 		if rng.randf() < 0.7:
 			_add_neon_sign(mesh_instance, size, rng)
+
+	# Tall buildings (>25) get a large vertical sign (Blade Runner style)
+	if size.y > 25.0 and neon_font and rng.randf() < 0.4:
+		_add_vertical_neon_sign(mesh_instance, size, rng)
 
 func _create_storefront(pos: Vector3, size: Vector3, rng: RandomNumberGenerator) -> void:
 	var building := Node3D.new()
@@ -462,6 +468,62 @@ func _add_neon_sign(building: MeshInstance3D, size: Vector3, rng: RandomNumberGe
 
 		building.add_child(sign_mesh)
 
+func _add_vertical_neon_sign(building: MeshInstance3D, size: Vector3,
+		rng: RandomNumberGenerator) -> void:
+	var neon_col := neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
+
+	# Pick 2-5 kanji characters for vertical text
+	var num_chars := rng.randi_range(2, 5)
+	var text := ""
+	for _c in range(num_chars):
+		# Use single-character entries for vertical stacking
+		var idx := rng.randi_range(0, NEON_TEXTS.size() - 1)
+		var entry: String = NEON_TEXTS[idx]
+		text += entry[0] + "\n"
+
+	# Place on front or side face
+	var face := rng.randi_range(0, 1)
+	var sign_pos := Vector3.ZERO
+	var sign_rot_y := 0.0
+	if face == 0:
+		sign_pos = Vector3(
+			rng.randf_range(-size.x * 0.35, size.x * 0.35),
+			size.y * 0.1,
+			size.z * 0.503
+		)
+	else:
+		sign_pos = Vector3(
+			size.x * 0.503,
+			size.y * 0.1,
+			rng.randf_range(-size.z * 0.35, size.z * 0.35)
+		)
+		sign_rot_y = PI * 0.5
+
+	var label := Label3D.new()
+	label.text = text
+	label.font = neon_font
+	label.font_size = rng.randi_range(72, 128)
+	label.pixel_size = 0.01
+	label.modulate = neon_col
+	label.outline_modulate = neon_col * 0.6
+	label.outline_size = 12
+	label.position = sign_pos
+	label.rotation.y = sign_rot_y
+	label.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	building.add_child(label)
+
+	# Larger light for vertical signs -- visible from far away
+	var light := OmniLight3D.new()
+	light.light_color = neon_col
+	light.light_energy = 4.0
+	light.omni_range = 15.0
+	light.omni_attenuation = 1.5
+	light.shadow_enabled = false
+	light.position = Vector3(0, 0, 1.0)
+	label.add_child(light)
+
 func _generate_cars() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 99  # separate seed so city layout stays stable
@@ -653,3 +715,72 @@ func _create_street_light(pos: Vector3, pole_mat: ShaderMaterial,
 	lamp.add_child(light)
 
 	add_child(lamp)
+
+func _generate_puddles() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 234
+	var cell_stride := block_size + street_width
+
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			var cell_x := gx * cell_stride
+			var cell_z := gz * cell_stride
+
+			# 2-4 puddles per block intersection
+			var num_puddles := rng.randi_range(2, 4)
+			for _p in range(num_puddles):
+				var puddle_col := neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
+				var px := cell_x + rng.randf_range(-street_width, block_size * 0.5 + street_width)
+				var pz := cell_z + rng.randf_range(-street_width, block_size * 0.5 + street_width)
+				var puddle_w := rng.randf_range(1.5, 4.0)
+				var puddle_d := rng.randf_range(1.0, 3.0)
+
+				var puddle := MeshInstance3D.new()
+				var quad := QuadMesh.new()
+				quad.size = Vector2(puddle_w, puddle_d)
+				puddle.mesh = quad
+				puddle.position = Vector3(px, 0.02, pz)
+				puddle.rotation.x = -PI * 0.5  # lay flat on ground
+				puddle.set_surface_override_material(0,
+					_make_ps1_material(puddle_col * 0.08, true, puddle_col, rng.randf_range(0.8, 1.5)))
+				add_child(puddle)
+
+func _generate_steam_vents() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 345
+	var cell_stride := block_size + street_width
+
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			if rng.randf() > 0.3:  # 30% of blocks get a steam vent
+				continue
+			var cell_x := gx * cell_stride
+			var cell_z := gz * cell_stride
+			var vx := cell_x + rng.randf_range(block_size * 0.3, block_size * 0.5 + street_width * 0.5)
+			var vz := cell_z + rng.randf_range(block_size * 0.3, block_size * 0.5 + street_width * 0.5)
+
+			# Steam particle system
+			var steam := GPUParticles3D.new()
+			steam.position = Vector3(vx, 0.1, vz)
+			steam.amount = 20
+			steam.lifetime = 2.5
+			steam.visibility_aabb = AABB(Vector3(-3, -1, -3), Vector3(6, 8, 6))
+
+			var mat := ParticleProcessMaterial.new()
+			mat.direction = Vector3(0, 1, 0)
+			mat.spread = 15.0
+			mat.initial_velocity_min = 1.0
+			mat.initial_velocity_max = 2.5
+			mat.gravity = Vector3(0, 0.2, 0)
+			mat.damping_min = 2.0
+			mat.damping_max = 4.0
+			mat.scale_min = 0.3
+			mat.scale_max = 0.8
+			mat.color = Color(0.6, 0.6, 0.7, 0.15)
+			steam.process_material = mat
+
+			var mesh := BoxMesh.new()
+			mesh.size = Vector3(0.3, 0.3, 0.3)
+			steam.draw_pass_1 = mesh
+
+			add_child(steam)
