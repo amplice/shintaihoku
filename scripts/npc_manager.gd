@@ -612,6 +612,12 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		_add_body_part(model, "Hood", BoxMesh.new(), Vector3(0, 1.6, -0.12),
 			jacket_color * 1.1, Vector3(0.4, 0.25, 0.22))
 
+	# Face mask (10% of NPCs - covers lower face)
+	if rng.randf() < 0.10:
+		var mask_col := Color(0.85, 0.85, 0.85) if rng.randf() < 0.6 else Color(0.1, 0.1, 0.1)
+		_add_body_part(model, "Mask", BoxMesh.new(), Vector3(0, 1.48, 0.12),
+			mask_col, Vector3(0.28, 0.1, 0.08))
+
 	# Earbuds (5% of NPCs - tiny white dots on ears)
 	if rng.randf() < 0.05:
 		var bud_col := Color(0.9, 0.9, 0.95)

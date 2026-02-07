@@ -379,6 +379,29 @@ func _build_humanoid_model() -> void:
 	coat_tail.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	model.add_child(coat_tail)
 
+	# Breath vapor (cold air puffs from face)
+	var breath := GPUParticles3D.new()
+	breath.amount = 2
+	breath.lifetime = 0.8
+	breath.visibility_aabb = AABB(Vector3(-1, -1, -1), Vector3(2, 2, 2))
+	var br_mat := ParticleProcessMaterial.new()
+	br_mat.direction = Vector3(0, 0.3, 1)
+	br_mat.spread = 12.0
+	br_mat.initial_velocity_min = 0.3
+	br_mat.initial_velocity_max = 0.6
+	br_mat.gravity = Vector3(0, 0.2, 0)
+	br_mat.damping_min = 0.5
+	br_mat.damping_max = 1.0
+	br_mat.scale_min = 0.02
+	br_mat.scale_max = 0.06
+	br_mat.color = Color(0.7, 0.7, 0.8, 0.06)
+	breath.process_material = br_mat
+	var br_mesh := BoxMesh.new()
+	br_mesh.size = Vector3(0.04, 0.04, 0.04)
+	breath.draw_pass_1 = br_mesh
+	breath.position = Vector3(0, 1.6, 0.15)
+	model.add_child(breath)
+
 	# Setup animation controller
 	anim = HumanoidAnimation.new()
 	anim.setup(model)

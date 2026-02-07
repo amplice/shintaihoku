@@ -148,6 +148,14 @@ var bell_active: bool = false
 var bell_count: int = 0
 var bell_max: int = 0
 var bell_gap_timer: float = 0.0
+var moto_timer: float = 0.0
+var moto_phase: float = 0.0
+var moto_active: bool = false
+var moto_duration: float = 2.0
+var crossing_timer: float = 0.0
+var crossing_phase: float = 0.0
+var crossing_active: bool = false
+var crossing_duration: float = 4.0
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -646,6 +654,32 @@ func _process(delta: float) -> void:
 	if bell_active:
 		bell_phase += delta
 
+	# Distant motorcycle rev
+	moto_timer -= delta
+	if moto_timer <= 0.0 and not moto_active:
+		moto_timer = rng.randf_range(40.0, 80.0)
+		moto_active = true
+		moto_phase = 0.0
+		moto_duration = rng.randf_range(1.0, 3.0)
+
+	if moto_active:
+		moto_phase += delta
+		if moto_phase > moto_duration:
+			moto_active = false
+
+	# Distant train crossing bell
+	crossing_timer -= delta
+	if crossing_timer <= 0.0 and not crossing_active:
+		crossing_timer = rng.randf_range(90.0, 180.0)
+		crossing_active = true
+		crossing_phase = 0.0
+		crossing_duration = rng.randf_range(3.0, 5.0)
+
+	if crossing_active:
+		crossing_phase += delta
+		if crossing_phase > crossing_duration:
+			crossing_active = false
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -1027,6 +1061,38 @@ func _fill_hum_buffer() -> void:
 			bell += sin(t * cm_freq * 2.76 * TAU) * 0.1  # inharmonic partial
 			bell += sin(t * cm_freq * 5.4 * TAU) * 0.04  # high shimmer
 			sample += bell * cm_env * 0.015
+		# Distant motorcycle rev (low growl with pitch bend)
+		if moto_active:
+			var mt_env := 1.0
+			if moto_phase < 0.15:
+				mt_env = moto_phase / 0.15
+			elif moto_phase > moto_duration - 0.3:
+				mt_env = maxf(0.0, (moto_duration - moto_phase) / 0.3)
+			# Rev-up pitch bend: 120Hz -> 200Hz
+			var rev_progress := clampf(moto_phase / moto_duration, 0.0, 1.0)
+			var moto_freq := 120.0 + rev_progress * 80.0
+			var moto_tone := sin(t * moto_freq * TAU) * 0.25
+			moto_tone += sin(t * moto_freq * 2.0 * TAU) * 0.12  # harmonic
+			moto_tone += sin(t * moto_freq * 3.0 * TAU) * 0.05  # grit
+			# Engine noise texture
+			var moto_noise := rng.randf_range(-1.0, 1.0) * 0.15
+			sample += (moto_tone + moto_noise) * mt_env * 0.02
+		# Distant train crossing bell (rhythmic metallic dinging)
+		if crossing_active:
+			var cr_env := 1.0
+			if crossing_phase < 0.2:
+				cr_env = crossing_phase / 0.2
+			elif crossing_phase > crossing_duration - 0.5:
+				cr_env = maxf(0.0, (crossing_duration - crossing_phase) / 0.5)
+			# Ding at ~3Hz rhythm
+			var ding_period := 1.0 / 3.0
+			var ding_pos := fmod(crossing_phase, ding_period)
+			if ding_pos < 0.06:
+				var ding_env := (1.0 - ding_pos / 0.06)
+				ding_env = ding_env * ding_env
+				var ding := sin(t * 1800.0 * TAU) * 0.25
+				ding += sin(t * 1800.0 * 2.76 * TAU) * 0.08
+				sample += ding * ding_env * cr_env * 0.018
 		# Distant gunshot (sharp crack + reverb tail)
 		if gunshot_active and gunshot_phase < 0.5:
 			if gunshot_phase < 0.02:

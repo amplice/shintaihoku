@@ -189,6 +189,7 @@ func _ready() -> void:
 	_setup_color_shift_signs()
 	_generate_chimney_smoke()
 	_generate_fluorescent_tubes()
+	_generate_fire_barrels()
 	print("CityGenerator: generation complete, total children=", get_child_count())
 
 func _make_ps1_material(color: Color, is_emissive: bool = false,
@@ -6755,3 +6756,62 @@ func _generate_fluorescent_tubes() -> void:
 					"mesh": tube,
 				})
 			tube_count += 1
+
+func _generate_fire_barrels() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 9500
+	var stride := block_size + street_width
+	for _i in range(4):
+		var gx := rng.randi_range(-grid_size + 1, grid_size - 1)
+		var gz := rng.randi_range(-grid_size + 1, grid_size - 1)
+		var bx := gx * stride + rng.randf_range(1.0, 3.0)  # near building edge
+		var bz := gz * stride + rng.randf_range(1.0, 3.0)
+		# Barrel (cylinder mesh)
+		var barrel := MeshInstance3D.new()
+		var cyl := CylinderMesh.new()
+		cyl.top_radius = 0.35
+		cyl.bottom_radius = 0.3
+		cyl.height = 0.9
+		barrel.mesh = cyl
+		barrel.position = Vector3(bx, 0.45, bz)
+		barrel.material_override = _make_ps1_material(Color(0.15, 0.1, 0.08))
+		add_child(barrel)
+		# Fire light (warm orange glow)
+		var fire_light := OmniLight3D.new()
+		fire_light.position = Vector3(bx, 1.2, bz)
+		fire_light.light_color = Color(1.0, 0.6, 0.2)
+		fire_light.light_energy = 2.0
+		fire_light.omni_range = 5.0
+		fire_light.shadow_enabled = false
+		add_child(fire_light)
+		# Flicker the fire light
+		flickering_lights.append({
+			"node": fire_light,
+			"base_energy": 2.0,
+			"phase": rng.randf() * TAU,
+			"speed": rng.randf_range(5.0, 10.0),
+			"style": "default",
+			"mesh": null,
+		})
+		# Flame particles
+		var flames := GPUParticles3D.new()
+		flames.position = Vector3(bx, 0.9, bz)
+		flames.amount = 8
+		flames.lifetime = 0.8
+		flames.visibility_aabb = AABB(Vector3(-1, -1, -1), Vector3(2, 3, 2))
+		var fl_mat := ParticleProcessMaterial.new()
+		fl_mat.direction = Vector3(0, 1, 0)
+		fl_mat.spread = 15.0
+		fl_mat.initial_velocity_min = 0.5
+		fl_mat.initial_velocity_max = 1.2
+		fl_mat.gravity = Vector3(0, 0.5, 0)
+		fl_mat.damping_min = 0.3
+		fl_mat.damping_max = 0.8
+		fl_mat.scale_min = 0.04
+		fl_mat.scale_max = 0.12
+		fl_mat.color = Color(1.0, 0.5, 0.15, 0.3)
+		flames.process_material = fl_mat
+		var fl_mesh := BoxMesh.new()
+		fl_mesh.size = Vector3(0.06, 0.1, 0.06)
+		flames.draw_pass_1 = fl_mesh
+		add_child(flames)
