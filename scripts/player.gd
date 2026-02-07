@@ -68,6 +68,7 @@ var footprint_pool_idx: int = 0
 const FOOTPRINT_POOL_SIZE: int = 8
 const FOOTPRINT_LIFETIME: float = 4.0
 var limp_timer: float = 0.0  # recovery limp after hard landing
+var land_fov_dip: float = 0.0  # landing FOV snap effect
 var catch_breath_timer: float = 0.0  # heavier breathing after sustained sprint
 var rain_drip_timer: float = 0.0  # rain droplet on camera lens
 var rain_drip_flash: float = 0.0  # current drip noise intensity
@@ -128,6 +129,8 @@ func _physics_process(delta: float) -> void:
 		_play_landing_thud(fall_speed)
 		if fall_speed > 6.0:
 			limp_timer = 3.0  # recovery limp for 3 seconds
+		if fall_speed > 5.0:
+			land_fov_dip = 5.0  # FOV narrows briefly on impact
 		if fall_speed > 4.0 and land_dust:
 			land_dust.restart()
 			land_dust.emitting = true
@@ -149,7 +152,6 @@ func _physics_process(delta: float) -> void:
 	if model_node:
 		model_node.scale.y = crouch_lerp
 	camera_pivot.position.y = lerpf(1.6, 1.0, 1.0 - crouch_lerp)
-
 	# Jump (can't jump while crouching)
 	if is_on_floor() and Input.is_action_just_pressed("jump") and not is_crouching:
 		velocity.y = JUMP_VELOCITY
@@ -206,6 +208,10 @@ func _physics_process(delta: float) -> void:
 			target_fov += 3.0  # ascent: slight widen
 		elif velocity.y < -1.0:
 			target_fov -= 2.0  # descent: slight narrow
+	# Landing FOV dip (brief narrowing on hard impact)
+	if land_fov_dip > 0.0:
+		land_fov_dip = maxf(0.0, land_fov_dip - delta * 20.0)
+		target_fov -= land_fov_dip
 	camera.fov = lerpf(camera.fov, target_fov, FOV_LERP_SPEED * delta)
 
 	# Sprint strafe camera roll + forward lean
@@ -215,7 +221,8 @@ func _physics_process(delta: float) -> void:
 		camera.rotation.x = lerpf(camera.rotation.x, 0.03, 4.0 * delta)  # lean forward
 	elif not (shake_timer > 0.0):
 		camera.rotation.z = lerpf(camera.rotation.z, 0.0, 8.0 * delta)
-		camera.rotation.x = lerpf(camera.rotation.x, 0.0, 6.0 * delta)
+		var crouch_tilt := -0.05 if is_crouching else 0.0
+		camera.rotation.x = lerpf(camera.rotation.x, crouch_tilt, 6.0 * delta)
 
 	# Track sprint duration for breathing
 	if is_sprinting:

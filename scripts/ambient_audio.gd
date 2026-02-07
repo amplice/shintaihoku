@@ -257,6 +257,11 @@ var club_timer: float = 0.0
 var club_phase: float = 0.0
 var club_active: bool = false
 var club_duration: float = 10.0
+var steam_timer: float = 0.0
+var steam_phase: float = 0.0
+var steam_active: bool = false
+var steam_duration: float = 2.0
+var steam_filter: float = 0.0
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -1129,6 +1134,19 @@ func _process(delta: float) -> void:
 		if club_phase > club_duration:
 			club_active = false
 
+	# Steam vent hiss (high-frequency noise burst)
+	steam_timer -= delta
+	if steam_timer <= 0.0 and not steam_active:
+		steam_timer = rng.randf_range(40.0, 100.0)
+		steam_active = true
+		steam_phase = 0.0
+		steam_duration = rng.randf_range(1.0, 3.0)
+
+	if steam_active:
+		steam_phase += delta
+		if steam_phase > steam_duration:
+			steam_active = false
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -1947,6 +1965,22 @@ func _fill_hum_buffer() -> void:
 			var kick := sin(t * 60.0 * TAU) * kick_env * 0.7
 			kick += sin(t * 30.0 * TAU) * kick_env * 0.3  # sub bass
 			sample += kick * cl_env * 0.004
+
+		# Steam vent hiss (high-pass filtered noise with metallic resonance)
+		if steam_active:
+			var st_env := 0.0
+			if steam_phase < 0.1:
+				st_env = steam_phase / 0.1  # sharp attack
+			elif steam_phase < steam_duration - 0.5:
+				st_env = 1.0
+			else:
+				st_env = (steam_duration - steam_phase) / 0.5
+			st_env = maxf(0.0, st_env)
+			var st_noise := rng.randf_range(-1.0, 1.0)
+			steam_filter = steam_filter * 0.4 + st_noise * 0.6  # high-pass
+			var hiss := steam_filter * 0.5
+			hiss += sin(t * 4000.0 * TAU) * steam_filter * 0.25  # resonance
+			sample += hiss * st_env * 0.008
 
 		# Distant crowd murmur (band-limited noise, 200-800Hz band)
 		var murmur_noise := rng.randf_range(-1.0, 1.0)

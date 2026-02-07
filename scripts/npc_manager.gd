@@ -577,6 +577,56 @@ func _process(delta: float) -> void:
 						turn = 0.8 * ((1.5 - glance_cycle) / 0.5)  # return
 					head_node.rotation.y = lerpf(head_node.rotation.y, turn, 6.0 * delta)
 
+		# Window shopping (15% of walking NPCs, head turns to side looking at storefronts)
+		if npc_data.get("does_window_shop", false) and not is_stopped:
+			npc_data["shop_clock"] = npc_data.get("shop_clock", 0.0) + delta
+			var shop_cycle := fmod(npc_data["shop_clock"], 12.0)
+			if shop_cycle < 2.0:
+				if head_node and is_instance_valid(head_node) and head_node.is_inside_tree():
+					var look_side := 0.0
+					if shop_cycle < 0.5:
+						look_side = (shop_cycle / 0.5) * -0.6  # turn head left toward buildings
+					elif shop_cycle < 1.5:
+						look_side = -0.6  # hold gaze
+					else:
+						look_side = -0.6 * ((2.0 - shop_cycle) / 0.5)  # return
+					head_node.rotation.y = lerpf(head_node.rotation.y, look_side, 5.0 * delta)
+
+		# NPC-to-NPC greeting nod (when two NPCs pass within 2m, opposite directions)
+		npc_data["nod_cooldown"] = maxf(0.0, npc_data.get("nod_cooldown", 0.0) - delta)
+		if not is_stopped and npc_data["nod_cooldown"] <= 0.0 and dist < 60.0:
+			for other_data in npcs:
+				if other_data == npc_data:
+					continue
+				var other_node: Node3D = other_data["node"]
+				if not is_instance_valid(other_node):
+					continue
+				var other_stopped: bool = other_data.get("stop_timer", 0.0) > 0.0
+				if other_stopped:
+					continue
+				var sep := node.position.distance_to(other_node.position)
+				if sep < 2.0 and sep > 0.5:
+					# Check opposite directions
+					var my_dir: float = npc_data["direction"]
+					var their_dir: float = other_data["direction"]
+					if npc_data["axis"] == other_data["axis"] and my_dir != their_dir:
+						npc_data["nod_cooldown"] = 8.0
+						npc_data["nod_t"] = 0.0
+						break
+		# Play nod animation
+		if npc_data.get("nod_t", -1.0) >= 0.0:
+			npc_data["nod_t"] = npc_data["nod_t"] + delta
+			var nt: float = npc_data["nod_t"]
+			if head_node and is_instance_valid(head_node) and head_node.is_inside_tree():
+				var nod_angle := 0.0
+				if nt < 0.15:
+					nod_angle = (nt / 0.15) * 0.15
+				elif nt < 0.35:
+					nod_angle = 0.15 * ((0.35 - nt) / 0.2)
+				else:
+					npc_data["nod_t"] = -1.0
+				head_node.rotation.x = lerpf(head_node.rotation.x, nod_angle, 10.0 * delta)
+
 		# Hand rub for warmth (15% of idle NPCs, both arms forward, slight rub oscillation)
 		if npc_data.get("does_hand_rub", false) and is_stopped and not npc_data["smoke"] and not npc_data.get("arms_crossed", false):
 			npc_data["rub_clock"] = npc_data.get("rub_clock", 0.0) + delta
@@ -1467,6 +1517,8 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		"does_ground_scuff": not has_umbrella and rng.randf() < 0.04,
 		"does_chin_rest": not has_phone and not has_newspaper and not has_umbrella and rng.randf() < 0.07,
 		"does_pocket_pat": not has_umbrella and rng.randf() < 0.05,
+		"does_window_shop": rng.randf() < 0.15,
+		"nod_cooldown": 0.0,
 		"last_cell_x": -999,
 		"last_cell_z": -999,
 	})
