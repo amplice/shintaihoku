@@ -29,6 +29,7 @@ func _ready() -> void:
 	camera.fov = BASE_FOV
 	camera_base_y = camera.position.y
 	_build_humanoid_model()
+	_setup_crt_overlay()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
@@ -196,3 +197,20 @@ func _add_body_part(parent: Node3D, part_name: String, mesh: Mesh, pos: Vector3,
 	mi.set_surface_override_material(0, mat)
 
 	parent.add_child(mi)
+
+func _setup_crt_overlay() -> void:
+	var crt_shader_path := "res://shaders/crt.gdshader"
+	if not ResourceLoader.exists(crt_shader_path):
+		return
+	var crt_shader: Shader = load(crt_shader_path)
+	var canvas_layer := CanvasLayer.new()
+	canvas_layer.layer = 10
+	add_child(canvas_layer)
+
+	var rect := ColorRect.new()
+	rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var mat := ShaderMaterial.new()
+	mat.shader = crt_shader
+	rect.material = mat
+	canvas_layer.add_child(rect)

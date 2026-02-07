@@ -60,6 +60,9 @@ func _ready() -> void:
 	_generate_window_ac_units()
 	_generate_telephone_poles()
 	_generate_graffiti()
+	_generate_neon_underglow()
+	_generate_manholes()
+	_generate_litter()
 	_setup_neon_flicker()
 	print("CityGenerator: generation complete, total children=", get_child_count())
 
@@ -654,6 +657,8 @@ func _create_car(pos: Vector3, rot_y: float, colors: Array[Color],
 	add_child(car)
 
 func _generate_street_lights() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 150
 	var light_spacing := 14.0
 	var cell_stride := block_size + street_width
 	var pole_mat := _make_ps1_material(Color(0.2, 0.2, 0.22))
@@ -671,7 +676,7 @@ func _generate_street_lights() -> void:
 			var num_along_z := int(block_size / light_spacing)
 			for i in range(num_along_z):
 				var lz := z_start + (i + 0.5) * light_spacing
-				_create_street_light(Vector3(street_x, 0, lz), pole_mat, lamp_mat, lamp_color)
+				_create_street_light(Vector3(street_x, 0, lz), pole_mat, lamp_mat, lamp_color, rng)
 
 			# Lights along X-streets (south side of block)
 			var street_z := cell_z + block_size * 0.5 + street_width * 0.8
@@ -679,10 +684,10 @@ func _generate_street_lights() -> void:
 			var num_along_x := int(block_size / light_spacing)
 			for i in range(num_along_x):
 				var lx := x_start + (i + 0.5) * light_spacing
-				_create_street_light(Vector3(lx, 0, street_z), pole_mat, lamp_mat, lamp_color)
+				_create_street_light(Vector3(lx, 0, street_z), pole_mat, lamp_mat, lamp_color, rng)
 
 func _create_street_light(pos: Vector3, pole_mat: ShaderMaterial,
-		lamp_mat: ShaderMaterial, lamp_color: Color) -> void:
+		lamp_mat: ShaderMaterial, lamp_color: Color, rng: RandomNumberGenerator = null) -> void:
 	var lamp := Node3D.new()
 	lamp.position = pos
 
@@ -728,6 +733,17 @@ func _create_street_light(pos: Vector3, pole_mat: ShaderMaterial,
 	light.shadow_enabled = false
 	light.position = Vector3(1.0, 5.5, 0)
 	lamp.add_child(light)
+
+	# 18% of street lights flicker like a faulty sodium lamp
+	if rng and rng.randf() < 0.18:
+		flickering_lights.append({
+			"node": light,
+			"mesh": head,
+			"base_energy": 2.5,
+			"phase": rng.randf() * TAU,
+			"speed": rng.randf_range(8.0, 20.0),
+			"style": "buzz",
+		})
 
 	add_child(lamp)
 
@@ -1621,6 +1637,153 @@ func _generate_graffiti() -> void:
 
 			mi.add_child(tag)
 
+func _generate_neon_underglow() -> void:
+	# Emissive colored strips at building bases casting light onto sidewalks
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 1500
+
+	for child in get_children():
+		if not child is MeshInstance3D:
+			continue
+		var mi := child as MeshInstance3D
+		if not mi.mesh is BoxMesh:
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		if bsize.y < 8.0 or rng.randf() > 0.3:  # 30% of buildings
+			continue
+
+		var gc := neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
+		var strip_y := -bsize.y * 0.5 + 0.1  # just above ground
+		var num_faces := rng.randi_range(1, 2)  # 1-2 faces get underglow
+
+		for _f in range(num_faces):
+			var face := rng.randi_range(0, 3)
+			var strip := MeshInstance3D.new()
+			var strip_mesh := BoxMesh.new()
+
+			match face:
+				0:  # front
+					strip_mesh.size = Vector3(bsize.x * 0.8, 0.08, 0.08)
+					strip.position = Vector3(0, strip_y, bsize.z * 0.5 + 0.05)
+				1:  # back
+					strip_mesh.size = Vector3(bsize.x * 0.8, 0.08, 0.08)
+					strip.position = Vector3(0, strip_y, -bsize.z * 0.5 - 0.05)
+				2:  # right
+					strip_mesh.size = Vector3(0.08, 0.08, bsize.z * 0.8)
+					strip.position = Vector3(bsize.x * 0.5 + 0.05, strip_y, 0)
+				3:  # left
+					strip_mesh.size = Vector3(0.08, 0.08, bsize.z * 0.8)
+					strip.position = Vector3(-bsize.x * 0.5 - 0.05, strip_y, 0)
+
+			strip.mesh = strip_mesh
+			strip.set_surface_override_material(0,
+				_make_ps1_material(gc * 0.3, true, gc, 4.0))
+			mi.add_child(strip)
+
+			# Ground light for underglow effect
+			var glow := OmniLight3D.new()
+			glow.light_color = gc
+			glow.light_energy = 1.5
+			glow.omni_range = 5.0
+			glow.omni_attenuation = 1.8
+			glow.shadow_enabled = false
+			glow.position = strip.position + Vector3(0, -0.2, 0)
+			mi.add_child(glow)
+
+func _generate_manholes() -> void:
+	# Metal disc covers on streets at/near intersections with steam
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 1600
+	var cell_stride := block_size + street_width
+	var manhole_mat := _make_ps1_material(Color(0.18, 0.18, 0.16))
+
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			if rng.randf() > 0.35:  # 35% of intersections
+				continue
+			var ix := gx * cell_stride + block_size * 0.5 + street_width * rng.randf_range(0.2, 0.8)
+			var iz := gz * cell_stride + block_size * 0.5 + street_width * rng.randf_range(0.2, 0.8)
+
+			# Manhole cover (flat cylinder)
+			var cover := MeshInstance3D.new()
+			var cover_mesh := CylinderMesh.new()
+			cover_mesh.top_radius = 0.5
+			cover_mesh.bottom_radius = 0.5
+			cover_mesh.height = 0.03
+			cover.mesh = cover_mesh
+			cover.position = Vector3(ix, 0.02, iz)
+			cover.set_surface_override_material(0, manhole_mat)
+			add_child(cover)
+
+			# 40% of manholes have steam rising
+			if rng.randf() < 0.4:
+				var steam := GPUParticles3D.new()
+				steam.position = Vector3(ix, 0.05, iz)
+				steam.amount = 10
+				steam.lifetime = 2.0
+				steam.visibility_aabb = AABB(Vector3(-2, -1, -2), Vector3(4, 6, 4))
+
+				var mat := ParticleProcessMaterial.new()
+				mat.direction = Vector3(0, 1, 0)
+				mat.spread = 20.0
+				mat.initial_velocity_min = 0.5
+				mat.initial_velocity_max = 1.5
+				mat.gravity = Vector3(0, 0.1, 0)
+				mat.damping_min = 1.0
+				mat.damping_max = 3.0
+				mat.scale_min = 0.2
+				mat.scale_max = 0.5
+				mat.color = Color(0.5, 0.5, 0.6, 0.1)
+				steam.process_material = mat
+
+				var mesh := BoxMesh.new()
+				mesh.size = Vector3(0.2, 0.2, 0.2)
+				steam.draw_pass_1 = mesh
+				add_child(steam)
+
+func _generate_litter() -> void:
+	# Small flat debris on sidewalks and gutters
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 1700
+	var cell_stride := block_size + street_width
+
+	var litter_colors: Array[Color] = [
+		Color(0.35, 0.3, 0.25),   # paper
+		Color(0.25, 0.25, 0.3),   # wrapper
+		Color(0.4, 0.35, 0.2),    # cardboard
+		Color(0.15, 0.15, 0.18),  # dark trash
+		Color(0.3, 0.1, 0.1),     # food wrapper
+	]
+
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			var cell_x := gx * cell_stride
+			var cell_z := gz * cell_stride
+			var num_pieces := rng.randi_range(0, 5)
+
+			for _p in range(num_pieces):
+				var lc := litter_colors[rng.randi_range(0, litter_colors.size() - 1)]
+				# Place on sidewalk areas
+				var side := rng.randi_range(0, 1)
+				var lx: float
+				var lz: float
+				if side == 0:
+					lx = cell_x + block_size * 0.5 + rng.randf_range(0.3, 2.0)
+					lz = cell_z + rng.randf_range(-block_size * 0.4, block_size * 0.4)
+				else:
+					lx = cell_x + rng.randf_range(-block_size * 0.4, block_size * 0.4)
+					lz = cell_z + block_size * 0.5 + rng.randf_range(0.3, 2.0)
+
+				var piece := MeshInstance3D.new()
+				var piece_mesh := QuadMesh.new()
+				piece_mesh.size = Vector2(rng.randf_range(0.1, 0.4), rng.randf_range(0.08, 0.3))
+				piece.mesh = piece_mesh
+				piece.position = Vector3(lx, 0.17, lz)  # on sidewalk level
+				piece.rotation.x = -PI * 0.5
+				piece.rotation.y = rng.randf_range(0, TAU)
+				piece.set_surface_override_material(0, _make_ps1_material(lc))
+				add_child(piece)
+
 func _setup_neon_flicker() -> void:
 	# Register existing neon sign lights for flickering
 	var rng := RandomNumberGenerator.new()
@@ -1670,6 +1833,19 @@ func _process(_delta: float) -> void:
 			var mesh_node = data["mesh"]
 			if mesh_node and is_instance_valid(mesh_node):
 				(mesh_node as MeshInstance3D).visible = val > 0.0
+		elif style == "buzz":
+			# Faulty sodium lamp: mostly on, occasional rapid flicker/dropout
+			var buzz := sin(time * speed + phase) * sin(time * speed * 2.3 + phase * 0.7)
+			var dropout := 1.0
+			# Random-feeling dropouts (rapid off-on)
+			if sin(time * speed * 5.0 + phase * 3.0) > 0.85:
+				dropout = 0.05
+			elif sin(time * speed * 7.0 + phase * 1.5) > 0.93:
+				dropout = 0.3
+			light.light_energy = base * (0.7 + 0.3 * buzz) * dropout
+			var mesh_node = data["mesh"]
+			if mesh_node and is_instance_valid(mesh_node):
+				(mesh_node as MeshInstance3D).visible = dropout > 0.1
 		else:
 			var flick := sin(time * speed + phase) * sin(time * speed * 1.7 + phase * 0.5)
 			var sputter := 1.0
