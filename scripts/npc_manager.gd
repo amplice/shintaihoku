@@ -115,6 +115,7 @@ func _process(delta: float) -> void:
 		var axis: String = npc_data["axis"]
 		var direction: float = npc_data["direction"]
 		var anim: HumanoidAnimation = npc_data["anim"]
+		var head_node := node.get_node_or_null("Model/Head")
 
 		# Stop-and-look behavior
 		var is_stopped: bool = npc_data["is_stopped"]
@@ -495,7 +496,6 @@ func _process(delta: float) -> void:
 
 		# Head tracking: stopped NPCs look at player when nearby
 		# Also react to sprinting player passing by
-		var head_node := node.get_node_or_null("Model/Head")
 		var player_node := get_node_or_null("../Player")
 		var player_sprinting := false
 		if player_node and player_node is CharacterBody3D:

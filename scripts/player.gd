@@ -242,8 +242,8 @@ func _physics_process(delta: float) -> void:
 		var stride: float = cg.block_size + cg.street_width
 		var px := fmod(absf(global_position.x), stride)
 		var pz := fmod(absf(global_position.z), stride)
-		var in_street_x := px > cg.block_size or px < cg.street_width * 0.5
-		var in_street_z := pz > cg.block_size or pz < cg.street_width * 0.5
+		var in_street_x: bool = px > cg.block_size or px < cg.street_width * 0.5
+		var in_street_z: bool = pz > cg.block_size or pz < cg.street_width * 0.5
 		if in_street_x and in_street_z:
 			target_fov -= 2.0  # intersection — tight
 		elif in_street_x or in_street_z:
@@ -513,9 +513,9 @@ func _physics_process(delta: float) -> void:
 
 	# Head bob (smooth amplitude transition, rain-weight boost)
 	var rain_bob_mult := 1.0
-	var rain_node := get_node_or_null("../Rain")
-	if rain_node and "rain_time" in rain_node:
-		var ri: float = 0.5 + 0.5 * sin(rain_node.rain_time * 0.1)
+	var rain_node2 := get_node_or_null("../Rain")
+	if rain_node2 and "rain_time" in rain_node2:
+		var ri: float = 0.5 + 0.5 * sin(rain_node2.rain_time * 0.1)
 		if ri > 0.7:
 			rain_bob_mult = 1.0 + (ri - 0.7) * 0.33  # up to ~10% boost at max
 	var target_bob_amp := 0.0
