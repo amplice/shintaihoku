@@ -5,6 +5,7 @@
 [ext_resource type="Script" uid="uid://b2jb01f0e028f" path="res://scripts/traffic_manager.gd" id="4_jyhfs"]
 [ext_resource type="Script" uid="uid://di30rr43ftdre" path="res://scripts/rain.gd" id="4_rain"]
 [ext_resource type="Script" uid="uid://bvb3k74h4djre" path="res://scripts/day_night_cycle.gd" id="5_tbgi4"]
+[ext_resource type="Script" path="res://scripts/npc_manager.gd" id="6_tefeu"]
 
 [sub_resource type="Environment" id="Environment_1"]
 background_mode = 1
@@ -34,6 +35,11 @@ volumetric_fog_length = 100.0
 [sub_resource type="PlaneMesh" id="PlaneMesh_ground"]
 size = Vector2(500, 500)
 
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_tefeu"]
+albedo_color = Color(0.04, 0.04, 0.06, 1)
+metallic = 0.3
+roughness = 0.15
+
 [sub_resource type="BoxShape3D" id="BoxShape3D_ground"]
 size = Vector3(500, 0.1, 500)
 
@@ -61,6 +67,7 @@ shadow_enabled = true
 
 [node name="Ground" type="MeshInstance3D" parent="." unique_id=1058811934]
 mesh = SubResource("PlaneMesh_ground")
+surface_material_override/0 = SubResource("StandardMaterial3D_tefeu")
 
 [node name="GroundCollision" type="StaticBody3D" parent="." unique_id=902651601]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.05, 0)
@@ -87,3 +94,6 @@ script = ExtResource("4_jyhfs")
 
 [node name="DayNightCycle" type="Node3D" parent="." unique_id=1427776041]
 script = ExtResource("5_tbgi4")
+
+[node name="NPCManager" type="Node3D" parent="." unique_id=1505017519]
+script = ExtResource("6_tefeu")

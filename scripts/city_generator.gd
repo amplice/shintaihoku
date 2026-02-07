@@ -43,6 +43,7 @@ func _ready() -> void:
 	print("CityGenerator: starting generation with grid_size=", grid_size)
 	_generate_city()
 	_generate_cars()
+	_generate_street_lights()
 	print("CityGenerator: generation complete, total children=", get_child_count())
 
 func _make_ps1_material(color: Color, is_emissive: bool = false,
@@ -574,3 +575,81 @@ func _create_car(pos: Vector3, rot_y: float, colors: Array[Color],
 	car.add_child(static_body)
 
 	add_child(car)
+
+func _generate_street_lights() -> void:
+	var light_spacing := 14.0
+	var cell_stride := block_size + street_width
+	var pole_mat := _make_ps1_material(Color(0.2, 0.2, 0.22))
+	var lamp_color := Color(1.0, 0.8, 0.4)
+	var lamp_mat := _make_ps1_material(lamp_color * 0.3, true, lamp_color, 4.0)
+
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			var cell_x := gx * cell_stride
+			var cell_z := gz * cell_stride
+
+			# Lights along Z-streets (east side of block)
+			var street_x := cell_x + block_size * 0.5 + street_width * 0.8
+			var z_start := cell_z - block_size * 0.5
+			var num_along_z := int(block_size / light_spacing)
+			for i in range(num_along_z):
+				var lz := z_start + (i + 0.5) * light_spacing
+				_create_street_light(Vector3(street_x, 0, lz), pole_mat, lamp_mat, lamp_color)
+
+			# Lights along X-streets (south side of block)
+			var street_z := cell_z + block_size * 0.5 + street_width * 0.8
+			var x_start := cell_x - block_size * 0.5
+			var num_along_x := int(block_size / light_spacing)
+			for i in range(num_along_x):
+				var lx := x_start + (i + 0.5) * light_spacing
+				_create_street_light(Vector3(lx, 0, street_z), pole_mat, lamp_mat, lamp_color)
+
+func _create_street_light(pos: Vector3, pole_mat: ShaderMaterial,
+		lamp_mat: ShaderMaterial, lamp_color: Color) -> void:
+	var lamp := Node3D.new()
+	lamp.position = pos
+
+	# Pole (tall thin cylinder)
+	var pole := MeshInstance3D.new()
+	var pole_mesh := CylinderMesh.new()
+	pole_mesh.top_radius = 0.06
+	pole_mesh.bottom_radius = 0.08
+	pole_mesh.height = 6.0
+	pole.mesh = pole_mesh
+	pole.position = Vector3(0, 3.0, 0)
+	pole.set_surface_override_material(0, pole_mat)
+	lamp.add_child(pole)
+
+	# Arm (horizontal extension)
+	var arm := MeshInstance3D.new()
+	var arm_mesh := CylinderMesh.new()
+	arm_mesh.top_radius = 0.04
+	arm_mesh.bottom_radius = 0.04
+	arm_mesh.height = 1.2
+	arm.mesh = arm_mesh
+	arm.position = Vector3(0.5, 5.8, 0)
+	arm.rotation.z = PI * 0.5
+	arm.set_surface_override_material(0, pole_mat)
+	lamp.add_child(arm)
+
+	# Lamp head (emissive sphere)
+	var head := MeshInstance3D.new()
+	var head_mesh := SphereMesh.new()
+	head_mesh.radius = 0.2
+	head_mesh.height = 0.4
+	head.mesh = head_mesh
+	head.position = Vector3(1.0, 5.7, 0)
+	head.set_surface_override_material(0, lamp_mat)
+	lamp.add_child(head)
+
+	# Light source
+	var light := OmniLight3D.new()
+	light.light_color = lamp_color
+	light.light_energy = 2.5
+	light.omni_range = 12.0
+	light.omni_attenuation = 1.5
+	light.shadow_enabled = false
+	light.position = Vector3(1.0, 5.5, 0)
+	lamp.add_child(light)
+
+	add_child(lamp)
