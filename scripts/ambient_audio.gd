@@ -19,6 +19,8 @@ var thunder_timer: float = 0.0
 var thunder_phase: float = 0.0
 var thunder_active: bool = false
 var thunder_filter: float = 0.0
+var lightning_light: DirectionalLight3D = null
+var lightning_flash_timer: float = 0.0
 var bark_timer: float = 0.0
 var bark_phase: float = 0.0
 var bark_active: bool = false
@@ -55,6 +57,14 @@ func _ready() -> void:
 	hum_player.play()
 	hum_playback = hum_player.get_stream_playback()
 
+	# Lightning flash light (normally off)
+	lightning_light = DirectionalLight3D.new()
+	lightning_light.light_color = Color(0.8, 0.85, 1.0)
+	lightning_light.light_energy = 0.0
+	lightning_light.rotation_degrees = Vector3(-45, 30, 0)
+	lightning_light.shadow_enabled = false
+	add_child(lightning_light)
+
 func _process(delta: float) -> void:
 	_fill_rain_buffer()
 	_fill_hum_buffer()
@@ -77,11 +87,31 @@ func _process(delta: float) -> void:
 		thunder_timer = rng.randf_range(45.0, 120.0)
 		thunder_active = true
 		thunder_phase = 0.0
+		# Trigger lightning flash
+		lightning_flash_timer = 0.2
 
 	if thunder_active:
 		thunder_phase += delta
 		if thunder_phase > 3.5:
 			thunder_active = false
+
+	# Lightning flash decay
+	if lightning_light and lightning_flash_timer > 0.0:
+		lightning_flash_timer -= delta
+		# Rapid double-flash pattern
+		var flash_val := 0.0
+		var ft := 0.2 - lightning_flash_timer
+		if ft < 0.04:
+			flash_val = 5.0
+		elif ft < 0.08:
+			flash_val = 0.5
+		elif ft < 0.12:
+			flash_val = 3.0
+		else:
+			flash_val = maxf(0.0, (0.2 - ft) * 10.0)
+		lightning_light.light_energy = flash_val
+	elif lightning_light:
+		lightning_light.light_energy = 0.0
 
 	# Distant dog barking
 	bark_timer -= delta

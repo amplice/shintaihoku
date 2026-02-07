@@ -29,6 +29,12 @@ var hologram_projections: Array[Dictionary] = []  # [{mesh, light, phase, speed}
 var aircraft_node: Node3D = null
 var aircraft_time: float = 0.0
 var aircraft_nav_light: OmniLight3D = null
+# Neon buzz audio pool
+const NEON_BUZZ_POOL_SIZE: int = 2
+const NEON_BUZZ_RANGE: float = 10.0
+var neon_buzz_pool: Array[Dictionary] = []
+var neon_buzz_positions: Array[Vector3] = []
+var buzz_rng := RandomNumberGenerator.new()
 var neon_colors: Array[Color] = [
 	Color(1.0, 0.05, 0.4),   # hot magenta
 	Color(0.0, 0.9, 1.0),    # cyan
@@ -126,6 +132,7 @@ func _ready() -> void:
 	_generate_aircraft_flyover()
 	_generate_neon_light_shafts()
 	_generate_distant_city_glow()
+	_setup_neon_buzz_audio()
 	_setup_neon_flicker()
 	_setup_color_shift_signs()
 	print("CityGenerator: generation complete, total children=", get_child_count())
@@ -4601,6 +4608,45 @@ func _process(_delta: float) -> void:
 			hp_light.light_color = hcol
 			hp_light.light_energy = 2.0 + sin(time * 2.0 + hp_phase) * 0.8
 
+	# Neon buzz audio (proximity-based)
+	if neon_buzz_pool.size() > 0:
+		var cam := get_viewport().get_camera_3d()
+		if cam:
+			var cam_pos := cam.global_position
+			# Find nearest neon sign positions
+			var nearest: Array[Dictionary] = []
+			for pos in neon_buzz_positions:
+				var d := pos.distance_to(cam_pos)
+				if d < NEON_BUZZ_RANGE:
+					nearest.append({"pos": pos, "dist": d})
+			nearest.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["dist"] < b["dist"])
+			for i in range(NEON_BUZZ_POOL_SIZE):
+				var slot: Dictionary = neon_buzz_pool[i]
+				var player: AudioStreamPlayer3D = slot["player"]
+				var playback: AudioStreamGeneratorPlayback = slot["playback"]
+				if i < nearest.size():
+					player.global_position = nearest[i]["pos"]
+					if playback:
+						var frames := playback.get_frames_available()
+						var ph: float = slot["phase"]
+						var mix_rate := 22050.0
+						for _f in range(frames):
+							ph += 1.0 / mix_rate
+							# 120Hz buzz with harmonics + slight warble
+							var buzz := sin(ph * 120.0 * TAU) * 0.4
+							buzz += sin(ph * 240.0 * TAU) * 0.2
+							buzz += sin(ph * 360.0 * TAU) * 0.1
+							# Warble modulation
+							buzz *= 0.8 + 0.2 * sin(ph * 3.0 * TAU)
+							var sample := buzz * 0.15
+							playback.push_frame(Vector2(sample, sample))
+						slot["phase"] = ph
+				else:
+					if playback:
+						var frames := playback.get_frames_available()
+						for _f in range(frames):
+							playback.push_frame(Vector2.ZERO)
+
 func _generate_neon_light_shafts() -> void:
 	# Add translucent light cones below bright neon sign lights (fog shaft effect)
 	var rng := RandomNumberGenerator.new()
@@ -4684,3 +4730,48 @@ func _generate_distant_city_glow() -> void:
 		_make_ps1_material(smog_color, true, warm_glow * 0.3, 0.2))
 	smog.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(smog)
+
+func _setup_neon_buzz_audio() -> void:
+	buzz_rng.seed = 6600
+	# Collect world positions of bright neon sign lights
+	var children_snapshot := get_children()
+	for raw_child in children_snapshot:
+		if not raw_child is Node3D:
+			continue
+		var child := raw_child as Node3D
+		for sub in child.get_children():
+			if sub is OmniLight3D:
+				var light := sub as OmniLight3D
+				if light.light_energy >= 2.0:
+					var world_pos := child.position + light.position
+					if world_pos.y > 2.0 and world_pos.y < 25.0:
+						neon_buzz_positions.append(world_pos)
+			# Check grandchildren (labels with lights)
+			if sub is Node3D:
+				var sub3d := sub as Node3D
+				for subsub in sub3d.get_children():
+					if subsub is OmniLight3D:
+						var light2 := subsub as OmniLight3D
+						if light2.light_energy >= 2.0:
+							var world_pos2 := child.position + sub3d.position + light2.position
+							if world_pos2.y > 2.0 and world_pos2.y < 25.0:
+								neon_buzz_positions.append(world_pos2)
+	# Create audio pool
+	for _i in range(NEON_BUZZ_POOL_SIZE):
+		var player := AudioStreamPlayer3D.new()
+		var gen := AudioStreamGenerator.new()
+		gen.mix_rate = 22050.0
+		gen.buffer_length = 0.1
+		player.stream = gen
+		player.volume_db = -20.0
+		player.max_distance = NEON_BUZZ_RANGE
+		player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+		player.unit_size = 4.0
+		add_child(player)
+		player.play()
+		neon_buzz_pool.append({
+			"player": player,
+			"generator": gen,
+			"playback": player.get_stream_playback(),
+			"phase": 0.0,
+		})

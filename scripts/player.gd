@@ -33,6 +33,9 @@ var sprint_streaks: GPUParticles3D
 var was_on_floor: bool = true
 var shake_intensity: float = 0.0
 var shake_timer: float = 0.0
+var breath_fog: GPUParticles3D
+var breath_timer: float = 0.0
+var compass_label: Label
 
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
@@ -45,6 +48,8 @@ func _ready() -> void:
 	_setup_flashlight()
 	_setup_foot_splash()
 	_setup_sprint_streaks()
+	_setup_breath_fog()
+	_setup_compass_hud()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
@@ -119,6 +124,21 @@ func _physics_process(delta: float) -> void:
 	# Sprint rain streaks
 	if sprint_streaks:
 		sprint_streaks.emitting = is_sprinting
+
+	# Breath fog puffs (every 2.5-3.5 seconds)
+	breath_timer -= delta
+	if breath_timer <= 0.0:
+		breath_timer = 2.5 + fmod(bob_timer * 0.1, 1.0)
+		if breath_fog:
+			breath_fog.restart()
+			breath_fog.emitting = true
+
+	# Update compass
+	if compass_label:
+		var heading := fmod(-rotation.y * 180.0 / PI + 360.0, 360.0)
+		var directions := ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+		var idx := int(roundf(heading / 45.0)) % 8
+		compass_label.text = "[ %s  %d° ]" % [directions[idx], int(heading)]
 
 	# Head bob
 	if is_on_floor() and horiz_speed > 0.5:
@@ -356,6 +376,47 @@ func _setup_sprint_streaks() -> void:
 	sprint_streaks.draw_pass_1 = streak_mesh
 	sprint_streaks.position = Vector3(0, 0, -2.0)
 	camera.add_child(sprint_streaks)
+
+func _setup_compass_hud() -> void:
+	var hud_layer := CanvasLayer.new()
+	hud_layer.layer = 5
+	add_child(hud_layer)
+	compass_label = Label.new()
+	compass_label.text = "[ N  0° ]"
+	compass_label.add_theme_font_size_override("font_size", 14)
+	compass_label.add_theme_color_override("font_color", Color(0.0, 0.9, 1.0, 0.5))
+	compass_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	compass_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	compass_label.position.y = 10
+	hud_layer.add_child(compass_label)
+
+func _setup_breath_fog() -> void:
+	breath_fog = GPUParticles3D.new()
+	breath_fog.amount = 6
+	breath_fog.lifetime = 1.2
+	breath_fog.one_shot = true
+	breath_fog.emitting = false
+	breath_fog.visibility_aabb = AABB(Vector3(-1, -1, -1), Vector3(2, 2, 2))
+	var fog_mat := ParticleProcessMaterial.new()
+	fog_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	fog_mat.emission_sphere_radius = 0.03
+	fog_mat.direction = Vector3(0, 0.3, -1)  # forward and slightly up
+	fog_mat.spread = 20.0
+	fog_mat.initial_velocity_min = 0.3
+	fog_mat.initial_velocity_max = 0.6
+	fog_mat.gravity = Vector3(0, 0.15, 0)
+	fog_mat.damping_min = 1.0
+	fog_mat.damping_max = 2.0
+	fog_mat.scale_min = 0.02
+	fog_mat.scale_max = 0.06
+	fog_mat.color = Color(0.7, 0.7, 0.8, 0.1)
+	breath_fog.process_material = fog_mat
+	var fog_mesh := SphereMesh.new()
+	fog_mesh.radius = 0.03
+	fog_mesh.height = 0.06
+	breath_fog.draw_pass_1 = fog_mesh
+	breath_fog.position = Vector3(0, -0.2, -0.5)
+	camera.add_child(breath_fog)
 
 func _setup_crt_overlay() -> void:
 	var crt_shader_path := "res://shaders/crt.gdshader"
