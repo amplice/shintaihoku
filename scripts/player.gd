@@ -30,6 +30,9 @@ var step_generator: AudioStreamGenerator
 var step_playback: AudioStreamGeneratorPlayback
 var step_rng := RandomNumberGenerator.new()
 var last_step_sign: float = 1.0  # tracks bob_timer sin sign for step triggers
+var echo_delay: float = 0.0  # countdown to play echo footstep
+var echo_pending: bool = false
+var echo_sprinting: bool = false
 var flashlight: SpotLight3D
 var foot_splash: GPUParticles3D
 var sprint_streaks: GPUParticles3D
@@ -352,6 +355,13 @@ func _physics_process(delta: float) -> void:
 		camera.rotation.z = lerpf(camera.rotation.z, drift_z, 3.0 * delta)
 		camera.rotation.x = lerpf(camera.rotation.x, drift_x, 3.0 * delta)
 
+	# Footstep echo delay processing
+	if echo_pending:
+		echo_delay -= delta
+		if echo_delay <= 0.0:
+			echo_pending = false
+			_play_echo_step()
+
 func _build_humanoid_model() -> void:
 	# Remove the old capsule mesh from the scene
 	var old_mesh := get_node_or_null("MeshInstance3D")
@@ -570,6 +580,27 @@ func _trigger_footstep(sprinting: bool) -> void:
 		sprint_breath_toggle = not sprint_breath_toggle
 		if sprint_breath_toggle:
 			_trigger_breath_sound()
+
+	# Queue echo if between buildings (alley/narrow street)
+	if near_storefront and not echo_pending:
+		echo_pending = true
+		echo_delay = 0.12
+		echo_sprinting = sprinting
+
+func _play_echo_step() -> void:
+	if not step_playback:
+		return
+	var num := 400
+	var pitch := step_rng.randf_range(1.1, 1.4)  # higher pitch echo
+	var vol := 0.08  # much quieter
+	for i in range(num):
+		var t := float(i) / float(num)
+		var env := (1.0 - t) * (1.0 - t)
+		var noise := step_rng.randf_range(-1.0, 1.0)
+		var ring := sin(t * pitch * 180.0 * TAU * 0.01) * 0.3
+		var sample := (noise * 0.4 + ring * 0.6) * env * vol
+		if step_playback.can_push_buffer(1):
+			step_playback.push_frame(Vector2(sample, sample))
 
 func _setup_flashlight() -> void:
 	flashlight = SpotLight3D.new()

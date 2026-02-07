@@ -223,6 +223,14 @@ var clang_timer: float = 0.0
 var clang_phase: float = 0.0
 var clang_active: bool = false
 var clang_pitch: float = 1.0
+var hour_chime_phase: float = 0.0
+var hour_chime_active: bool = false
+var hour_chime_note_idx: int = 0
+var last_hour: int = -1
+var neonbuzz_timer: float = 0.0
+var neonbuzz_phase: float = 0.0
+var neonbuzz_active: bool = false
+var neonbuzz_duration: float = 2.0
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -974,6 +982,23 @@ func _process(delta: float) -> void:
 		if tvstatic_phase > tvstatic_duration:
 			tvstatic_active = false
 
+	# Hour chime (Westminster melody on hour change)
+	var dnc := get_node_or_null("../DayNightCycle")
+	if dnc and "time_of_day" in dnc:
+		var current_hour := int(dnc.time_of_day) % 24
+		if last_hour == -1:
+			last_hour = current_hour
+		elif current_hour != last_hour:
+			last_hour = current_hour
+			hour_chime_active = true
+			hour_chime_phase = 0.0
+			hour_chime_note_idx = 0
+
+	if hour_chime_active:
+		hour_chime_phase += delta
+		if hour_chime_phase > 4.0:
+			hour_chime_active = false
+
 	# Distant industrial metal clang
 	clang_timer -= delta
 	if clang_timer <= 0.0 and not clang_active:
@@ -986,6 +1011,19 @@ func _process(delta: float) -> void:
 		clang_phase += delta
 		if clang_phase > 0.3:
 			clang_active = false
+
+	# Neon sign electrical buzz
+	neonbuzz_timer -= delta
+	if neonbuzz_timer <= 0.0 and not neonbuzz_active:
+		neonbuzz_timer = rng.randf_range(40.0, 80.0)
+		neonbuzz_active = true
+		neonbuzz_phase = 0.0
+		neonbuzz_duration = rng.randf_range(1.0, 3.0)
+
+	if neonbuzz_active:
+		neonbuzz_phase += delta
+		if neonbuzz_phase > neonbuzz_duration:
+			neonbuzz_active = false
 
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
@@ -1669,6 +1707,23 @@ func _fill_hum_buffer() -> void:
 			var tv_bp := sin(t * 1200.0 * TAU) * tvstatic_filter * 0.2
 			tv_bp += sin(t * 2400.0 * TAU) * tvstatic_filter * 0.1
 			sample += tv_bp * tv_env * 0.02
+		# Hour chime melody (Westminster: E4, C4, D4, G3)
+		if hour_chime_active:
+			var chime_freqs: Array[float] = [329.6, 261.6, 293.7, 196.0]
+			var note_dur := 1.0
+			var ci := mini(int(hour_chime_phase / note_dur), 3)
+			var note_local := fmod(hour_chime_phase, note_dur)
+			var hc_env := 1.0
+			if note_local < 0.01:
+				hc_env = note_local / 0.01
+			else:
+				hc_env = maxf(0.0, 1.0 - (note_local - 0.01) / 0.9)
+			hc_env = hc_env * hc_env  # bell decay
+			var hc_freq := chime_freqs[ci]
+			var hc_tone := sin(t * hc_freq * TAU) * 0.25
+			hc_tone += sin(t * hc_freq * 2.76 * TAU) * 0.1  # inharmonic
+			hc_tone += sin(t * hc_freq * 0.5 * TAU) * 0.1  # sub-octave
+			sample += hc_tone * hc_env * 0.025
 		# Distant industrial metal clang (resonant low-mid impact)
 		if clang_active and clang_phase < 0.3:
 			var cl_env := (1.0 - clang_phase / 0.3)
@@ -1678,6 +1733,20 @@ func _fill_hum_buffer() -> void:
 			cl_ring += sin(t * 630.0 * clang_pitch * TAU) * 0.08
 			var cl_noise := rng.randf_range(-1.0, 1.0) * 0.2
 			sample += (cl_ring + cl_noise) * cl_env * 0.03
+		# Neon sign electrical buzz (120Hz mains hum + harmonics)
+		if neonbuzz_active:
+			var nb_env := 1.0
+			if neonbuzz_phase < 0.1:
+				nb_env = neonbuzz_phase / 0.1
+			elif neonbuzz_phase > neonbuzz_duration - 0.2:
+				nb_env = maxf(0.0, (neonbuzz_duration - neonbuzz_phase) / 0.2)
+			# Amplitude flicker
+			var flicker := 0.7 + 0.3 * sin(neonbuzz_phase * 7.3)
+			var buzz := sin(t * 120.0 * TAU) * 0.5
+			buzz += sin(t * 240.0 * TAU) * 0.3
+			buzz += sin(t * 360.0 * TAU) * 0.15
+			sample += buzz * nb_env * flicker * 0.012
+
 		# Distant crowd murmur (band-limited noise, 200-800Hz band)
 		var murmur_noise := rng.randf_range(-1.0, 1.0)
 		murmur_filter1 = murmur_filter1 * 0.85 + murmur_noise * 0.15

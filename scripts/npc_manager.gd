@@ -354,6 +354,54 @@ func _process(delta: float) -> void:
 						look_up = 0.4 * ((1.0 - look_progress) / 0.2)
 					head.rotation.x = lerpf(head.rotation.x, look_up, 3.0 * delta)
 
+		# Check watch gesture (NPCs with wristwatch, periodic when stopped)
+		var has_watch := node.get_node_or_null("Model/LeftShoulder/LeftElbow/LeftLowerArm/Watch") != null
+		if has_watch and is_stopped and not npc_data["has_phone"] and not npc_data.get("has_newspaper", false):
+			npc_data["watch_clock"] = npc_data.get("watch_clock", 0.0) + delta
+			var watch_cycle := fmod(npc_data["watch_clock"], 12.0)
+			if watch_cycle < 2.0:
+				var wls := node.get_node_or_null("Model/LeftShoulder")
+				var wle := node.get_node_or_null("Model/LeftShoulder/LeftElbow")
+				if wls and wle:
+					var raise := 0.0
+					var bend := 0.0
+					if watch_cycle < 0.5:
+						raise = (watch_cycle / 0.5) * -0.7
+						bend = (watch_cycle / 0.5) * -1.3
+					elif watch_cycle < 1.5:
+						raise = -0.7
+						bend = -1.3
+					else:
+						raise = -0.7 * ((2.0 - watch_cycle) / 0.5)
+						bend = -1.3 * ((2.0 - watch_cycle) / 0.5)
+					wls.rotation.x = lerpf(wls.rotation.x, raise, 6.0 * delta)
+					wle.rotation.x = lerpf(wle.rotation.x, bend, 6.0 * delta)
+
+		# Yawn gesture (5% of idle NPCs, periodic)
+		if npc_data.get("does_yawn", false) and is_stopped and not npc_data["has_phone"] and not npc_data.get("has_newspaper", false) and not npc_data["smoke"]:
+			npc_data["yawn_clock"] = npc_data.get("yawn_clock", 0.0) + delta
+			var yawn_cycle := fmod(npc_data["yawn_clock"], 15.0)
+			if yawn_cycle < 2.0:
+				var yhead := node.get_node_or_null("Model/Head")
+				if yhead:
+					var yaw_tilt := 0.0
+					var yaw_scale := 1.0
+					if yawn_cycle < 0.4:
+						yaw_tilt = (yawn_cycle / 0.4) * 0.3
+						yaw_scale = 1.0 + (yawn_cycle / 0.4) * 0.1
+					elif yawn_cycle < 1.4:
+						yaw_tilt = 0.3
+						yaw_scale = 1.1
+					elif yawn_cycle < 2.0:
+						yaw_tilt = 0.3 * ((2.0 - yawn_cycle) / 0.6)
+						yaw_scale = 1.1 - 0.1 * ((yawn_cycle - 1.4) / 0.6)
+					yhead.rotation.x = lerpf(yhead.rotation.x, yaw_tilt, 5.0 * delta)
+					yhead.scale.y = lerpf(yhead.scale.y, yaw_scale, 5.0 * delta)
+			else:
+				var yhead := node.get_node_or_null("Model/Head")
+				if yhead and absf(yhead.scale.y - 1.0) > 0.001:
+					yhead.scale.y = lerpf(yhead.scale.y, 1.0, 5.0 * delta)
+
 		# Head tracking: stopped NPCs look at player when nearby
 		# Also react to sprinting player passing by
 		var head_node := node.get_node_or_null("Model/Head")
@@ -400,6 +448,26 @@ func _process(delta: float) -> void:
 				npc_data["coat_wind_t"] = npc_data.get("coat_wind_t", 0.0) + delta
 				target_rot = sin(npc_data["coat_wind_t"] * 1.3) * 0.04
 			coat_tail.rotation.x = lerpf(coat_tail.rotation.x, target_rot, 5.0 * delta)
+
+		# Stumble micro-animation (3% of NPCs, rare while walking)
+		if npc_data.get("can_stumble", false) and not is_stopped:
+			npc_data["stumble_cd"] = npc_data.get("stumble_cd", 0.0) - delta
+			if npc_data["stumble_cd"] <= 0.0:
+				npc_data["stumble_cd"] = stop_rng.randf_range(30.0, 60.0)
+				npc_data["stumble_t"] = 0.0
+			if npc_data.get("stumble_t", -1.0) >= 0.0:
+				npc_data["stumble_t"] = npc_data["stumble_t"] + delta
+				var st: float = npc_data["stumble_t"]
+				var stumble_model := node.get_node_or_null("Model")
+				if stumble_model:
+					var pitch_fwd := 0.0
+					if st < 0.15:
+						pitch_fwd = (st / 0.15) * 0.15  # lean forward
+					elif st < 0.5:
+						pitch_fwd = 0.15 * (1.0 - (st - 0.15) / 0.35)  # recover
+					else:
+						npc_data["stumble_t"] = -1.0  # done
+					stumble_model.rotation.x = lerpf(stumble_model.rotation.x, pitch_fwd, 10.0 * delta)
 
 		# Conversation gestures: active speaker raises arm emphatically
 		if npc_data.get("is_conversation", false):
@@ -997,6 +1065,8 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		"does_scratch": rng.randf() < 0.10,
 		"arms_crossed": rng.randf() < 0.12,
 		"looks_at_rain": rng.randf() < 0.05,
+		"can_stumble": rng.randf() < 0.03,
+		"does_yawn": rng.randf() < 0.05,
 	})
 
 func _add_pivot(parent: Node3D, pivot_name: String, pos: Vector3) -> Node3D:
