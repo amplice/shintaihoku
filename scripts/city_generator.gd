@@ -193,6 +193,7 @@ func _ready() -> void:
 	_generate_fire_barrels()
 	_generate_security_spotlights()
 	_generate_wall_drips()
+	_generate_gutter_overflow()
 	print("CityGenerator: generation complete, total children=", get_child_count())
 
 func _make_ps1_material(color: Color, is_emissive: bool = false,
@@ -6952,3 +6953,40 @@ func _generate_wall_drips() -> void:
 			drip.draw_pass_1 = d_mesh
 			add_child(drip)
 			drip_count += 1
+
+func _generate_gutter_overflow() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 9800
+	var stride := block_size + street_width
+	var overflow_count := 0
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			if overflow_count >= 6:
+				break
+			if rng.randf() > 0.04:
+				continue
+			# Find a building edge position
+			var bx := gx * stride + rng.randf_range(2.0, block_size - 2.0)
+			var bz := gz * stride + rng.randf_range(-0.5, 0.5)
+			var roof_y := rng.randf_range(12.0, 30.0)
+			# Vertical water stream from roof to ground
+			var stream := GPUParticles3D.new()
+			stream.position = Vector3(bx, roof_y, bz)
+			stream.amount = 8
+			stream.lifetime = roof_y / 12.0  # time to fall to ground
+			stream.visibility_aabb = AABB(Vector3(-1, -roof_y, -1), Vector3(2, roof_y + 2, 2))
+			var s_mat := ParticleProcessMaterial.new()
+			s_mat.direction = Vector3(0, -1, 0)
+			s_mat.spread = 3.0
+			s_mat.initial_velocity_min = 1.0
+			s_mat.initial_velocity_max = 2.0
+			s_mat.gravity = Vector3(0, -9.8, 0)
+			s_mat.scale_min = 0.015
+			s_mat.scale_max = 0.03
+			s_mat.color = Color(0.5, 0.55, 0.7, 0.15)
+			stream.process_material = s_mat
+			var s_mesh := BoxMesh.new()
+			s_mesh.size = Vector3(0.03, 0.3, 0.03)
+			stream.draw_pass_1 = s_mesh
+			add_child(stream)
+			overflow_count += 1

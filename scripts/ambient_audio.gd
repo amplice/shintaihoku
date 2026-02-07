@@ -274,7 +274,7 @@ func _process(delta: float) -> void:
 	if siren_timer <= 0.0:
 		siren_timer = rng.randf_range(30.0, 90.0)
 		siren_active = true
-		siren_type = rng.randi_range(0, 1)
+		siren_type = rng.randi_range(0, 2)  # 0=American, 1=European, 2=Ambulance
 
 	if siren_active:
 		siren_phase += delta
@@ -944,11 +944,15 @@ func _fill_hum_buffer() -> void:
 				# American wail: smooth rising/falling
 				var siren_freq := 600.0 + sin(siren_phase * 1.5) * 200.0
 				sample += sin(t * siren_freq * TAU) * siren_env
-			else:
+			elif siren_type == 1:
 				# European two-tone: alternating 600/800Hz
 				var euro_toggle := sin(siren_phase * 1.5 * TAU)
 				var euro_freq := 600.0 if euro_toggle > 0.0 else 800.0
 				sample += sin(t * euro_freq * TAU) * siren_env
+			else:
+				# Ambulance: faster oscillation, higher pitch 800-1200Hz
+				var ambu_freq := 1000.0 + sin(siren_phase * 3.0) * 200.0
+				sample += sin(t * ambu_freq * TAU) * siren_env * 0.9
 		# Add distant dog bark (short noise burst with resonance)
 		if bark_active and bark_phase < 0.12:
 			var bark_env := (1.0 - bark_phase / 0.12) * (1.0 - bark_phase / 0.12)

@@ -55,6 +55,10 @@ var accent_stripe_mat: ShaderMaterial = null  # for glow pulse
 var accent_pulse_time: float = 0.0
 var turn_lean: float = 0.0  # camera lean from turning
 var head_node: Node3D = null  # for head look direction
+var lean_direction: float = 0.0  # -1=left, 0=center, 1=right
+var lean_amount: float = 0.0  # current interpolated lean
+const LEAN_OFFSET: float = 0.5
+const LEAN_TILT: float = 0.08
 var footprints: Array[Dictionary] = []  # [{mesh, timer}]
 var footprint_pool_idx: int = 0
 const FOOTPRINT_POOL_SIZE: int = 8
@@ -227,6 +231,16 @@ func _physics_process(delta: float) -> void:
 	turn_lean = clampf(turn_lean, -0.04, 0.04)
 	turn_lean = lerpf(turn_lean, 0.0, 6.0 * delta)
 	camera_pivot.rotation.z += turn_lean
+
+	# Corner lean/peek (Q/E)
+	lean_direction = 0.0
+	if Input.is_key_pressed(KEY_Q):
+		lean_direction = -1.0
+	elif Input.is_key_pressed(KEY_E):
+		lean_direction = 1.0
+	lean_amount = lerpf(lean_amount, lean_direction, 8.0 * delta)
+	camera_pivot.position.x = lean_amount * LEAN_OFFSET
+	camera_pivot.rotation.z += lean_amount * LEAN_TILT
 
 	# Camera wind sway (subtle drift from rain wind)
 	var rain_node := get_node_or_null("../Rain")

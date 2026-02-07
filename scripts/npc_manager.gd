@@ -225,22 +225,46 @@ func _process(delta: float) -> void:
 					var phone_target := -0.6  # arm raised to face level
 					phone_rs.rotation.x = lerpf(phone_rs.rotation.x, phone_target, 3.0 * delta)
 
+		# Newspaper reading pose (both arms forward, paper visible)
+		if npc_data.get("has_newspaper", false):
+			var paper := node.get_node_or_null("Model/Newspaper")
+			if paper:
+				paper.visible = is_stopped
+			if is_stopped:
+				var nls := node.get_node_or_null("Model/LeftShoulder")
+				var nrs := node.get_node_or_null("Model/RightShoulder")
+				if nls:
+					nls.rotation.x = lerpf(nls.rotation.x, -0.5, 4.0 * delta)
+				if nrs:
+					nrs.rotation.x = lerpf(nrs.rotation.x, -0.5, 4.0 * delta)
+				var nle := node.get_node_or_null("Model/LeftShoulder/LeftElbow")
+				var nre := node.get_node_or_null("Model/RightShoulder/RightElbow")
+				if nle:
+					nle.rotation.x = lerpf(nle.rotation.x, -0.7, 4.0 * delta)
+				if nre:
+					nre.rotation.x = lerpf(nre.rotation.x, -0.7, 4.0 * delta)
+
 		# Head tracking: stopped NPCs look at player when nearby
+		# Also react to sprinting player passing by
 		var head_node := node.get_node_or_null("Model/Head")
+		var player_node := get_node_or_null("../Player")
+		var player_sprinting := false
+		if player_node and player_node is CharacterBody3D:
+			var pvel := (player_node as CharacterBody3D).velocity
+			player_sprinting = Vector2(pvel.x, pvel.z).length() > 6.0
 		if head_node and is_instance_valid(head_node) and head_node.is_inside_tree():
-			if is_stopped and dist < 8.0:
+			var should_look := (is_stopped and dist < 8.0) or (player_sprinting and dist < 4.0)
+			if should_look:
 				var to_player := cam_pos - node.global_position
 				to_player.y = 0.0
 				if to_player.length_squared() > 0.01:
-					# Get angle relative to NPC facing direction
 					var local_dir := node.global_transform.basis.inverse() * to_player.normalized()
 					var target_yaw := atan2(local_dir.x, -local_dir.z)
-					target_yaw = clampf(target_yaw, -1.0, 1.0)  # ~57 degree max
-					head_node.rotation.y = lerpf(head_node.rotation.y, target_yaw, 3.0 * delta)
-					# Slight downward tilt when looking
+					target_yaw = clampf(target_yaw, -1.0, 1.0)
+					var look_speed := 5.0 if player_sprinting else 3.0
+					head_node.rotation.y = lerpf(head_node.rotation.y, target_yaw, look_speed * delta)
 					head_node.rotation.x = lerpf(head_node.rotation.x, -0.15, 3.0 * delta)
 			else:
-				# Return to neutral
 				head_node.rotation.y = lerpf(head_node.rotation.y, 0.0, 2.0 * delta)
 				head_node.rotation.x = lerpf(head_node.rotation.x, 0.0, 2.0 * delta)
 
@@ -574,9 +598,32 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		phone_light.name = "PhoneLight"
 		model.add_child(phone_light)
 
+	# Newspaper (8% of NPCs without phone/umbrella - read when stopped)
+	var has_newspaper := false
+	if not has_umbrella and not has_phone and rng.randf() < 0.08:
+		has_newspaper = true
+		var paper := MeshInstance3D.new()
+		var paper_mesh := QuadMesh.new()
+		paper_mesh.size = Vector2(0.3, 0.4)
+		paper.mesh = paper_mesh
+		paper.name = "Newspaper"
+		paper.position = Vector3(0, 1.2, 0.35)
+		var paper_mat := ShaderMaterial.new()
+		paper_mat.shader = ps1_shader
+		paper_mat.set_shader_parameter("albedo_color", Color(0.85, 0.82, 0.75))
+		paper_mat.set_shader_parameter("vertex_snap_intensity", 4.0)
+		paper_mat.set_shader_parameter("color_depth", 12.0)
+		paper_mat.set_shader_parameter("fog_color", Color(0.05, 0.03, 0.1, 1.0))
+		paper_mat.set_shader_parameter("fog_distance", 100.0)
+		paper_mat.set_shader_parameter("fog_density", 0.3)
+		paper.set_surface_override_material(0, paper_mat)
+		paper.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		paper.visible = false  # only visible when stopped
+		model.add_child(paper)
+
 	# Cigarette smoke (30% of NPCs are smokers, but not umbrella holders or phone users)
 	var smoke_particles: GPUParticles3D = null
-	if not has_umbrella and not has_phone and rng.randf() < 0.30:
+	if not has_umbrella and not has_phone and not has_newspaper and rng.randf() < 0.30:
 		smoke_particles = GPUParticles3D.new()
 		smoke_particles.position = Vector3(0.1, 1.6, 0.15)
 		smoke_particles.amount = 8
@@ -747,6 +794,7 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		"pocket_hand": not has_umbrella and rng.randf() < 0.30,
 		"has_limp": rng.randf() < 0.05,
 		"is_jogger": is_jogger,
+		"has_newspaper": has_newspaper,
 	})
 
 func _add_pivot(parent: Node3D, pivot_name: String, pos: Vector3) -> Node3D:
