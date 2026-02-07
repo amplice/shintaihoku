@@ -292,6 +292,14 @@ var fluor_dropout: float = 0.0
 var gate_timer: float = 0.0
 var gate_phase: float = 0.0
 var gate_active: bool = false
+var engine_timer: float = 0.0
+var engine_phase: float = 0.0
+var engine_active: bool = false
+var engine_duration: float = 5.0
+var engine_rpm: float = 1.0
+var elev_timer: float = 0.0
+var elev_phase: float = 0.0
+var elev_active: bool = false
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -1282,6 +1290,32 @@ func _process(delta: float) -> void:
 		if gate_phase > 0.6:
 			gate_active = false
 
+	# Distant car engine idle (low rumble with irregular RPM wobble)
+	engine_timer -= delta
+	if engine_timer <= 0.0 and not engine_active:
+		engine_timer = rng.randf_range(40.0, 90.0)
+		engine_active = true
+		engine_phase = 0.0
+		engine_duration = rng.randf_range(4.0, 8.0)
+		engine_rpm = rng.randf_range(0.8, 1.2)
+
+	if engine_active:
+		engine_phase += delta
+		if engine_phase > engine_duration:
+			engine_active = false
+
+	# Elevator ding (bright bell tone, brief)
+	elev_timer -= delta
+	if elev_timer <= 0.0 and not elev_active:
+		elev_timer = rng.randf_range(60.0, 150.0)
+		elev_active = true
+		elev_phase = 0.0
+
+	if elev_active:
+		elev_phase += delta
+		if elev_phase > 0.8:
+			elev_active = false
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -2227,6 +2261,30 @@ func _fill_hum_buffer() -> void:
 			gk_tone += sin(t * gk_freq * 2.0 * TAU) * 0.15  # metallic overtone
 			var gk_noise := rng.randf_range(-1.0, 1.0) * 0.2
 			sample += (gk_tone + gk_noise) * gk_env * 0.006
+
+		# Distant car engine idle (low-frequency rumble with RPM wobble)
+		if engine_active:
+			var en_env := 0.0
+			if engine_phase < 0.5:
+				en_env = engine_phase / 0.5
+			elif engine_phase < engine_duration - 1.0:
+				en_env = 1.0
+			else:
+				en_env = maxf(0.0, (engine_duration - engine_phase) / 1.0)
+			var rpm_wobble := 1.0 + sin(engine_phase * 1.7) * 0.05 + sin(engine_phase * 0.6) * 0.08
+			var en_base := sin(t * 35.0 * engine_rpm * rpm_wobble * TAU) * 0.35
+			en_base += sin(t * 70.0 * engine_rpm * rpm_wobble * TAU) * 0.25
+			en_base += sin(t * 105.0 * engine_rpm * rpm_wobble * TAU) * 0.1
+			en_base += rng.randf_range(-1.0, 1.0) * 0.15  # combustion noise
+			sample += en_base * en_env * 0.005
+
+		# Elevator ding (bright bell with decaying harmonics)
+		if elev_active:
+			var el_env := exp(-elev_phase * 5.0)  # fast exponential decay
+			var el_tone := sin(t * 3520.0 * TAU) * 0.5  # A7 ~3520Hz
+			el_tone += sin(t * 5274.0 * TAU) * 0.3  # 5th harmonic-ish
+			el_tone += sin(t * 7040.0 * TAU) * 0.1  # octave above
+			sample += el_tone * el_env * 0.008
 
 		# Distant crowd murmur (band-limited noise, 200-800Hz band)
 		var murmur_noise := rng.randf_range(-1.0, 1.0)

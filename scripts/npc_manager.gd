@@ -327,6 +327,20 @@ func _process(delta: float) -> void:
 					var phone_target := -0.6  # arm raised to face level
 					phone_rs.rotation.x = lerpf(phone_rs.rotation.x, phone_target, 3.0 * delta)
 
+		# Walking phone glance (phone NPCs look down at phone periodically while walking)
+		if npc_data["has_phone"] and not is_stopped:
+			npc_data["phone_glance_t"] = npc_data.get("phone_glance_t", 0.0) + delta
+			var pg_cycle := fmod(npc_data["phone_glance_t"], 15.0)
+			if pg_cycle < 3.0 and head_node and is_instance_valid(head_node) and head_node.is_inside_tree():
+				var look_down := 0.0
+				if pg_cycle < 0.5:
+					look_down = (pg_cycle / 0.5) * -0.3
+				elif pg_cycle < 2.5:
+					look_down = -0.3
+				else:
+					look_down = -0.3 * ((3.0 - pg_cycle) / 0.5)
+				head_node.rotation.x = lerpf(head_node.rotation.x, look_down, 5.0 * delta)
+
 		# Newspaper reading pose (both arms forward, paper visible)
 		if npc_data.get("has_newspaper", false):
 			var paper := node.get_node_or_null("Model/Newspaper")
@@ -551,7 +565,7 @@ func _process(delta: float) -> void:
 				bag_node.rotation.z = lerpf(bag_node.rotation.z, bag_wind * 0.04, 3.0 * delta)
 				bag_node.position.y = lerpf(bag_node.position.y, bag_base_y + sin(anim.walk_cycle) * 0.02, 4.0 * delta)
 
-		# Coat tail flap (sways while walking, gentle idle sway)
+		# Coat tail flap (sways while walking, wind-responsive)
 		var coat_tail := node.get_node_or_null("Model/CoatTail")
 		if coat_tail:
 			var target_rot := 0.0
@@ -560,6 +574,12 @@ func _process(delta: float) -> void:
 			else:
 				npc_data["coat_wind_t"] = npc_data.get("coat_wind_t", 0.0) + delta
 				target_rot = sin(npc_data["coat_wind_t"] * 1.3) * 0.04
+			# Wind pushes coat tail sideways and forward
+			var ct_rain := get_node_or_null("../Rain")
+			if ct_rain and "wind_x" in ct_rain:
+				var ct_wind: float = ct_rain.wind_x
+				target_rot += absf(ct_wind) * 0.06  # wind lifts tail
+				coat_tail.rotation.z = lerpf(coat_tail.rotation.z, ct_wind * 0.05, 3.0 * delta)
 			coat_tail.rotation.x = lerpf(coat_tail.rotation.x, target_rot, 5.0 * delta)
 
 		# Stumble micro-animation (3% of NPCs, rare while walking)
