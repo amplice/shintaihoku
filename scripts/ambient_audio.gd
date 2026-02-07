@@ -175,6 +175,15 @@ var firework_timer: float = 0.0
 var firework_phase: float = 0.0
 var firework_active: bool = false
 var firework_flash_light: OmniLight3D = null
+var foghorn_timer: float = 0.0
+var foghorn_phase: float = 0.0
+var foghorn_active: bool = false
+var foghorn_duration: float = 3.0
+var laughter_timer: float = 0.0
+var laughter_phase: float = 0.0
+var laughter_active: bool = false
+var laughter_duration: float = 1.0
+var laughter_filter: float = 0.0
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -770,6 +779,33 @@ func _process(delta: float) -> void:
 			if firework_flash_light:
 				firework_flash_light.light_energy = 0.0
 
+	# Distant foghorn
+	foghorn_timer -= delta
+	if foghorn_timer <= 0.0 and not foghorn_active:
+		foghorn_timer = rng.randf_range(120.0, 250.0)
+		foghorn_active = true
+		foghorn_phase = 0.0
+		foghorn_duration = rng.randf_range(2.0, 4.0)
+
+	if foghorn_active:
+		foghorn_phase += delta
+		if foghorn_phase > foghorn_duration:
+			foghorn_active = false
+
+	# Distant crowd laughter burst
+	laughter_timer -= delta
+	if laughter_timer <= 0.0 and not laughter_active:
+		laughter_timer = rng.randf_range(80.0, 160.0)
+		laughter_active = true
+		laughter_phase = 0.0
+		laughter_duration = rng.randf_range(0.5, 1.5)
+		laughter_filter = 0.0
+
+	if laughter_active:
+		laughter_phase += delta
+		if laughter_phase > laughter_duration:
+			laughter_active = false
+
 	# Dumpster lid rattle
 	dumpster_timer -= delta
 	if dumpster_timer <= 0.0 and not dumpster_active:
@@ -1172,6 +1208,36 @@ func _fill_hum_buffer() -> void:
 			bell += sin(t * cm_freq * 2.76 * TAU) * 0.1  # inharmonic partial
 			bell += sin(t * cm_freq * 5.4 * TAU) * 0.04  # high shimmer
 			sample += bell * cm_env * 0.015
+		# Distant foghorn (deep mournful blast)
+		if foghorn_active:
+			var fh_env := 1.0
+			if foghorn_phase < 0.5:
+				fh_env = foghorn_phase / 0.5
+			elif foghorn_phase > foghorn_duration - 0.5:
+				fh_env = maxf(0.0, (foghorn_duration - foghorn_phase) / 0.5)
+			fh_env = fh_env * fh_env
+			var fh_tone := sin(t * 85.0 * TAU) * 0.35
+			fh_tone += sin(t * 170.0 * TAU) * 0.15
+			fh_tone += sin(t * 255.0 * TAU) * 0.05
+			sample += fh_tone * fh_env * 0.03
+		# Distant crowd laughter burst (energetic noise burst)
+		if laughter_active:
+			var la_env := 1.0
+			if laughter_phase < 0.1:
+				la_env = laughter_phase / 0.1
+			elif laughter_phase > laughter_duration - 0.2:
+				la_env = maxf(0.0, (laughter_duration - laughter_phase) / 0.2)
+			# Rising then falling energy
+			var la_swell := sin(laughter_phase / laughter_duration * PI)
+			la_env *= la_swell
+			var la_noise := rng.randf_range(-1.0, 1.0)
+			laughter_filter = laughter_filter * 0.5 + la_noise * 0.5
+			# Formant resonances for voice-like quality
+			var la_f1 := sin(t * 700.0 * TAU) * laughter_filter * 0.2
+			var la_f2 := sin(t * 1500.0 * TAU) * laughter_filter * 0.12
+			# "Ha ha" rhythm (~5Hz syllable pattern)
+			var ha_rhythm := maxf(0.0, sin(laughter_phase * 5.0 * TAU))
+			sample += (la_f1 + la_f2) * la_env * ha_rhythm * 0.018
 		# Distant firework (ascending whistle + pop + crackle)
 		if firework_active:
 			if firework_phase < 0.5:

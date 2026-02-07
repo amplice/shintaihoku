@@ -140,6 +140,15 @@ func _process(delta: float) -> void:
 		# Update walk animation (only for visible NPCs)
 		anim.update(delta, current_speed)
 
+		# Hand in pocket override (dampens left arm swing while walking)
+		if npc_data.get("pocket_hand", false) and not is_stopped:
+			var ls := node.get_node_or_null("Model/LeftShoulder")
+			if ls:
+				ls.rotation.x = lerpf(ls.rotation.x, 0.1, 8.0 * delta)
+			var le := node.get_node_or_null("Model/LeftShoulder/LeftElbow")
+			if le:
+				le.rotation.x = lerpf(le.rotation.x, -0.3, 8.0 * delta)
+
 		# Track footstep triggers via walk cycle zero-crossing
 		if current_speed > 0.5:
 			var cur_sign := signf(sin(anim.walk_cycle))
@@ -700,6 +709,7 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		"has_phone": has_phone,
 		"phone_light": phone_light,
 		"splash": npc_splash,
+		"pocket_hand": not has_umbrella and rng.randf() < 0.30,
 	})
 
 func _add_pivot(parent: Node3D, pivot_name: String, pos: Vector3) -> Node3D:
