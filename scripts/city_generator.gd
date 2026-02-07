@@ -22,6 +22,8 @@ var drone_node: Node3D = null
 var drone_time: float = 0.0
 var drone_light: OmniLight3D = null
 var pipe_arcs: Array[Dictionary] = []  # [{light, phase, speed}]
+var police_red_light: OmniLight3D = null
+var police_blue_light: OmniLight3D = null
 var neon_colors: Array[Color] = [
 	Color(1.0, 0.05, 0.4),   # hot magenta
 	Color(0.0, 0.9, 1.0),    # cyan
@@ -106,6 +108,10 @@ func _ready() -> void:
 	_generate_neon_arrows()
 	_generate_surveillance_drone()
 	_generate_pipe_arcs()
+	_generate_open_signs()
+	_generate_police_car()
+	_generate_car_rain_splashes()
+	_generate_haze_layers()
 	_setup_neon_flicker()
 	_setup_color_shift_signs()
 	print("CityGenerator: generation complete, total children=", get_child_count())
@@ -3887,6 +3893,214 @@ func _generate_pipe_arcs() -> void:
 			"speed": rng.randf_range(15.0, 30.0),
 		})
 
+func _generate_open_signs() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5500
+	var font := load("res://fonts/NotoSansJP-Bold.ttf") as Font
+	if not font:
+		return
+	var open_texts := ["OPEN", "営業中", "OPEN", "24H"]
+	for child in get_children():
+		if not child is MeshInstance3D:
+			continue
+		var mi := child as MeshInstance3D
+		if not mi.mesh is BoxMesh:
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		# Target storefront-sized buildings (wide, not too tall)
+		if bsize.y > 8.0 or bsize.x < 4.0 or bsize.y < 3.0:
+			continue
+		if rng.randf() > 0.12:
+			continue
+		var sign_col := Color(0.0, 1.0, 0.3) if rng.randf() < 0.7 else Color(1.0, 0.2, 0.2)
+		var label := Label3D.new()
+		label.text = open_texts[rng.randi_range(0, open_texts.size() - 1)]
+		label.font = font
+		label.font_size = 28
+		label.pixel_size = 0.01
+		label.modulate = sign_col
+		label.outline_modulate = Color(0, 0, 0, 0.5)
+		label.outline_size = 4
+		label.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+		var sx := mi.position.x + rng.randf_range(-bsize.x * 0.2, bsize.x * 0.2)
+		var sy := mi.position.y - bsize.y * 0.5 + 2.2
+		var sz := mi.position.z + bsize.z * 0.5 + 0.08
+		label.position = Vector3(sx, sy, sz)
+		add_child(label)
+		# Glow
+		var glow := OmniLight3D.new()
+		glow.light_color = sign_col
+		glow.light_energy = 1.0
+		glow.omni_range = 3.0
+		glow.shadow_enabled = false
+		glow.position = Vector3(sx, sy, sz + 0.3)
+		add_child(glow)
+		# 40% flicker with buzz style
+		if rng.randf() < 0.40:
+			flickering_lights.append({
+				"node": glow, "mesh": null, "base_energy": 1.0,
+				"phase": rng.randf() * TAU, "speed": rng.randf_range(8.0, 15.0),
+				"style": "buzz",
+			})
+
+func _generate_police_car() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5600
+	var cell_stride_local := block_size + street_width
+	# Pick a random street position
+	var gx := rng.randi_range(-grid_size + 1, grid_size - 2)
+	var gz := rng.randi_range(-grid_size + 1, grid_size - 2)
+	var cell_x := gx * cell_stride_local
+	var cell_z := gz * cell_stride_local
+	var px := cell_x + block_size * 0.5 + street_width * 0.3
+	var pz := cell_z + rng.randf_range(-block_size * 0.3, block_size * 0.3)
+	var police := Node3D.new()
+	police.position = Vector3(px, 0, pz)
+	# Car body (dark with white accents)
+	var body := MeshInstance3D.new()
+	var body_mesh := BoxMesh.new()
+	body_mesh.size = Vector3(3.8, 1.0, 1.8)
+	body.mesh = body_mesh
+	body.position = Vector3(0, 0.5, 0)
+	body.set_surface_override_material(0, _make_ps1_material(Color(0.05, 0.05, 0.08)))
+	police.add_child(body)
+	# Cabin
+	var cabin := MeshInstance3D.new()
+	var cabin_mesh := BoxMesh.new()
+	cabin_mesh.size = Vector3(1.8, 0.7, 1.6)
+	cabin.mesh = cabin_mesh
+	cabin.position = Vector3(-0.2, 1.2, 0)
+	cabin.set_surface_override_material(0, _make_ps1_material(Color(0.03, 0.03, 0.05)))
+	police.add_child(cabin)
+	# Light bar
+	var bar := MeshInstance3D.new()
+	var bar_mesh := BoxMesh.new()
+	bar_mesh.size = Vector3(1.4, 0.15, 0.4)
+	bar.mesh = bar_mesh
+	bar.position = Vector3(-0.2, 1.65, 0)
+	bar.set_surface_override_material(0, _make_ps1_material(Color(0.2, 0.2, 0.25)))
+	police.add_child(bar)
+	# Red light (left)
+	police_red_light = OmniLight3D.new()
+	police_red_light.light_color = Color(1.0, 0.0, 0.0)
+	police_red_light.light_energy = 0.0
+	police_red_light.omni_range = 15.0
+	police_red_light.omni_attenuation = 1.2
+	police_red_light.shadow_enabled = false
+	police_red_light.position = Vector3(-0.5, 1.8, 0)
+	police.add_child(police_red_light)
+	# Blue light (right)
+	police_blue_light = OmniLight3D.new()
+	police_blue_light.light_color = Color(0.0, 0.2, 1.0)
+	police_blue_light.light_energy = 0.0
+	police_blue_light.omni_range = 15.0
+	police_blue_light.omni_attenuation = 1.2
+	police_blue_light.shadow_enabled = false
+	police_blue_light.position = Vector3(0.1, 1.8, 0)
+	police.add_child(police_blue_light)
+	# Wheels
+	var wheel_mat := _make_ps1_material(Color(0.05, 0.05, 0.05))
+	for wp in [Vector3(1.1, 0.3, 0.85), Vector3(1.1, 0.3, -0.85),
+			Vector3(-1.1, 0.3, 0.85), Vector3(-1.1, 0.3, -0.85)]:
+		var wheel := MeshInstance3D.new()
+		var wheel_mesh := CylinderMesh.new()
+		wheel_mesh.top_radius = 0.3
+		wheel_mesh.bottom_radius = 0.3
+		wheel_mesh.height = 0.2
+		wheel.mesh = wheel_mesh
+		wheel.position = wp
+		wheel.rotation.x = PI * 0.5
+		wheel.set_surface_override_material(0, wheel_mat)
+		police.add_child(wheel)
+	add_child(police)
+
+func _generate_car_rain_splashes() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5700
+	# Find parked cars (Node3D with BoxMesh children at y ~0.5)
+	for child in get_children():
+		if not child is Node3D or child is MeshInstance3D:
+			continue
+		# Check if this looks like a car (has children with box meshes at car height)
+		var has_car_body := false
+		for sub in child.get_children():
+			if sub is MeshInstance3D and sub.mesh is BoxMesh:
+				var bs: Vector3 = (sub.mesh as BoxMesh).size
+				if bs.x > 2.5 and bs.x < 5.0 and bs.y > 0.6 and bs.y < 1.5:
+					has_car_body = true
+					break
+		if not has_car_body:
+			continue
+		if child.position.y > 2.0:
+			continue  # skip flying cars
+		if rng.randf() > 0.30:
+			continue
+		var splash := GPUParticles3D.new()
+		splash.position = Vector3(child.position.x, child.position.y + 1.3, child.position.z)
+		splash.amount = 8
+		splash.lifetime = 0.4
+		splash.visibility_aabb = AABB(Vector3(-2, -1, -1), Vector3(4, 2, 2))
+		var splash_mat := ParticleProcessMaterial.new()
+		splash_mat.direction = Vector3(0, 1, 0)
+		splash_mat.spread = 30.0
+		splash_mat.initial_velocity_min = 0.5
+		splash_mat.initial_velocity_max = 1.5
+		splash_mat.gravity = Vector3(0, -5.0, 0)
+		splash_mat.scale_min = 0.01
+		splash_mat.scale_max = 0.03
+		splash_mat.color = Color(0.6, 0.7, 0.9, 0.2)
+		splash_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+		splash_mat.emission_box_extents = Vector3(1.5, 0.02, 0.7)
+		splash.process_material = splash_mat
+		var splash_mesh := SphereMesh.new()
+		splash_mesh.radius = 0.02
+		splash_mesh.height = 0.04
+		splash.draw_pass_1 = splash_mesh
+		add_child(splash)
+
+func _generate_haze_layers() -> void:
+	var cell_stride_local := block_size + street_width
+	var extent := grid_size * cell_stride_local
+	var haze_color := Color(0.08, 0.05, 0.15, 0.12)
+	var haze_mat := ShaderMaterial.new()
+	haze_mat.shader = ps1_shader
+	haze_mat.set_shader_parameter("albedo_color", haze_color)
+	haze_mat.set_shader_parameter("vertex_snap_intensity", 0.0)
+	haze_mat.set_shader_parameter("color_depth", 32.0)
+	haze_mat.set_shader_parameter("fog_distance", 200.0)
+	haze_mat.set_shader_parameter("fog_density", 0.0)
+	# 4 haze walls at grid edges
+	var directions := [
+		{"pos": Vector3(extent + 20, 20, 0), "rot": 0.0, "sx": 1.0, "sz": extent * 2.0},
+		{"pos": Vector3(-extent - 20, 20, 0), "rot": 0.0, "sx": 1.0, "sz": extent * 2.0},
+		{"pos": Vector3(0, 20, extent + 20), "rot": PI * 0.5, "sx": 1.0, "sz": extent * 2.0},
+		{"pos": Vector3(0, 20, -extent - 20), "rot": PI * 0.5, "sx": 1.0, "sz": extent * 2.0},
+	]
+	for dir in directions:
+		var plane := MeshInstance3D.new()
+		var plane_mesh := BoxMesh.new()
+		plane_mesh.size = Vector3(0.1, 50.0, dir["sz"])
+		plane.mesh = plane_mesh
+		plane.position = dir["pos"]
+		plane.rotation.y = dir["rot"]
+		plane.set_surface_override_material(0, haze_mat)
+		add_child(plane)
+	# Horizontal smog layer at mid-height
+	var smog := MeshInstance3D.new()
+	var smog_mesh := BoxMesh.new()
+	smog_mesh.size = Vector3(extent * 3.0, 0.1, extent * 3.0)
+	smog.mesh = smog_mesh
+	smog.position = Vector3(0, 40.0, 0)
+	var smog_mat := ShaderMaterial.new()
+	smog_mat.shader = ps1_shader
+	smog_mat.set_shader_parameter("albedo_color", Color(0.06, 0.04, 0.12, 0.08))
+	smog_mat.set_shader_parameter("vertex_snap_intensity", 0.0)
+	smog_mat.set_shader_parameter("color_depth", 32.0)
+	smog_mat.set_shader_parameter("fog_distance", 200.0)
+	smog_mat.set_shader_parameter("fog_density", 0.0)
+	smog.set_surface_override_material(0, smog_mat)
+	add_child(smog)
+
 func _setup_neon_flicker() -> void:
 	# Register existing neon sign lights for flickering
 	var rng := RandomNumberGenerator.new()
@@ -4071,3 +4285,19 @@ func _process(_delta: float) -> void:
 			arc_light.light_energy = 2.5 + sin(time * 60.0) * 1.5
 		else:
 			arc_light.light_energy = 0.0
+
+	# Police car light bar (alternating red/blue)
+	if police_red_light and is_instance_valid(police_red_light):
+		var siren_cycle := fmod(time * 3.0, 2.0)
+		if siren_cycle < 0.5:
+			police_red_light.light_energy = 6.0
+			police_blue_light.light_energy = 0.0
+		elif siren_cycle < 0.7:
+			police_red_light.light_energy = 0.0
+			police_blue_light.light_energy = 0.0
+		elif siren_cycle < 1.2:
+			police_red_light.light_energy = 0.0
+			police_blue_light.light_energy = 6.0
+		else:
+			police_red_light.light_energy = 0.0
+			police_blue_light.light_energy = 0.0

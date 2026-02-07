@@ -20,6 +20,11 @@ const ENGINE_HUM_RANGE: float = 40.0
 var engine_hum_pool: Array[Dictionary] = []
 var hum_rng := RandomNumberGenerator.new()
 
+const HORN_POOL_SIZE: int = 2
+var horn_pool: Array[Dictionary] = []
+var horn_timer: float = 0.0
+var horn_rng := RandomNumberGenerator.new()
+
 var car_colors: Array[Color] = [
 	Color(0.15, 0.15, 0.18),  # dark gray
 	Color(0.18, 0.1, 0.25),   # dark purple
@@ -66,6 +71,31 @@ func _ready() -> void:
 			"phase": 0.0,
 			"target_car": null,
 			"base_freq": 55.0 + float(i) * 8.0,  # slight freq variation per slot
+		})
+
+	# Setup horn audio pool
+	horn_rng.seed = 6666
+	horn_timer = horn_rng.randf_range(10.0, 30.0)
+	for i in range(HORN_POOL_SIZE):
+		var player := AudioStreamPlayer3D.new()
+		var gen := AudioStreamGenerator.new()
+		gen.mix_rate = 22050.0
+		gen.buffer_length = 0.15
+		player.stream = gen
+		player.volume_db = -6.0
+		player.max_distance = 50.0
+		player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+		player.unit_size = 10.0
+		add_child(player)
+		player.play()
+		var playback: AudioStreamGeneratorPlayback = player.get_stream_playback()
+		horn_pool.append({
+			"player": player,
+			"playback": playback,
+			"phase": 0.0,
+			"active": false,
+			"remaining": 0.0,
+			"freq": 280.0 + float(i) * 40.0,
 		})
 
 func _process(delta: float) -> void:
@@ -178,6 +208,56 @@ func _process(delta: float) -> void:
 					for _f in range(frames):
 						if pb.can_push_buffer(1):
 							pb.push_frame(Vector2.ZERO)
+
+	# Horn honks: occasional honk from a random nearby ground car
+	horn_timer -= delta
+	if horn_timer <= 0.0 and cam:
+		horn_timer = horn_rng.randf_range(15.0, 45.0)
+		# Find a ground car within earshot
+		var best_car: Node3D = null
+		var best_dist := 999.0
+		for gc in ground_cars:
+			var gc_n: Node3D = gc["node"]
+			var d := gc_n.global_position.distance_to(cam.global_position)
+			if d < 50.0 and d < best_dist:
+				best_dist = d
+				best_car = gc_n
+		if best_car:
+			# Find an available horn slot
+			for slot in horn_pool:
+				if not slot["active"]:
+					slot["active"] = true
+					slot["remaining"] = horn_rng.randf_range(0.15, 0.4)
+					slot["phase"] = 0.0
+					slot["freq"] = horn_rng.randf_range(250.0, 400.0)
+					var hp: AudioStreamPlayer3D = slot["player"]
+					hp.global_position = best_car.global_position
+					break
+
+	# Fill horn buffers
+	for slot in horn_pool:
+		var pb: AudioStreamGeneratorPlayback = slot["playback"]
+		if not pb:
+			continue
+		var frames := pb.get_frames_available()
+		if slot["active"]:
+			slot["remaining"] -= delta
+			if slot["remaining"] <= 0.0:
+				slot["active"] = false
+			var freq: float = slot["freq"]
+			var phase: float = slot["phase"]
+			for _f in range(frames):
+				phase += 1.0 / 22050.0
+				var sample := sin(phase * freq * TAU) * 0.3
+				sample += sin(phase * freq * 1.5 * TAU) * 0.15
+				sample += sin(phase * freq * 2.0 * TAU) * 0.08
+				if pb.can_push_buffer(1):
+					pb.push_frame(Vector2(sample, sample))
+			slot["phase"] = phase
+		else:
+			for _f in range(frames):
+				if pb.can_push_buffer(1):
+					pb.push_frame(Vector2.ZERO)
 
 func _spawn_ground_car(rng: RandomNumberGenerator, _index: int) -> void:
 	var car := _build_ground_car_mesh(rng)
