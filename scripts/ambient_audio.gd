@@ -94,6 +94,23 @@ var alarm_timer: float = 0.0
 var alarm_phase: float = 0.0
 var alarm_active: bool = false
 var alarm_duration: float = 4.0
+var whistle_timer: float = 0.0
+var whistle_phase: float = 0.0
+var whistle_active: bool = false
+var whistle_duration: float = 2.0
+var whistle_pitch: float = 1.0
+var subway_timer: float = 0.0
+var subway_phase: float = 0.0
+var subway_active: bool = false
+var subway_duration: float = 6.0
+var subway_filter: float = 0.0
+var pigeon_timer: float = 0.0
+var pigeon_phase: float = 0.0
+var pigeon_active: bool = false
+var pigeon_count: int = 0
+var pigeon_max: int = 0
+var pigeon_gap_timer: float = 0.0
+var pigeon_pitch: float = 1.0
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -428,6 +445,56 @@ func _process(delta: float) -> void:
 		if alarm_phase > alarm_duration:
 			alarm_active = false
 
+	# Wind whistle through buildings
+	whistle_timer -= delta
+	if whistle_timer <= 0.0 and not whistle_active:
+		whistle_timer = rng.randf_range(20.0, 40.0)
+		whistle_active = true
+		whistle_phase = 0.0
+		whistle_duration = rng.randf_range(1.0, 3.0)
+		whistle_pitch = rng.randf_range(0.8, 1.3)
+
+	if whistle_active:
+		whistle_phase += delta
+		if whistle_phase > whistle_duration:
+			whistle_active = false
+
+	# Distant subway rumble
+	subway_timer -= delta
+	if subway_timer <= 0.0 and not subway_active:
+		subway_timer = rng.randf_range(60.0, 120.0)
+		subway_active = true
+		subway_phase = 0.0
+		subway_duration = rng.randf_range(4.0, 8.0)
+		subway_filter = 0.0
+
+	if subway_active:
+		subway_phase += delta
+		if subway_phase > subway_duration:
+			subway_active = false
+
+	# Pigeon cooing
+	pigeon_timer -= delta
+	if pigeon_timer <= 0.0 and not pigeon_active:
+		pigeon_timer = rng.randf_range(30.0, 60.0)
+		pigeon_active = true
+		pigeon_count = 0
+		pigeon_max = rng.randi_range(2, 3)
+		pigeon_gap_timer = 0.0
+		pigeon_pitch = rng.randf_range(0.85, 1.15)
+
+	if pigeon_active:
+		pigeon_gap_timer -= delta
+		if pigeon_gap_timer <= 0.0 and pigeon_count < pigeon_max:
+			pigeon_phase = 0.0
+			pigeon_count += 1
+			pigeon_gap_timer = rng.randf_range(0.3, 0.6)
+		if pigeon_count >= pigeon_max and pigeon_phase > 0.25:
+			pigeon_active = false
+
+	if pigeon_active:
+		pigeon_phase += delta
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -679,6 +746,51 @@ func _fill_hum_buffer() -> void:
 			var alarm_freq := 800.0 if alarm_toggle > 0.0 else 1000.0
 			var alarm_tone := sin(t * alarm_freq * TAU) * 0.3
 			sample += alarm_tone * alarm_env * 0.02
+		# Wind whistle through buildings (high airy tone with wobble)
+		if whistle_active:
+			var ws_env := 1.0
+			if whistle_phase < 0.3:
+				ws_env = whistle_phase / 0.3
+			elif whistle_phase > whistle_duration - 0.5:
+				ws_env = maxf(0.0, (whistle_duration - whistle_phase) / 0.5)
+			ws_env = ws_env * ws_env  # smooth fade
+			var ws_wobble := 1.0 + sin(whistle_phase * 7.0) * 0.05
+			var ws_freq := 900.0 * whistle_pitch * ws_wobble
+			var ws_tone := sin(t * ws_freq * TAU) * 0.2
+			ws_tone += sin(t * ws_freq * 1.5 * TAU) * 0.08  # harmonic
+			# Add breathy noise component
+			var ws_noise := rng.randf_range(-1.0, 1.0) * 0.1
+			sample += (ws_tone + ws_noise) * ws_env * 0.015
+		# Distant subway rumble (sub-bass vibration)
+		if subway_active:
+			var sub_env := 1.0
+			if subway_phase < 0.8:
+				sub_env = subway_phase / 0.8
+			elif subway_phase > subway_duration - 1.5:
+				sub_env = maxf(0.0, (subway_duration - subway_phase) / 1.5)
+			sub_env = sub_env * sub_env
+			# Very low rumble (20-35Hz)
+			var rumble := sin(t * 22.0 * TAU) * 0.4
+			rumble += sin(t * 35.0 * TAU) * 0.2
+			# Add rattling texture
+			var sub_noise := rng.randf_range(-1.0, 1.0)
+			subway_filter = subway_filter * 0.88 + sub_noise * 0.12
+			rumble += subway_filter * 0.15
+			sample += rumble * sub_env * 0.04
+		# Pigeon cooing (gentle wobbling tone)
+		if pigeon_active and pigeon_phase < 0.22:
+			var pg_env := 1.0
+			if pigeon_phase < 0.03:
+				pg_env = pigeon_phase / 0.03
+			elif pigeon_phase > 0.12:
+				pg_env = maxf(0.0, (0.22 - pigeon_phase) / 0.1)
+			pg_env = pg_env * pg_env
+			# Gentle warbling tone (~350Hz with vibrato)
+			var pg_vibrato := 1.0 + sin(pigeon_phase * 30.0) * 0.08
+			var pg_freq := 340.0 * pigeon_pitch * pg_vibrato
+			var pg_tone := sin(t * pg_freq * TAU) * 0.3
+			pg_tone += sin(t * pg_freq * 2.0 * TAU) * 0.1  # octave
+			sample += pg_tone * pg_env * 0.015
 		# Distant crowd murmur (band-limited noise, 200-800Hz band)
 		var murmur_noise := rng.randf_range(-1.0, 1.0)
 		murmur_filter1 = murmur_filter1 * 0.85 + murmur_noise * 0.15

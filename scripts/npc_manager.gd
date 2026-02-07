@@ -559,6 +559,31 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		smoke_particles.draw_pass_1 = smoke_mesh
 		model.add_child(smoke_particles)
 
+	# Hat/beanie (15% of NPCs)
+	if rng.randf() < 0.15:
+		var hat_type := rng.randi_range(0, 1)
+		if hat_type == 0:
+			# Beanie - slightly wider than head, sits on top
+			_add_body_part(model, "Hat", BoxMesh.new(), Vector3(0, 1.72, 0),
+				jacket_color * 1.3, Vector3(0.34, 0.12, 0.34))
+		else:
+			# Flat cap - wider brim, flatter
+			_add_body_part(model, "Hat", BoxMesh.new(), Vector3(0, 1.7, 0.05),
+				jacket_color * 0.8, Vector3(0.38, 0.06, 0.4))
+
+	# Backpack/messenger bag (10% of non-umbrella NPCs)
+	if not has_umbrella and rng.randf() < 0.10:
+		var bag_type := rng.randi_range(0, 1)
+		if bag_type == 0:
+			# Backpack on back
+			_add_body_part(model, "Backpack", BoxMesh.new(), Vector3(0, 1.05, -0.22),
+				Color(jacket_color.r * 0.7, jacket_color.g * 0.7, jacket_color.b * 0.7),
+				Vector3(0.3, 0.35, 0.15))
+		else:
+			# Messenger bag on side
+			_add_body_part(model, "Bag", BoxMesh.new(), Vector3(-0.28, 0.85, 0.05),
+				Color(0.15, 0.12, 0.08), Vector3(0.08, 0.25, 0.2))
+
 	# Foot splash particles (wet ground)
 	var npc_splash := GPUParticles3D.new()
 	npc_splash.amount = 6
