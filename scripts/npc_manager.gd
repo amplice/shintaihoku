@@ -658,6 +658,32 @@ func _process(delta: float) -> void:
 					npc_data["nod_t"] = -1.0
 				head_node.rotation.x = lerpf(head_node.rotation.x, nod_angle, 10.0 * delta)
 
+		# Wall lean (8% of stopped NPCs near building edges lean against wall)
+		if npc_data.get("does_wall_lean", false) and is_stopped:
+			var px := fmod(absf(node.position.x), cell_stride)
+			var pz := fmod(absf(node.position.z), cell_stride)
+			var near_wall := px < 5.0 or px > cell_stride - 5.0 or pz < 5.0 or pz > cell_stride - 5.0
+			if near_wall:
+				var lean_side := 1.0 if fmod(node.position.x + node.position.z, 2.0) > 1.0 else -1.0
+				var wall_model := node.get_node_or_null("Model")
+				if wall_model:
+					wall_model.rotation.z = lerpf(wall_model.rotation.z, 0.1 * lean_side, 3.0 * delta)
+				var lh := node.get_node_or_null("Model/LeftHip")
+				if lh and is_instance_valid(lh):
+					lh.rotation.x = lerpf(lh.rotation.x, -0.05, 3.0 * delta)
+
+		# Shuffle feet (10% of NPCs stopped >3s, impatient weight shift)
+		if npc_data.get("does_shuffle", false) and is_stopped and npc_data.get("stop_duration", 0.0) > 0.0:
+			npc_data["shuffle_clock"] = npc_data.get("shuffle_clock", 0.0) + delta
+			var shuf_cycle := fmod(npc_data["shuffle_clock"], 8.0)
+			if shuf_cycle < 1.5:
+				var lh := node.get_node_or_null("Model/LeftHip")
+				var rh := node.get_node_or_null("Model/RightHip")
+				if lh and rh and is_instance_valid(lh) and is_instance_valid(rh):
+					var shift := sin(shuf_cycle * 4.0) * 0.06
+					lh.rotation.z = lerpf(lh.rotation.z, shift, 5.0 * delta)
+					rh.rotation.z = lerpf(rh.rotation.z, -shift, 5.0 * delta)
+
 		# Umbrella tilt in wind (umbrella-carrying NPCs tilt toward wind direction)
 		if npc_data.get("has_umbrella", false):
 			var umbrella_node := node.get_node_or_null("Model/Umbrella")
@@ -1563,6 +1589,8 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		"does_window_shop": rng.randf() < 0.15,
 		"does_hand_clench": rng.randf() < 0.05,
 		"does_cig_flick": smoke_particles != null and rng.randf() < 0.40,
+		"does_wall_lean": rng.randf() < 0.08,
+		"does_shuffle": rng.randf() < 0.10,
 		"nod_cooldown": 0.0,
 		"last_cell_x": -999,
 		"last_cell_z": -999,

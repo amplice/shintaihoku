@@ -74,6 +74,8 @@ var rain_drip_timer: float = 0.0  # rain droplet on camera lens
 var rain_drip_flash: float = 0.0  # current drip noise intensity
 var shadow_flicker_timer: float = 0.0  # peripheral shadow pulse timer
 var shadow_flicker_amount: float = 0.0  # current flicker vignette boost
+var thunder_flinch: float = 0.0  # involuntary camera dip from thunder
+var thunder_was_active: bool = false  # edge detection for thunder start
 
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
@@ -310,6 +312,17 @@ func _physics_process(delta: float) -> void:
 	if horiz_speed < 0.5 and absf(wind_strength) > 0.3:
 		var buffet := sin(bob_timer * 1.8) * absf(wind_strength) * 0.003
 		camera_pivot.rotation.z += buffet
+
+	# Thunder flinch (involuntary startle from nearby thunder)
+	var audio_node := get_node_or_null("../AmbientAudio")
+	if audio_node and "thunder_active" in audio_node:
+		var thunder_now: bool = audio_node.thunder_active
+		if thunder_now and not thunder_was_active:
+			thunder_flinch = 0.02  # brief downward dip
+		thunder_was_active = thunder_now
+	if thunder_flinch > 0.0:
+		camera.rotation.x -= thunder_flinch
+		thunder_flinch = maxf(0.0, thunder_flinch - delta * 0.1)
 
 	# Breath fog puffs (faster when catching breath after sprint)
 	breath_timer -= delta

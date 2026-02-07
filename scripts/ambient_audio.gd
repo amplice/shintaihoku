@@ -267,6 +267,13 @@ var pipe_phase: float = 0.0
 var pipe_active: bool = false
 var pipe_duration: float = 2.5
 var pipe_pitch: float = 1.0
+var xformer_timer: float = 0.0
+var xformer_phase: float = 0.0
+var xformer_active: bool = false
+var xformer_duration: float = 4.0
+var buzzer_timer: float = 0.0
+var buzzer_phase: float = 0.0
+var buzzer_active: bool = false
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -1166,6 +1173,31 @@ func _process(delta: float) -> void:
 		if pipe_phase > pipe_duration:
 			pipe_active = false
 
+	# Electrical transformer hum (buzzing transformer box)
+	xformer_timer -= delta
+	if xformer_timer <= 0.0 and not xformer_active:
+		xformer_timer = rng.randf_range(50.0, 120.0)
+		xformer_active = true
+		xformer_phase = 0.0
+		xformer_duration = rng.randf_range(3.0, 5.0)
+
+	if xformer_active:
+		xformer_phase += delta
+		if xformer_phase > xformer_duration:
+			xformer_active = false
+
+	# Door buzzer (harsh apartment intercom buzz)
+	buzzer_timer -= delta
+	if buzzer_timer <= 0.0 and not buzzer_active:
+		buzzer_timer = rng.randf_range(80.0, 160.0)
+		buzzer_active = true
+		buzzer_phase = 0.0
+
+	if buzzer_active:
+		buzzer_phase += delta
+		if buzzer_phase > 0.8:
+			buzzer_active = false
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -2017,6 +2049,39 @@ func _fill_hum_buffer() -> void:
 			var pp_bend := sin(pipe_phase * 1.5) * 0.1  # slow pitch wobble
 			pp_base += sin(t * (45.0 + pp_bend * 10.0) * pipe_pitch * TAU) * 0.1
 			sample += pp_base * pp_env * 0.006
+
+		# Electrical transformer hum (120Hz buzz with amplitude modulation)
+		if xformer_active:
+			var xf_env := 0.0
+			if xformer_phase < 0.2:
+				xf_env = xformer_phase / 0.2
+			elif xformer_phase < xformer_duration - 0.5:
+				xf_env = 1.0
+			else:
+				xf_env = (xformer_duration - xformer_phase) / 0.5
+			xf_env = maxf(0.0, xf_env)
+			var am := 0.6 + 0.4 * sin(t * 2.0 * TAU)  # 2Hz amplitude modulation
+			var xf_tone := sin(t * 120.0 * TAU) * 0.5
+			xf_tone += sin(t * 240.0 * TAU) * 0.25  # 2nd harmonic
+			xf_tone += sin(t * 360.0 * TAU) * 0.1  # 3rd harmonic
+			sample += xf_tone * xf_env * am * 0.005
+
+		# Door buzzer (harsh apartment intercom, 0.8s duration)
+		if buzzer_active:
+			var bz_env := 0.0
+			if buzzer_phase < 0.03:
+				bz_env = buzzer_phase / 0.03  # sharp attack
+			elif buzzer_phase < 0.75:
+				bz_env = 1.0
+			else:
+				bz_env = (0.8 - buzzer_phase) / 0.05
+			bz_env = maxf(0.0, bz_env)
+			# Square-ish wave via odd harmonics
+			var bz_tone := sin(t * 400.0 * TAU) * 0.5
+			bz_tone += sin(t * 1200.0 * TAU) * 0.15  # 3rd harmonic
+			bz_tone += sin(t * 200.0 * TAU) * 0.3  # undertone
+			bz_tone = clampf(bz_tone * 1.5, -0.8, 0.8)  # soft clip for distortion
+			sample += bz_tone * bz_env * 0.006
 
 		# Distant crowd murmur (band-limited noise, 200-800Hz band)
 		var murmur_noise := rng.randf_range(-1.0, 1.0)
