@@ -51,6 +51,8 @@ var head_rain_splash: GPUParticles3D = null
 var sprint_breath_toggle: bool = false  # alternates per footstep when sprinting
 var sprint_time: float = 0.0  # how long we've been sprinting
 var impact_aberration: float = 0.0  # chromatic aberration from hard landing
+var accent_stripe_mat: ShaderMaterial = null  # for glow pulse
+var accent_pulse_time: float = 0.0
 
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
@@ -190,6 +192,12 @@ func _physics_process(delta: float) -> void:
 				base_aberration = float(base_aberration_val)
 			crt_material.set_shader_parameter("aberration_amount", base_aberration + impact_aberration * 3.0)
 
+	# Accent stripe glow pulse (slow cyberpunk heartbeat)
+	accent_pulse_time += delta
+	if accent_stripe_mat:
+		var pulse := 2.5 + 1.0 * sin(accent_pulse_time * 1.5)
+		accent_stripe_mat.set_shader_parameter("emission_strength", pulse)
+
 	# Sprint rain streaks + speed blur
 	if sprint_streaks:
 		sprint_streaks.emitting = is_sprinting
@@ -307,6 +315,13 @@ func _build_humanoid_model() -> void:
 	# Accent stripe on chest (thin emissive cyan strip)
 	_add_body_part(model, "AccentStripe", BoxMesh.new(), Vector3(0, 1.05, 0.141), accent_cyan,
 		Vector3(0.3, 0.06, 0.01), true, accent_cyan, 3.0)
+	var stripe_node := model.get_node_or_null("AccentStripe")
+	if stripe_node:
+		accent_stripe_mat = stripe_node.get_surface_override_material(0) as ShaderMaterial
+
+	# Collar (turned-up jacket collar at back of neck)
+	_add_body_part(model, "Collar", BoxMesh.new(), Vector3(0, 1.42, -0.12),
+		jacket_color * 1.1, Vector3(0.35, 0.1, 0.08))
 
 	# Hips
 	_add_body_part(model, "Hips", BoxMesh.new(), Vector3(0, 0.75, 0), pants_color,

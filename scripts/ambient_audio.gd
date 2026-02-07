@@ -115,6 +115,11 @@ var heli_timer: float = 0.0
 var heli_phase: float = 0.0
 var heli_active: bool = false
 var heli_duration: float = 8.0
+var construction_timer: float = 0.0
+var construction_phase: float = 0.0
+var construction_active: bool = false
+var construction_duration: float = 4.0
+var construction_bpm: float = 3.0
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -512,6 +517,20 @@ func _process(delta: float) -> void:
 		if heli_phase > heli_duration:
 			heli_active = false
 
+	# Distant construction hammering/drilling
+	construction_timer -= delta
+	if construction_timer <= 0.0 and not construction_active:
+		construction_timer = rng.randf_range(70.0, 140.0)
+		construction_active = true
+		construction_phase = 0.0
+		construction_duration = rng.randf_range(3.0, 6.0)
+		construction_bpm = rng.randf_range(2.5, 5.0)
+
+	if construction_active:
+		construction_phase += delta
+		if construction_phase > construction_duration:
+			construction_active = false
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -808,6 +827,23 @@ func _fill_hum_buffer() -> void:
 			var pg_tone := sin(t * pg_freq * TAU) * 0.3
 			pg_tone += sin(t * pg_freq * 2.0 * TAU) * 0.1  # octave
 			sample += pg_tone * pg_env * 0.015
+		# Distant construction hammering (rhythmic metallic impacts)
+		if construction_active:
+			var con_env := 1.0
+			if construction_phase < 0.3:
+				con_env = construction_phase / 0.3
+			elif construction_phase > construction_duration - 0.5:
+				con_env = maxf(0.0, (construction_duration - construction_phase) / 0.5)
+			var hit_period := 1.0 / construction_bpm
+			var hit_pos := fmod(construction_phase, hit_period)
+			if hit_pos < 0.025:
+				var hit_env := (1.0 - hit_pos / 0.025)
+				hit_env = hit_env * hit_env * hit_env
+				# Metallic impact: mid-freq ring + noise
+				var ring := sin(t * 420.0 * TAU) * 0.3
+				ring += sin(t * 680.0 * TAU) * 0.15
+				var impact_noise := rng.randf_range(-1.0, 1.0) * 0.4
+				sample += (ring + impact_noise) * hit_env * con_env * 0.025
 		# Distant helicopter blade chop (rhythmic low-freq thumping)
 		if heli_active:
 			var heli_env := 1.0

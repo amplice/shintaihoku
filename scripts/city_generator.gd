@@ -183,6 +183,7 @@ func _ready() -> void:
 	_generate_height_fog_layers()
 	_generate_barricade_tape()
 	_generate_cardboard_boxes()
+	_generate_puddle_mist()
 	_setup_fly_buzz_audio()
 	_setup_neon_flicker()
 	_setup_color_shift_signs()
@@ -6592,6 +6593,47 @@ func _generate_cardboard_boxes() -> void:
 		box.set_surface_override_material(0, box_mat_dark if use_dark else box_mat)
 		box.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(box)
+
+func _generate_puddle_mist() -> void:
+	# Subtle ground-hugging mist near some puddle areas
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 9200
+	var stride := block_size + street_width
+	var count := 0
+	for _i in range(30):
+		if count >= 8:
+			break
+		var gx := rng.randi_range(-grid_size + 1, grid_size - 1)
+		var gz := rng.randi_range(-grid_size + 1, grid_size - 1)
+		if rng.randf() > 0.3:
+			continue
+		count += 1
+		var mx := gx * stride + rng.randf_range(-2.0, block_size * 0.4)
+		var mz := gz * stride + rng.randf_range(-2.0, block_size * 0.4)
+		var mist := GPUParticles3D.new()
+		mist.amount = 5
+		mist.lifetime = 3.0
+		mist.visibility_aabb = AABB(Vector3(-4, -0.5, -4), Vector3(8, 2, 8))
+		var mist_mat := ParticleProcessMaterial.new()
+		mist_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+		mist_mat.emission_box_extents = Vector3(2.0, 0.05, 2.0)
+		mist_mat.direction = Vector3(0.3, 0.2, 0)
+		mist_mat.spread = 45.0
+		mist_mat.initial_velocity_min = 0.1
+		mist_mat.initial_velocity_max = 0.3
+		mist_mat.gravity = Vector3(0, 0.02, 0)
+		mist_mat.damping_min = 0.5
+		mist_mat.damping_max = 1.0
+		mist_mat.scale_min = 0.3
+		mist_mat.scale_max = 0.8
+		mist_mat.color = Color(0.4, 0.4, 0.5, 0.03)
+		mist.process_material = mist_mat
+		var mist_mesh := SphereMesh.new()
+		mist_mesh.radius = 0.15
+		mist_mesh.height = 0.1
+		mist.draw_pass_1 = mist_mesh
+		mist.position = Vector3(mx, 0.1, mz)
+		add_child(mist)
 
 func _setup_fly_buzz_audio() -> void:
 	fly_rng.seed = 9100

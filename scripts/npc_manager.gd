@@ -584,6 +584,13 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 			_add_body_part(model, "Bag", BoxMesh.new(), Vector3(-0.28, 0.85, 0.05),
 				Color(0.15, 0.12, 0.08), Vector3(0.08, 0.25, 0.2))
 
+	# Boots (20% of NPCs, adds ground-level detail)
+	if rng.randf() < 0.20:
+		var boot_color := Color(0.08, 0.06, 0.05)
+		for boot_side in [-0.08, 0.08]:
+			_add_body_part(model, "Boot", BoxMesh.new(),
+				Vector3(boot_side, 0.04, 0.02), boot_color, Vector3(0.14, 0.08, 0.2))
+
 	# Scarf/neck wrap (12% of NPCs, adds color pop)
 	if rng.randf() < 0.12:
 		_add_body_part(model, "Scarf", BoxMesh.new(), Vector3(0, 1.38, 0.08),
