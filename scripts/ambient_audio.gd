@@ -253,6 +253,10 @@ var fence_phase: float = 0.0
 var fence_active: bool = false
 var fence_duration: float = 2.0
 var fence_filter: float = 0.0
+var club_timer: float = 0.0
+var club_phase: float = 0.0
+var club_active: bool = false
+var club_duration: float = 10.0
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -1112,6 +1116,19 @@ func _process(delta: float) -> void:
 		if fence_phase > fence_duration:
 			fence_active = false
 
+	# Distant nightclub bass pulse (rhythmic kick)
+	club_timer -= delta
+	if club_timer <= 0.0 and not club_active:
+		club_timer = rng.randf_range(60.0, 150.0)
+		club_active = true
+		club_phase = 0.0
+		club_duration = rng.randf_range(8.0, 15.0)
+
+	if club_active:
+		club_phase += delta
+		if club_phase > club_duration:
+			club_active = false
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -1912,6 +1929,24 @@ func _fill_hum_buffer() -> void:
 			rattle += sin(t * 2000.0 * TAU) * fence_filter * 0.3  # metallic resonance
 			rattle += sin(t * 3500.0 * TAU) * fence_filter * 0.15  # harmonic
 			sample += rattle * fe_env * 0.005
+
+		# Distant nightclub bass pulse (rhythmic 128BPM kick at 60Hz)
+		if club_active:
+			var cl_env := 0.0
+			if club_phase < 0.5:
+				cl_env = club_phase / 0.5
+			elif club_phase < club_duration - 1.0:
+				cl_env = 1.0
+			else:
+				cl_env = (club_duration - club_phase) / 1.0
+			cl_env = maxf(0.0, cl_env)
+			# 128 BPM = 2.133 beats/sec
+			var beat_phase := fmod(club_phase * 2.133, 1.0)
+			var kick_env := maxf(0.0, 1.0 - beat_phase * 6.0)  # sharp attack, fast decay
+			kick_env = kick_env * kick_env
+			var kick := sin(t * 60.0 * TAU) * kick_env * 0.7
+			kick += sin(t * 30.0 * TAU) * kick_env * 0.3  # sub bass
+			sample += kick * cl_env * 0.004
 
 		# Distant crowd murmur (band-limited noise, 200-800Hz band)
 		var murmur_noise := rng.randf_range(-1.0, 1.0)

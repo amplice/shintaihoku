@@ -736,6 +736,49 @@ func _process(delta: float) -> void:
 						kick = 0.1 * ((1.0 - scuff_cycle) / 0.4)  # settle back
 					scuff_rh.rotation.x = lerpf(scuff_rh.rotation.x, kick, 8.0 * delta)
 
+		# Chin rest thinking pose (7% of stopped NPCs, hand under chin)
+		if npc_data.get("does_chin_rest", false) and is_stopped and not npc_data.get("arms_crossed", false) and not npc_data["smoke"]:
+			npc_data["chin_clock"] = npc_data.get("chin_clock", 0.0) + delta
+			var chin_cycle := fmod(npc_data["chin_clock"], 14.0)
+			if chin_cycle < 8.0:
+				var chin_rs := node.get_node_or_null("Model/RightShoulder")
+				var chin_re := node.get_node_or_null("Model/RightShoulder/RightElbow")
+				if chin_rs and chin_re:
+					var reach := 0.0
+					var bend := 0.0
+					if chin_cycle < 0.6:
+						var t := chin_cycle / 0.6
+						reach = t * -0.4
+						bend = t * -1.2
+					elif chin_cycle < 7.0:
+						reach = -0.4
+						bend = -1.2
+					else:
+						var t := (chin_cycle - 7.0) / 1.0
+						reach = -0.4 * (1.0 - t)
+						bend = -1.2 * (1.0 - t)
+					chin_rs.rotation.x = lerpf(chin_rs.rotation.x, reach, 5.0 * delta)
+					chin_re.rotation.x = lerpf(chin_re.rotation.x, bend, 5.0 * delta)
+				# Slight head tilt forward while thinking
+				if head_node and is_instance_valid(head_node) and head_node.is_inside_tree() and chin_cycle > 0.5 and chin_cycle < 7.5:
+					head_node.rotation.x = lerpf(head_node.rotation.x, 0.1, 3.0 * delta)
+
+		# Pocket pat (5% of stopped NPCs, patting hip looking for keys)
+		if npc_data.get("does_pocket_pat", false) and is_stopped and not npc_data.get("arms_crossed", false):
+			npc_data["pat_clock"] = npc_data.get("pat_clock", 0.0) + delta
+			var pat_cycle := fmod(npc_data["pat_clock"], 18.0)
+			if pat_cycle < 1.2:
+				var pat_rs := node.get_node_or_null("Model/RightShoulder")
+				if pat_rs:
+					var pat_reach := 0.0
+					if pat_cycle < 0.3:
+						pat_reach = (pat_cycle / 0.3) * 0.3  # arm swings to hip
+					elif pat_cycle < 0.9:
+						pat_reach = 0.3 + sin((pat_cycle - 0.3) * 10.0) * 0.08  # two quick taps
+					else:
+						pat_reach = 0.3 * ((1.2 - pat_cycle) / 0.3)  # return
+					pat_rs.rotation.x = lerpf(pat_rs.rotation.x, pat_reach, 8.0 * delta)
+
 		# Sigh trigger (10% of idle NPCs, sets flag for audio pool to pick up)
 		if npc_data.get("does_sigh", false) and is_stopped:
 			npc_data["sigh_cd"] = npc_data.get("sigh_cd", 0.0) - delta
@@ -1422,6 +1465,8 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		"does_collar_pull": not has_umbrella and rng.randf() < 0.08,
 		"does_glance_back": rng.randf() < 0.05,
 		"does_ground_scuff": not has_umbrella and rng.randf() < 0.04,
+		"does_chin_rest": not has_phone and not has_newspaper and not has_umbrella and rng.randf() < 0.07,
+		"does_pocket_pat": not has_umbrella and rng.randf() < 0.05,
 		"last_cell_x": -999,
 		"last_cell_z": -999,
 	})

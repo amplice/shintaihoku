@@ -266,6 +266,14 @@ func _physics_process(delta: float) -> void:
 		var current_blur: float = current_blur_val if current_blur_val != null else 0.0
 		crt_material.set_shader_parameter("speed_blur", lerpf(current_blur, blur_target, 8.0 * delta))
 
+	# Sprint rain streak: chromatic aberration oscillation when running in rain
+	if crt_material and is_sprinting and impact_aberration <= 0.0:
+		var streak_rain := get_node_or_null("../Rain")
+		if streak_rain and "rain_time" in streak_rain:
+			var rain_intensity: float = 0.5 + 0.5 * sin(streak_rain.rain_time * 0.1)
+			var streak_ab := 0.8 + sin(streak_rain.rain_time * 3.0) * 0.4 * rain_intensity
+			crt_material.set_shader_parameter("aberration_amount", lerpf(0.8, streak_ab, 4.0 * delta))
+
 	# Turn momentum lean (decay toward 0)
 	turn_lean = clampf(turn_lean, -0.04, 0.04)
 	turn_lean = lerpf(turn_lean, 0.0, 6.0 * delta)
