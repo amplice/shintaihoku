@@ -584,6 +584,18 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 			_add_body_part(model, "Bag", BoxMesh.new(), Vector3(-0.28, 0.85, 0.05),
 				Color(0.15, 0.12, 0.08), Vector3(0.08, 0.25, 0.2))
 
+	# Scarf/neck wrap (12% of NPCs, adds color pop)
+	if rng.randf() < 0.12:
+		_add_body_part(model, "Scarf", BoxMesh.new(), Vector3(0, 1.38, 0.08),
+			accent, Vector3(0.42, 0.06, 0.18), true, accent, 1.5)
+
+	# Hoodie (8% of NPCs without hats)
+	var has_hat := model.get_node_or_null("Hat") != null
+	if not has_hat and rng.randf() < 0.08:
+		# Hood draped behind/over head
+		_add_body_part(model, "Hood", BoxMesh.new(), Vector3(0, 1.6, -0.12),
+			jacket_color * 1.1, Vector3(0.4, 0.25, 0.22))
+
 	# Foot splash particles (wet ground)
 	var npc_splash := GPUParticles3D.new()
 	npc_splash.amount = 6

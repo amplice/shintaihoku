@@ -111,6 +111,10 @@ var pigeon_count: int = 0
 var pigeon_max: int = 0
 var pigeon_gap_timer: float = 0.0
 var pigeon_pitch: float = 1.0
+var heli_timer: float = 0.0
+var heli_phase: float = 0.0
+var heli_active: bool = false
+var heli_duration: float = 8.0
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -495,6 +499,19 @@ func _process(delta: float) -> void:
 	if pigeon_active:
 		pigeon_phase += delta
 
+	# Distant helicopter blade chop
+	heli_timer -= delta
+	if heli_timer <= 0.0 and not heli_active:
+		heli_timer = rng.randf_range(90.0, 200.0)
+		heli_active = true
+		heli_phase = 0.0
+		heli_duration = rng.randf_range(6.0, 12.0)
+
+	if heli_active:
+		heli_phase += delta
+		if heli_phase > heli_duration:
+			heli_active = false
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -791,6 +808,22 @@ func _fill_hum_buffer() -> void:
 			var pg_tone := sin(t * pg_freq * TAU) * 0.3
 			pg_tone += sin(t * pg_freq * 2.0 * TAU) * 0.1  # octave
 			sample += pg_tone * pg_env * 0.015
+		# Distant helicopter blade chop (rhythmic low-freq thumping)
+		if heli_active:
+			var heli_env := 1.0
+			if heli_phase < 1.5:
+				heli_env = heli_phase / 1.5
+			elif heli_phase > heli_duration - 2.0:
+				heli_env = maxf(0.0, (heli_duration - heli_phase) / 2.0)
+			heli_env = heli_env * heli_env
+			# Blade chop: ~6Hz rhythmic pulse (360 RPM)
+			var chop_cycle := fmod(t * 6.0 * TAU, TAU)
+			var chop_pulse := maxf(0.0, sin(chop_cycle))
+			chop_pulse = chop_pulse * chop_pulse  # sharpen pulse
+			# Low thump + whoosh
+			var heli_thump := sin(t * 40.0 * TAU) * chop_pulse * 0.3
+			var heli_whoosh := rng.randf_range(-1.0, 1.0) * chop_pulse * 0.15
+			sample += (heli_thump + heli_whoosh) * heli_env * 0.03
 		# Distant crowd murmur (band-limited noise, 200-800Hz band)
 		var murmur_noise := rng.randf_range(-1.0, 1.0)
 		murmur_filter1 = murmur_filter1 * 0.85 + murmur_noise * 0.15

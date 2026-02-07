@@ -49,6 +49,12 @@ var radio_pool: Array[Dictionary] = []
 var radio_positions: Array[Vector3] = []
 var radio_rng := RandomNumberGenerator.new()
 var stray_cats: Array[Dictionary] = []  # [{node, home_pos, fleeing, flee_dir}]
+# Fly buzz audio near trash
+const FLY_POOL_SIZE: int = 2
+const FLY_RANGE: float = 8.0
+var fly_pool: Array[Dictionary] = []
+var fly_positions: Array[Vector3] = []
+var fly_rng := RandomNumberGenerator.new()
 var steam_bursts: Array[Dictionary] = []  # [{particles, timer, interval}]
 var boot_time: float = 0.0
 var boot_complete: bool = false
@@ -177,6 +183,7 @@ func _ready() -> void:
 	_generate_height_fog_layers()
 	_generate_barricade_tape()
 	_generate_cardboard_boxes()
+	_setup_fly_buzz_audio()
 	_setup_neon_flicker()
 	_setup_color_shift_signs()
 	print("CityGenerator: generation complete, total children=", get_child_count())
@@ -4736,6 +4743,31 @@ func _generate_subway_entrances() -> void:
 			sign_glow.shadow_enabled = false
 			sign_glow.position = Vector3(0, 1.5, 0.5)
 			entrance.add_child(sign_glow)
+		# Warm draft particles rising from underground
+		var draft := GPUParticles3D.new()
+		draft.amount = 8
+		draft.lifetime = 2.0
+		draft.visibility_aabb = AABB(Vector3(-2, -2, -4), Vector3(4, 6, 6))
+		var draft_mat := ParticleProcessMaterial.new()
+		draft_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+		draft_mat.emission_box_extents = Vector3(0.8, 0.1, 0.3)
+		draft_mat.direction = Vector3(0, 1, 0)
+		draft_mat.spread = 25.0
+		draft_mat.initial_velocity_min = 0.5
+		draft_mat.initial_velocity_max = 1.2
+		draft_mat.gravity = Vector3(0, 0.3, 0)
+		draft_mat.damping_min = 0.5
+		draft_mat.damping_max = 1.5
+		draft_mat.scale_min = 0.05
+		draft_mat.scale_max = 0.15
+		draft_mat.color = Color(0.6, 0.5, 0.3, 0.06)
+		draft.process_material = draft_mat
+		var draft_mesh := SphereMesh.new()
+		draft_mesh.radius = 0.08
+		draft_mesh.height = 0.16
+		draft.draw_pass_1 = draft_mesh
+		draft.position = Vector3(0, -1.2, -2.0)
+		entrance.add_child(draft)
 		add_child(entrance)
 
 func _generate_helicopter_patrol() -> void:
@@ -5284,6 +5316,44 @@ func _process(_delta: float) -> void:
 							# Warble modulation
 							buzz *= 0.8 + 0.2 * sin(ph * 3.0 * TAU)
 							var sample := buzz * 0.15
+							playback.push_frame(Vector2(sample, sample))
+						slot["phase"] = ph
+				else:
+					if playback:
+						var frames := playback.get_frames_available()
+						for _f in range(frames):
+							playback.push_frame(Vector2.ZERO)
+
+	# Fly buzz audio near trash (proximity-based)
+	if fly_pool.size() > 0:
+		var fly_cam := get_viewport().get_camera_3d()
+		if fly_cam:
+			var fly_cam_pos := fly_cam.global_position
+			var nearest_flies: Array[Dictionary] = []
+			for fpos in fly_positions:
+				var d := fpos.distance_to(fly_cam_pos)
+				if d < FLY_RANGE:
+					nearest_flies.append({"pos": fpos, "dist": d})
+			nearest_flies.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["dist"] < b["dist"])
+			for i in range(FLY_POOL_SIZE):
+				var slot: Dictionary = fly_pool[i]
+				var player: AudioStreamPlayer3D = slot["player"]
+				var playback: AudioStreamGeneratorPlayback = slot["playback"]
+				if i < nearest_flies.size():
+					player.global_position = nearest_flies[i]["pos"]
+					if playback:
+						var frames := playback.get_frames_available()
+						var ph: float = slot["phase"]
+						var mix_rate := 22050.0
+						for _f in range(frames):
+							ph += 1.0 / mix_rate
+							# Fly buzz: ~220Hz with rapid wobble
+							var wobble := 1.0 + sin(ph * 15.0 * TAU) * 0.12
+							var buzz := sin(ph * 220.0 * wobble * TAU) * 0.3
+							buzz += sin(ph * 330.0 * wobble * TAU) * 0.15
+							# Random intensity variation (fly moving around)
+							var intensity := 0.5 + 0.5 * sin(ph * 2.5 * TAU)
+							var sample := buzz * intensity * 0.08
 							playback.push_frame(Vector2(sample, sample))
 						slot["phase"] = ph
 				else:
@@ -6522,3 +6592,33 @@ func _generate_cardboard_boxes() -> void:
 		box.set_surface_override_material(0, box_mat_dark if use_dark else box_mat)
 		box.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(box)
+
+func _setup_fly_buzz_audio() -> void:
+	fly_rng.seed = 9100
+	# Collect dumpster/trash bag positions as fly sources
+	var stride := block_size + street_width
+	for _i in range(6):
+		var gx := fly_rng.randi_range(-grid_size + 1, grid_size - 1)
+		var gz := fly_rng.randi_range(-grid_size + 1, grid_size - 1)
+		var fx := gx * stride + fly_rng.randf_range(2.0, block_size - 2.0)
+		var fz := gz * stride + fly_rng.randf_range(2.0, block_size - 2.0)
+		fly_positions.append(Vector3(fx, 0.5, fz))
+	# Create audio pool
+	for _i in range(FLY_POOL_SIZE):
+		var player := AudioStreamPlayer3D.new()
+		var gen := AudioStreamGenerator.new()
+		gen.mix_rate = 22050.0
+		gen.buffer_length = 0.1
+		player.stream = gen
+		player.volume_db = -24.0
+		player.max_distance = FLY_RANGE
+		player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+		player.unit_size = 3.0
+		add_child(player)
+		player.play()
+		fly_pool.append({
+			"player": player,
+			"generator": gen,
+			"playback": player.get_stream_playback(),
+			"phase": 0.0,
+		})
