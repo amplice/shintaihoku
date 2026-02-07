@@ -46,16 +46,14 @@ void fragment() {
 	// Color banding - reduce color precision
 	color = floor(color * color_depth) / color_depth;
 
-	// Apply fog based on distance
+	ALBEDO = color;
+
+	// Distance-based emission fade for emissive surfaces
 	float fog_factor = 1.0 - exp(-vertex_distance * fog_density / fog_distance);
 	fog_factor = clamp(fog_factor, 0.0, 1.0);
-	color = mix(color, fog_color.rgb, fog_factor);
-
-	ALBEDO = color;
 
 	if (emissive) {
 		EMISSION = emission_color.rgb * emission_strength;
-		// Reduce emission with fog too
 		EMISSION = mix(EMISSION, vec3(0.0), fog_factor * 0.7);
 	}
 }
