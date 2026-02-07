@@ -156,6 +156,16 @@ var crossing_timer: float = 0.0
 var crossing_phase: float = 0.0
 var crossing_active: bool = false
 var crossing_duration: float = 4.0
+var cat_screech_timer: float = 0.0
+var cat_screech_phase: float = 0.0
+var cat_screech_active: bool = false
+var cat_screech_duration: float = 1.0
+var clink_timer: float = 0.0
+var clink_phase: float = 0.0
+var clink_active: bool = false
+var clink_count: int = 0
+var clink_max: int = 0
+var clink_gap_timer: float = 0.0
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -680,6 +690,40 @@ func _process(delta: float) -> void:
 		if crossing_phase > crossing_duration:
 			crossing_active = false
 
+	# Distant cat fight screech (very rare)
+	cat_screech_timer -= delta
+	if cat_screech_timer <= 0.0 and not cat_screech_active:
+		cat_screech_timer = rng.randf_range(120.0, 250.0)
+		cat_screech_active = true
+		cat_screech_phase = 0.0
+		cat_screech_duration = rng.randf_range(0.5, 1.5)
+
+	if cat_screech_active:
+		cat_screech_phase += delta
+		if cat_screech_phase > cat_screech_duration:
+			cat_screech_active = false
+
+	# Glass bottle clink
+	clink_timer -= delta
+	if clink_timer <= 0.0 and not clink_active:
+		clink_timer = rng.randf_range(30.0, 70.0)
+		clink_active = true
+		clink_count = 0
+		clink_max = rng.randi_range(2, 3)
+		clink_gap_timer = 0.0
+
+	if clink_active:
+		clink_gap_timer -= delta
+		if clink_gap_timer <= 0.0 and clink_count < clink_max:
+			clink_phase = 0.0
+			clink_count += 1
+			clink_gap_timer = rng.randf_range(0.1, 0.2)
+		if clink_count >= clink_max and clink_phase > 0.05:
+			clink_active = false
+
+	if clink_active:
+		clink_phase += delta
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -1061,6 +1105,33 @@ func _fill_hum_buffer() -> void:
 			bell += sin(t * cm_freq * 2.76 * TAU) * 0.1  # inharmonic partial
 			bell += sin(t * cm_freq * 5.4 * TAU) * 0.04  # high shimmer
 			sample += bell * cm_env * 0.015
+		# Distant cat fight screech (high warbling screech)
+		if cat_screech_active:
+			var cs_env := 1.0
+			if cat_screech_phase < 0.05:
+				cs_env = cat_screech_phase / 0.05
+			elif cat_screech_phase > cat_screech_duration - 0.1:
+				cs_env = maxf(0.0, (cat_screech_duration - cat_screech_phase) / 0.1)
+			# Intermittent screech bursts
+			var screech_burst := maxf(0.0, sin(cat_screech_phase * 8.0 * TAU))
+			cs_env *= screech_burst
+			# High warbling tone with rapid vibrato
+			var cs_vib := 1.0 + sin(cat_screech_phase * 35.0) * 0.1
+			var cs_freq := 900.0 * cs_vib
+			var cs_tone := sin(t * cs_freq * TAU) * 0.25
+			cs_tone += sin(t * cs_freq * 2.0 * TAU) * 0.15
+			cs_tone += sin(t * cs_freq * 3.0 * TAU) * 0.05
+			# Harsh noise
+			var cs_noise := rng.randf_range(-1.0, 1.0) * 0.15
+			sample += (cs_tone + cs_noise) * cs_env * 0.015
+		# Glass bottle clink (short high metallic tink)
+		if clink_active and clink_phase < 0.04:
+			var cl_env := (1.0 - clink_phase / 0.04)
+			cl_env = cl_env * cl_env * cl_env
+			var cl_tone := sin(t * 2200.0 * TAU) * 0.2
+			cl_tone += sin(t * 3300.0 * TAU) * 0.12
+			cl_tone += sin(t * 5500.0 * TAU) * 0.04
+			sample += cl_tone * cl_env * 0.02
 		# Distant motorcycle rev (low growl with pitch bend)
 		if moto_active:
 			var mt_env := 1.0

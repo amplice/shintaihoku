@@ -574,15 +574,25 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 	# Backpack/messenger bag (10% of non-umbrella NPCs)
 	if not has_umbrella and rng.randf() < 0.10:
 		var bag_type := rng.randi_range(0, 1)
+		var bag_color: Color
 		if bag_type == 0:
 			# Backpack on back
+			bag_color = Color(jacket_color.r * 0.7, jacket_color.g * 0.7, jacket_color.b * 0.7)
 			_add_body_part(model, "Backpack", BoxMesh.new(), Vector3(0, 1.05, -0.22),
-				Color(jacket_color.r * 0.7, jacket_color.g * 0.7, jacket_color.b * 0.7),
-				Vector3(0.3, 0.35, 0.15))
+				bag_color, Vector3(0.3, 0.35, 0.15))
+			# Backpack straps across chest
+			_add_body_part(model, "StrapL", BoxMesh.new(), Vector3(-0.1, 1.15, 0.05),
+				bag_color * 0.9, Vector3(0.04, 0.35, 0.04))
+			_add_body_part(model, "StrapR", BoxMesh.new(), Vector3(0.1, 1.15, 0.05),
+				bag_color * 0.9, Vector3(0.04, 0.35, 0.04))
 		else:
 			# Messenger bag on side
+			bag_color = Color(0.15, 0.12, 0.08)
 			_add_body_part(model, "Bag", BoxMesh.new(), Vector3(-0.28, 0.85, 0.05),
-				Color(0.15, 0.12, 0.08), Vector3(0.08, 0.25, 0.2))
+				bag_color, Vector3(0.08, 0.25, 0.2))
+			# Diagonal strap across chest (shoulder to opposite hip)
+			_add_body_part(model, "Strap", BoxMesh.new(), Vector3(0.05, 1.1, 0.1),
+				bag_color * 0.8, Vector3(0.04, 0.5, 0.03))
 
 	# Glowing wristwatch (8% of NPCs)
 	if rng.randf() < 0.08:

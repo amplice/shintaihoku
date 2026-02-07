@@ -56,6 +56,7 @@ var fly_pool: Array[Dictionary] = []
 var fly_positions: Array[Vector3] = []
 var fly_rng := RandomNumberGenerator.new()
 var steam_bursts: Array[Dictionary] = []  # [{particles, timer, interval}]
+var dish_nodes: Array[Node3D] = []  # satellite dishes for slow rotation
 var boot_time: float = 0.0
 var boot_complete: bool = false
 
@@ -190,6 +191,7 @@ func _ready() -> void:
 	_generate_chimney_smoke()
 	_generate_fluorescent_tubes()
 	_generate_fire_barrels()
+	_generate_security_spotlights()
 	print("CityGenerator: generation complete, total children=", get_child_count())
 
 func _make_ps1_material(color: Color, is_emissive: bool = false,
@@ -3349,6 +3351,7 @@ func _generate_satellite_dishes() -> void:
 		arm.set_surface_override_material(0, _make_ps1_material(Color(0.4, 0.4, 0.45)))
 		dish_parent.add_child(arm)
 		add_child(dish_parent)
+		dish_nodes.append(dish_parent)
 
 func _generate_roof_access_doors() -> void:
 	var rng := RandomNumberGenerator.new()
@@ -5089,6 +5092,11 @@ func _process(_delta: float) -> void:
 		blade1.rotation.y = time * fan_speed
 		blade2.rotation.y = time * fan_speed
 
+	# Satellite dish slow oscillation
+	for dish in dish_nodes:
+		if is_instance_valid(dish):
+			dish.rotation.y += sin(time * 0.3 + dish.position.x) * 0.002
+
 	# Vending machine screen pulse (pre-cached materials)
 	for vs in vending_screens:
 		var screen: MeshInstance3D = vs["node"]
@@ -6815,3 +6823,28 @@ func _generate_fire_barrels() -> void:
 		fl_mesh.size = Vector3(0.06, 0.1, 0.06)
 		flames.draw_pass_1 = fl_mesh
 		add_child(flames)
+
+func _generate_security_spotlights() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 9600
+	var stride := block_size + street_width
+	var count := 0
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			if count >= 8:
+				break
+			if rng.randf() > 0.06:
+				continue
+			var bx := gx * stride + rng.randf_range(2.0, block_size - 2.0)
+			var bz := gz * stride + rng.randf_range(-0.5, 0.5)
+			var spot_y := rng.randf_range(3.5, 5.5)
+			var spot := SpotLight3D.new()
+			spot.position = Vector3(bx, spot_y, bz)
+			spot.rotation_degrees = Vector3(-70, rng.randf_range(-30, 30), 0)
+			spot.light_color = Color(1.0, 0.95, 0.85)
+			spot.light_energy = rng.randf_range(1.5, 2.5)
+			spot.spot_range = 8.0
+			spot.spot_angle = rng.randf_range(30.0, 45.0)
+			spot.shadow_enabled = false
+			add_child(spot)
+			count += 1
