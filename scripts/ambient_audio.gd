@@ -274,6 +274,16 @@ var xformer_duration: float = 4.0
 var buzzer_timer: float = 0.0
 var buzzer_phase: float = 0.0
 var buzzer_active: bool = false
+var vend_timer: float = 0.0
+var vend_phase: float = 0.0
+var vend_active: bool = false
+var vend_duration: float = 5.0
+var trash_timer: float = 0.0
+var trash_phase: float = 0.0
+var trash_active: bool = false
+var trash_count: int = 0
+var trash_max: int = 0
+var trash_gap: float = 0.0
 var world_env: WorldEnvironment = null
 var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
@@ -1198,6 +1208,43 @@ func _process(delta: float) -> void:
 		if buzzer_phase > 0.8:
 			buzzer_active = false
 
+	# Vending machine hum (compressor drone with periodic click)
+	vend_timer -= delta
+	if vend_timer <= 0.0 and not vend_active:
+		vend_timer = rng.randf_range(70.0, 130.0)
+		vend_active = true
+		vend_phase = 0.0
+		vend_duration = rng.randf_range(4.0, 6.0)
+
+	if vend_active:
+		vend_phase += delta
+		if vend_phase > vend_duration:
+			vend_active = false
+
+	# Garbage can rattle (wind-triggered metallic clanking)
+	var trash_rain := get_node_or_null("../Rain")
+	var trash_wind: float = 0.0
+	if trash_rain and "wind_x" in trash_rain:
+		trash_wind = absf(trash_rain.wind_x)
+	trash_timer -= delta
+	if trash_timer <= 0.0 and not trash_active and trash_wind > 1.0:
+		trash_timer = rng.randf_range(50.0, 100.0)
+		trash_active = true
+		trash_phase = 0.0
+		trash_count = 0
+		trash_max = rng.randi_range(2, 4)
+		trash_gap = 0.0
+
+	if trash_active:
+		trash_gap -= delta
+		if trash_gap <= 0.0 and trash_count < trash_max:
+			trash_count += 1
+			trash_phase = 0.0
+			trash_gap = rng.randf_range(0.08, 0.15)
+		trash_phase += delta
+		if trash_count >= trash_max and trash_phase > 0.3:
+			trash_active = false
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -2082,6 +2129,33 @@ func _fill_hum_buffer() -> void:
 			bz_tone += sin(t * 200.0 * TAU) * 0.3  # undertone
 			bz_tone = clampf(bz_tone * 1.5, -0.8, 0.8)  # soft clip for distortion
 			sample += bz_tone * bz_env * 0.006
+
+		# Vending machine hum (compressor drone + periodic relay click)
+		if vend_active:
+			var vm_env := 0.0
+			if vend_phase < 0.3:
+				vm_env = vend_phase / 0.3
+			elif vend_phase < vend_duration - 0.5:
+				vm_env = 1.0
+			else:
+				vm_env = (vend_duration - vend_phase) / 0.5
+			vm_env = maxf(0.0, vm_env)
+			var vm_hum := sin(t * 80.0 * TAU) * 0.5
+			vm_hum += sin(t * 160.0 * TAU) * 0.2
+			# Periodic relay click every ~0.4s
+			var vm_click_phase := fmod(vend_phase, 0.4)
+			if vm_click_phase < 0.01:
+				vm_hum += rng.randf_range(-1.0, 1.0) * 0.8  # click transient
+			sample += vm_hum * vm_env * 0.004
+
+		# Garbage can rattle (metallic clanking in wind)
+		if trash_active and trash_phase < 0.15:
+			var tr_env := (0.15 - trash_phase) / 0.15
+			tr_env *= tr_env
+			var tr_ring := sin(trash_phase * 800.0 * TAU) * 0.4
+			tr_ring += sin(trash_phase * 1600.0 * TAU) * 0.25
+			tr_ring += rng.randf_range(-1.0, 1.0) * 0.3  # metallic noise
+			sample += tr_ring * tr_env * 0.007
 
 		# Distant crowd murmur (band-limited noise, 200-800Hz band)
 		var murmur_noise := rng.randf_range(-1.0, 1.0)

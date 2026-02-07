@@ -305,7 +305,17 @@ func _physics_process(delta: float) -> void:
 	var wind_strength := 0.0
 	if rain_node and "wind_x" in rain_node:
 		wind_strength = rain_node.wind_x
-	var wind_sway := wind_strength * 0.0008
+	# Amplify wind at city edge (more exposed)
+	var city_gen := get_node_or_null("../CityGenerator")
+	var edge_mult := 1.0
+	if city_gen and "grid_size" in city_gen:
+		var cg_stride: float = 28.0  # block_size + street_width
+		var cg_extent: float = city_gen.grid_size * cg_stride
+		var edge_dist := minf(absf(global_position.x), absf(global_position.z))
+		var from_edge := cg_extent - edge_dist
+		if from_edge < 20.0:
+			edge_mult = lerpf(2.5, 1.0, from_edge / 20.0)
+	var wind_sway := wind_strength * 0.0008 * edge_mult
 	camera.rotation.z = lerpf(camera.rotation.z, camera.rotation.z + wind_sway, 2.0 * delta)
 
 	# Standing wind buffet (subtle body sway when idle in heavy wind)

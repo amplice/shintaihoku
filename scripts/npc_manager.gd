@@ -543,7 +543,12 @@ func _process(delta: float) -> void:
 				bag_base_y = 1.05  # backpack base y
 			if bag_node:
 				var bag_swing := sin(anim.walk_cycle * 2.0) * 0.06
+				var bag_rain := get_node_or_null("../Rain")
+				var bag_wind: float = 0.0
+				if bag_rain and "wind_x" in bag_rain:
+					bag_wind = bag_rain.wind_x
 				bag_node.rotation.x = lerpf(bag_node.rotation.x, bag_swing, 6.0 * delta)
+				bag_node.rotation.z = lerpf(bag_node.rotation.z, bag_wind * 0.04, 3.0 * delta)
 				bag_node.position.y = lerpf(bag_node.position.y, bag_base_y + sin(anim.walk_cycle) * 0.02, 4.0 * delta)
 
 		# Coat tail flap (sways while walking, gentle idle sway)
@@ -683,6 +688,25 @@ func _process(delta: float) -> void:
 					var shift := sin(shuf_cycle * 4.0) * 0.06
 					lh.rotation.z = lerpf(lh.rotation.z, shift, 5.0 * delta)
 					rh.rotation.z = lerpf(rh.rotation.z, -shift, 5.0 * delta)
+
+		# Hand behind back (6% of stopped NPCs, contemplative standing pose)
+		if npc_data.get("does_hand_behind", false) and is_stopped and not npc_data.get("arms_crossed", false):
+			npc_data["behind_clock"] = npc_data.get("behind_clock", 0.0) + delta
+			var behind_cycle := fmod(npc_data["behind_clock"], 12.0)
+			if behind_cycle < 5.0:
+				var ls := node.get_node_or_null("Model/LeftShoulder")
+				var le := node.get_node_or_null("Model/LeftShoulder/LeftElbow")
+				if ls and le and is_instance_valid(ls) and is_instance_valid(le):
+					var blend := 0.0
+					if behind_cycle < 0.5:
+						blend = behind_cycle / 0.5
+					elif behind_cycle < 4.0:
+						blend = 1.0
+					else:
+						blend = (5.0 - behind_cycle) / 1.0
+					ls.rotation.z = lerpf(ls.rotation.z, 0.3 * blend, 4.0 * delta)
+					ls.rotation.x = lerpf(ls.rotation.x, 0.2 * blend, 4.0 * delta)
+					le.rotation.x = lerpf(le.rotation.x, -0.8 * blend, 4.0 * delta)
 
 		# Umbrella tilt in wind (umbrella-carrying NPCs tilt toward wind direction)
 		if npc_data.get("has_umbrella", false):
@@ -1591,6 +1615,7 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		"does_cig_flick": smoke_particles != null and rng.randf() < 0.40,
 		"does_wall_lean": rng.randf() < 0.08,
 		"does_shuffle": rng.randf() < 0.10,
+		"does_hand_behind": not has_umbrella and not has_phone and not has_newspaper and rng.randf() < 0.06,
 		"nod_cooldown": 0.0,
 		"last_cell_x": -999,
 		"last_cell_z": -999,
