@@ -41,6 +41,9 @@ var train_timer: float = 0.0
 var train_phase: float = 0.0
 var train_active: bool = false
 var train_pitch: float = 1.0
+var glass_timer: float = 0.0
+var glass_phase: float = 0.0
+var glass_active: bool = false
 var rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
@@ -183,6 +186,18 @@ func _process(delta: float) -> void:
 		if train_phase > 3.0:
 			train_active = false
 
+	# Distant glass breaking/shattering
+	glass_timer -= delta
+	if glass_timer <= 0.0 and not glass_active:
+		glass_timer = rng.randf_range(50.0, 100.0)
+		glass_active = true
+		glass_phase = 0.0
+
+	if glass_active:
+		glass_phase += delta
+		if glass_phase > 0.4:
+			glass_active = false
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -262,6 +277,21 @@ func _fill_hum_buffer() -> void:
 			thunder_filter = thunder_filter * 0.92 + rumble_noise * 0.08
 			var rumble := thunder_filter * 0.3 + sin(t * 30.0 * TAU) * 0.15
 			sample += (crack + rumble) * thunder_env * 0.5
+		# Distant glass breaking (high-freq noise burst with tinkling resonance)
+		if glass_active and glass_phase < 0.35:
+			var glass_env := (1.0 - glass_phase / 0.35)
+			# Initial impact (0-0.05s): sharp crack
+			var glass_sample := 0.0
+			if glass_phase < 0.05:
+				glass_sample = rng.randf_range(-1.0, 1.0) * (1.0 - glass_phase / 0.05) * 0.6
+			# Tinkling shards (0.03-0.35s): high-frequency resonant bursts
+			if glass_phase > 0.03:
+				var tinkle1 := sin(t * 2800.0 * TAU) * 0.15
+				var tinkle2 := sin(t * 4200.0 * TAU) * 0.1
+				var tinkle3 := sin(t * 6100.0 * TAU) * 0.05
+				var tinkle_noise := rng.randf_range(-1.0, 1.0) * 0.2
+				glass_sample += (tinkle1 + tinkle2 + tinkle3 + tinkle_noise) * glass_env * glass_env
+			sample += glass_sample * 0.04
 		# Distant crowd murmur (band-limited noise, 200-800Hz band)
 		var murmur_noise := rng.randf_range(-1.0, 1.0)
 		murmur_filter1 = murmur_filter1 * 0.85 + murmur_noise * 0.15

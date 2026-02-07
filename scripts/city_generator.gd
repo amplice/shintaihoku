@@ -153,6 +153,8 @@ func _ready() -> void:
 	_setup_radio_audio()
 	_generate_stray_cats()
 	_generate_building_entrances()
+	_generate_street_vendors()
+	_generate_alleys()
 	_setup_neon_flicker()
 	_setup_color_shift_signs()
 	print("CityGenerator: generation complete, total children=", get_child_count())
@@ -5467,3 +5469,164 @@ func _generate_building_entrances() -> void:
 			addr.position = door_pos + Vector3(side_offset, 0.5, 0.02)
 			addr.rotation.y = door_rot
 			child.add_child(addr)
+
+func _generate_street_vendors() -> void:
+	# Small street vendor stalls along sidewalks with canopy, counter, and warm light
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7400
+	var num_vendors := 5
+	for _i in range(num_vendors):
+		var gx := rng.randi_range(-grid_size + 1, grid_size - 1)
+		var gz := rng.randi_range(-grid_size + 1, grid_size - 1)
+		var stride := block_size + street_width
+		var vx := gx * stride + block_size * 0.5 + rng.randf_range(1.0, 3.0)
+		var vz := gz * stride + rng.randf_range(-block_size * 0.3, block_size * 0.3)
+		var vendor := Node3D.new()
+		vendor.position = Vector3(vx, 0, vz)
+		vendor.rotation.y = rng.randf_range(0, TAU)
+		# Counter (wooden box)
+		var counter := MeshInstance3D.new()
+		var counter_mesh := BoxMesh.new()
+		counter_mesh.size = Vector3(2.0, 1.0, 0.8)
+		counter.mesh = counter_mesh
+		counter.position = Vector3(0, 0.5, 0)
+		counter.set_surface_override_material(0, _make_ps1_material(Color(0.3, 0.22, 0.12)))
+		vendor.add_child(counter)
+		# Canopy roof (thin angled box)
+		var canopy := MeshInstance3D.new()
+		var canopy_mesh := BoxMesh.new()
+		canopy_mesh.size = Vector3(2.5, 0.05, 1.5)
+		canopy.mesh = canopy_mesh
+		canopy.position = Vector3(0, 2.3, -0.2)
+		canopy.rotation.x = 0.1  # slight tilt
+		var canopy_col := neon_colors[rng.randi_range(0, neon_colors.size() - 1)] * 0.4
+		canopy.set_surface_override_material(0, _make_ps1_material(canopy_col))
+		vendor.add_child(canopy)
+		# Support poles (4 corners)
+		var pole_mat := _make_ps1_material(Color(0.3, 0.3, 0.33))
+		for px in [-1.1, 1.1]:
+			for pz in [-0.6, 0.4]:
+				var pole := MeshInstance3D.new()
+				var pole_mesh := BoxMesh.new()
+				pole_mesh.size = Vector3(0.05, 2.3, 0.05)
+				pole.mesh = pole_mesh
+				pole.position = Vector3(px, 1.15, pz)
+				pole.set_surface_override_material(0, pole_mat)
+				vendor.add_child(pole)
+		# Warm light under canopy
+		var stall_light := OmniLight3D.new()
+		stall_light.light_color = Color(1.0, 0.85, 0.5)
+		stall_light.light_energy = 2.5
+		stall_light.omni_range = 5.0
+		stall_light.omni_attenuation = 1.5
+		stall_light.shadow_enabled = false
+		stall_light.position = Vector3(0, 2.1, 0)
+		vendor.add_child(stall_light)
+		# Small items on counter (tiny colored boxes)
+		for _item in range(rng.randi_range(3, 6)):
+			var item := MeshInstance3D.new()
+			var item_mesh := BoxMesh.new()
+			item_mesh.size = Vector3(
+				rng.randf_range(0.08, 0.2),
+				rng.randf_range(0.08, 0.15),
+				rng.randf_range(0.08, 0.15))
+			item.mesh = item_mesh
+			item.position = Vector3(
+				rng.randf_range(-0.7, 0.7),
+				1.05,
+				rng.randf_range(-0.2, 0.2))
+			var item_col := Color(rng.randf_range(0.2, 0.8), rng.randf_range(0.2, 0.6), rng.randf_range(0.1, 0.5))
+			item.set_surface_override_material(0, _make_ps1_material(item_col))
+			vendor.add_child(item)
+		# Small neon sign (60% chance)
+		if neon_font and rng.randf() < 0.6:
+			var sign_label := Label3D.new()
+			var vendor_names := ["ラーメン", "焼鳥", "たこ焼き", "おでん", "餃子", "弁当"]
+			sign_label.text = vendor_names[rng.randi_range(0, vendor_names.size() - 1)]
+			sign_label.font = neon_font
+			sign_label.font_size = 32
+			sign_label.pixel_size = 0.008
+			var sign_col := neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
+			sign_label.modulate = sign_col
+			sign_label.outline_modulate = sign_col * 0.3
+			sign_label.outline_size = 4
+			sign_label.position = Vector3(0, 2.5, 0.6)
+			vendor.add_child(sign_label)
+			var sign_glow := OmniLight3D.new()
+			sign_glow.light_color = sign_col
+			sign_glow.light_energy = 1.5
+			sign_glow.omni_range = 3.0
+			sign_glow.shadow_enabled = false
+			sign_glow.position = sign_label.position
+			vendor.add_child(sign_glow)
+		add_child(vendor)
+
+func _generate_alleys() -> void:
+	# Find narrow gaps between buildings and add atmospheric fog + dim colored light
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7500
+	var alley_count := 0
+	var max_alleys := 10
+	var children_snapshot := get_children()
+	for idx in range(children_snapshot.size()):
+		if alley_count >= max_alleys:
+			break
+		var child_a = children_snapshot[idx]
+		if not child_a is MeshInstance3D:
+			continue
+		var mi_a := child_a as MeshInstance3D
+		if not mi_a.mesh is BoxMesh:
+			continue
+		var size_a: Vector3 = (mi_a.mesh as BoxMesh).size
+		if size_a.y < 12.0:
+			continue
+		# Check next few buildings for proximity
+		for jdx in range(idx + 1, mini(idx + 8, children_snapshot.size())):
+			if alley_count >= max_alleys:
+				break
+			var child_b = children_snapshot[jdx]
+			if not child_b is MeshInstance3D:
+				continue
+			var mi_b := child_b as MeshInstance3D
+			if not mi_b.mesh is BoxMesh:
+				continue
+			var size_b: Vector3 = (mi_b.mesh as BoxMesh).size
+			if size_b.y < 12.0:
+				continue
+			var dist := mi_a.position.distance_to(mi_b.position)
+			# Gap should be narrow (3-8 units) for an alley feel
+			var gap := dist - (size_a.x + size_b.x) * 0.4
+			if gap < 2.0 or gap > 8.0:
+				continue
+			if rng.randf() > 0.4:
+				continue
+			alley_count += 1
+			# Midpoint between buildings
+			var mid := (mi_a.position + mi_b.position) * 0.5
+			mid.y = 0.0  # ground level
+			# Ground fog plane
+			var fog := MeshInstance3D.new()
+			var fog_mesh := BoxMesh.new()
+			fog_mesh.size = Vector3(gap * 0.8, 0.3, minf(size_a.z, size_b.z) * 0.6)
+			fog.mesh = fog_mesh
+			fog.position = mid + Vector3(0, 0.15, 0)
+			var fog_col := Color(0.1, 0.06, 0.08)
+			fog.set_surface_override_material(0,
+				_make_ps1_material(fog_col * 0.3, true, fog_col, 0.5))
+			fog.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			add_child(fog)
+			# Dim colored alley light (red or amber, moody)
+			var alley_light := OmniLight3D.new()
+			var light_roll := rng.randf()
+			if light_roll < 0.4:
+				alley_light.light_color = Color(1.0, 0.15, 0.05)  # red
+			elif light_roll < 0.7:
+				alley_light.light_color = Color(1.0, 0.6, 0.1)   # amber
+			else:
+				alley_light.light_color = Color(0.6, 0.0, 0.8)   # purple
+			alley_light.light_energy = rng.randf_range(1.5, 3.0)
+			alley_light.omni_range = gap * 1.2
+			alley_light.omni_attenuation = 1.5
+			alley_light.shadow_enabled = false
+			alley_light.position = mid + Vector3(0, 3.0, 0)
+			add_child(alley_light)
