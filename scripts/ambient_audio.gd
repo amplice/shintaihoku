@@ -297,6 +297,10 @@ var engine_phase: float = 0.0
 var engine_active: bool = false
 var engine_duration: float = 5.0
 var engine_rpm: float = 1.0
+var ac_timer: float = 0.0
+var ac_phase: float = 0.0
+var ac_active: bool = false
+var ac_duration: float = 8.0
 var elev_timer: float = 0.0
 var elev_phase: float = 0.0
 var elev_active: bool = false
@@ -1316,6 +1320,19 @@ func _process(delta: float) -> void:
 		if elev_phase > 0.8:
 			elev_active = false
 
+	# AC unit compressor cycling (building HVAC motor drone)
+	ac_timer -= delta
+	if ac_timer <= 0.0 and not ac_active:
+		ac_timer = rng.randf_range(80.0, 120.0)
+		ac_active = true
+		ac_phase = 0.0
+		ac_duration = rng.randf_range(6.0, 10.0)
+
+	if ac_active:
+		ac_phase += delta
+		if ac_phase > ac_duration:
+			ac_active = false
+
 func _fill_rain_buffer() -> void:
 	if not rain_playback:
 		return
@@ -2285,6 +2302,22 @@ func _fill_hum_buffer() -> void:
 			el_tone += sin(t * 5274.0 * TAU) * 0.3  # 5th harmonic-ish
 			el_tone += sin(t * 7040.0 * TAU) * 0.1  # octave above
 			sample += el_tone * el_env * 0.008
+
+		# AC unit compressor cycling (building HVAC motor hum)
+		if ac_active:
+			var ac_env := 0.0
+			if ac_phase < 1.0:
+				ac_env = ac_phase / 1.0
+			elif ac_phase < ac_duration - 1.5:
+				ac_env = 1.0
+			else:
+				ac_env = maxf(0.0, (ac_duration - ac_phase) / 1.5)
+			var ac_am := 1.0 + sin(ac_phase * 3.5) * 0.15  # amplitude modulation
+			var ac_tone := sin(t * 50.0 * TAU) * 0.35 * ac_am
+			ac_tone += sin(t * 100.0 * TAU) * 0.2
+			ac_tone += sin(t * 150.0 * TAU) * 0.08
+			ac_tone += rng.randf_range(-1.0, 1.0) * 0.1  # motor noise
+			sample += ac_tone * ac_env * 0.004
 
 		# Distant crowd murmur (band-limited noise, 200-800Hz band)
 		var murmur_noise := rng.randf_range(-1.0, 1.0)

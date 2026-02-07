@@ -761,6 +761,37 @@ func _process(delta: float) -> void:
 				if right_ground:
 					rk.rotation.z = lerpf(rk.rotation.z, sin(walk_phase * 2.0 + PI) * 0.08, 4.0 * delta)
 
+		# Shoulder shiver (5% of stopped NPCs without umbrella — cold/nervous twitch)
+		if npc_data.get("does_shiver", false) and is_stopped:
+			npc_data["shiver_clock"] = npc_data.get("shiver_clock", 0.0) + delta
+			var sh_cycle := fmod(npc_data["shiver_clock"], 25.0)
+			if sh_cycle < 0.3:
+				var ls := node.get_node_or_null("Model/LeftShoulder")
+				var rs := node.get_node_or_null("Model/RightShoulder")
+				var sh_up := sin(sh_cycle * TAU * 8.0) * 0.15  # rapid up-down
+				if ls and is_instance_valid(ls):
+					ls.rotation.z = lerpf(ls.rotation.z, sh_up, 12.0 * delta)
+				if rs and is_instance_valid(rs):
+					rs.rotation.z = lerpf(rs.rotation.z, -sh_up, 12.0 * delta)
+
+		# Collar adjust (7% of stopped NPCs without umbrella — reaching to collar)
+		if npc_data.get("does_collar_adj", false) and is_stopped and not npc_data.get("arms_crossed", false):
+			npc_data["collar_clock"] = npc_data.get("collar_clock", 0.0) + delta
+			var col_cycle := fmod(npc_data["collar_clock"], 20.0)
+			if col_cycle < 1.5:
+				var rs := node.get_node_or_null("Model/RightShoulder")
+				var re := node.get_node_or_null("Model/RightShoulder/RightElbow")
+				if rs and is_instance_valid(rs) and re and is_instance_valid(re):
+					var col_blend := 0.0
+					if col_cycle < 0.4:
+						col_blend = col_cycle / 0.4
+					elif col_cycle < 1.0:
+						col_blend = 1.0
+					else:
+						col_blend = (1.5 - col_cycle) / 0.5
+					rs.rotation.x = lerpf(rs.rotation.x, -0.6 * col_blend, 6.0 * delta)
+					re.rotation.x = lerpf(re.rotation.x, -0.9 * col_blend, 6.0 * delta)
+
 		# Umbrella tilt in wind (umbrella-carrying NPCs tilt toward wind direction)
 		if npc_data.get("has_umbrella", false):
 			var umbrella_node := node.get_node_or_null("Model/Umbrella")
@@ -1671,6 +1702,8 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		"does_hand_behind": not has_umbrella and not has_phone and not has_newspaper and rng.randf() < 0.06,
 		"does_cross_scratch": not has_umbrella and rng.randf() < 0.05,
 		"does_ankle_roll": rng.randf() < 0.04,
+		"does_shiver": not has_umbrella and rng.randf() < 0.05,
+		"does_collar_adj": not has_umbrella and not has_phone and rng.randf() < 0.07,
 		"nod_cooldown": 0.0,
 		"last_cell_x": -999,
 		"last_cell_z": -999,

@@ -199,6 +199,13 @@ func _physics_process(delta: float) -> void:
 			tail_target = horiz_speed * 0.04 + sin(bob_timer * 2.0) * 0.05
 		coat_tail.rotation.x = lerpf(coat_tail.rotation.x, tail_target, 6.0 * delta)
 
+	# Flashlight pendulum sway (counter-bob during movement)
+	if flashlight and flashlight.visible:
+		var fl_sway_x := -sin(bob_timer) * 0.015 if horiz_speed > 0.5 else 0.0
+		var fl_sway_z := cos(bob_timer * 0.5) * 0.01 if horiz_speed > 0.5 else 0.0
+		flashlight.rotation.x = lerpf(flashlight.rotation.x, fl_sway_x, 8.0 * delta)
+		flashlight.rotation.z = lerpf(flashlight.rotation.z, fl_sway_z, 8.0 * delta)
+
 	var is_sprinting := Input.is_key_pressed(KEY_SHIFT) and horiz_speed > 1.0
 
 	# Sprint model lean (body leans forward when running)
@@ -336,6 +343,21 @@ func _physics_process(delta: float) -> void:
 	if thunder_flinch > 0.0:
 		camera.rotation.x -= thunder_flinch
 		thunder_flinch = maxf(0.0, thunder_flinch - delta * 0.1)
+
+	# Traffic rumble micro-shake (ground tremor from nearby cars)
+	var traffic_mgr := get_node_or_null("../TrafficManager")
+	if traffic_mgr and "ground_cars" in traffic_mgr:
+		var closest_car_dist := 999.0
+		for car_info in traffic_mgr.ground_cars:
+			var car_node: Node3D = car_info.get("node")
+			if car_node and is_instance_valid(car_node):
+				var d := global_position.distance_to(car_node.global_position)
+				if d < closest_car_dist:
+					closest_car_dist = d
+		if closest_car_dist < 8.0:
+			var tremor := (1.0 - closest_car_dist / 8.0) * 0.002
+			camera_pivot.rotation.z += sin(bob_timer * 30.0) * tremor
+			camera_pivot.rotation.x += cos(bob_timer * 25.0) * tremor * 0.5
 
 	# Breath fog puffs (faster when catching breath after sprint)
 	breath_timer -= delta
