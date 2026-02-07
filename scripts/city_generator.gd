@@ -175,6 +175,8 @@ func _ready() -> void:
 	_generate_puddle_splash_rings()
 	_generate_lobby_lights()
 	_generate_height_fog_layers()
+	_generate_barricade_tape()
+	_generate_cardboard_boxes()
 	_setup_neon_flicker()
 	_setup_color_shift_signs()
 	print("CityGenerator: generation complete, total children=", get_child_count())
@@ -6449,3 +6451,74 @@ func _generate_height_fog_layers() -> void:
 		fog_plane.set_surface_override_material(0, mats[i])
 		fog_plane.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(fog_plane)
+
+func _generate_barricade_tape() -> void:
+	# Yellow-black emergency tape strips across alley entrances
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 8800
+	var tape_color := Color(0.9, 0.8, 0.0)
+	var count := 0
+	for child in get_children():
+		if count >= 8:
+			break
+		if not child is MeshInstance3D:
+			continue
+		var mi := child as MeshInstance3D
+		if not mi.mesh is BoxMesh:
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		if bsize.y < 8.0 or bsize.x < 5.0:
+			continue
+		if rng.randf() > 0.04:
+			continue
+		count += 1
+		var tape_y := mi.position.y - bsize.y * 0.5 + rng.randf_range(0.8, 1.2)
+		var face_sign := 1.0 if rng.randf() < 0.5 else -1.0
+		var tape_z := mi.position.z + face_sign * (bsize.z * 0.5 + 1.0)
+		# Tape strip (thin emissive yellow box)
+		var tape := MeshInstance3D.new()
+		var tape_mesh := BoxMesh.new()
+		tape_mesh.size = Vector3(bsize.x * 0.6, 0.04, 0.01)
+		tape.mesh = tape_mesh
+		tape.position = Vector3(mi.position.x, tape_y, tape_z)
+		tape.set_surface_override_material(0,
+			_make_ps1_material(tape_color * 0.4, true, tape_color, 1.5))
+		tape.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(tape)
+		# Second tape at different height
+		if rng.randf() < 0.6:
+			var tape2 := MeshInstance3D.new()
+			tape2.mesh = tape_mesh
+			tape2.position = Vector3(mi.position.x, tape_y + 0.3, tape_z)
+			tape2.set_surface_override_material(0, tape.get_surface_override_material(0))
+			tape2.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			add_child(tape2)
+
+func _generate_cardboard_boxes() -> void:
+	# Soggy cardboard boxes near buildings and dumpsters
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 8900
+	var box_mat := _make_ps1_material(Color(0.22, 0.15, 0.08))
+	var box_mat_dark := _make_ps1_material(Color(0.15, 0.1, 0.05))
+	for _i in range(15):
+		var gx := rng.randi_range(-grid_size + 1, grid_size - 1)
+		var gz := rng.randi_range(-grid_size + 1, grid_size - 1)
+		var stride := block_size + street_width
+		var bx := gx * stride + rng.randf_range(-block_size * 0.4, block_size * 0.4)
+		var bz := gz * stride + rng.randf_range(-block_size * 0.4, block_size * 0.4)
+		var box := MeshInstance3D.new()
+		var box_mesh := BoxMesh.new()
+		var bw := rng.randf_range(0.25, 0.5)
+		var bh := rng.randf_range(0.15, 0.35)
+		var bd := rng.randf_range(0.2, 0.4)
+		box_mesh.size = Vector3(bw, bh, bd)
+		box.mesh = box_mesh
+		box.position = Vector3(bx, bh * 0.5, bz)
+		box.rotation.y = rng.randf_range(0, TAU)
+		# Slight tilt (collapsed/crushed look)
+		box.rotation.x = rng.randf_range(-0.1, 0.1)
+		box.rotation.z = rng.randf_range(-0.1, 0.1)
+		var use_dark := rng.randf() < 0.4
+		box.set_surface_override_material(0, box_mat_dark if use_dark else box_mat)
+		box.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(box)

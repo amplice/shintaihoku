@@ -69,6 +69,15 @@ var explosion_phase: float = 0.0
 var explosion_active: bool = false
 var explosion_duration: float = 2.0
 var explosion_filter: float = 0.0
+var door_timer: float = 0.0
+var door_phase: float = 0.0
+var door_active: bool = false
+var melody_timer: float = 0.0
+var melody_phase: float = 0.0
+var melody_active: bool = false
+var melody_duration: float = 4.0
+var melody_note_idx: int = 0
+var melody_notes: Array[float] = []
 var phone_timer: float = 0.0
 var phone_phase: float = 0.0
 var phone_active: bool = false
@@ -218,6 +227,39 @@ func _process(delta: float) -> void:
 		phone_phase += delta
 		if phone_phase > phone_duration:
 			phone_active = false
+
+	# Distant door slam
+	door_timer -= delta
+	if door_timer <= 0.0 and not door_active:
+		door_timer = rng.randf_range(45.0, 90.0)
+		door_active = true
+		door_phase = 0.0
+
+	if door_active:
+		door_phase += delta
+		if door_phase > 0.15:
+			door_active = false
+
+	# Distant melody fragment
+	melody_timer -= delta
+	if melody_timer <= 0.0 and not melody_active:
+		melody_timer = rng.randf_range(80.0, 150.0)
+		melody_active = true
+		melody_phase = 0.0
+		melody_duration = rng.randf_range(3.0, 5.0)
+		melody_note_idx = 0
+		# Generate pentatonic melody (C, D, E, G, A in various octaves)
+		var penta := [261.6, 293.7, 329.6, 392.0, 440.0]
+		melody_notes.clear()
+		for _n in range(rng.randi_range(3, 5)):
+			var ni := rng.randi_range(0, 4)
+			var octave := 1.0 if rng.randf() < 0.7 else 2.0
+			melody_notes.append(penta[ni] * octave)
+
+	if melody_active:
+		melody_phase += delta
+		if melody_phase > melody_duration:
+			melody_active = false
 
 	# Distant dog barking
 	bark_timer -= delta
@@ -451,6 +493,30 @@ func _fill_hum_buffer() -> void:
 				var tinkle_noise := rng.randf_range(-1.0, 1.0) * 0.2
 				glass_sample += (tinkle1 + tinkle2 + tinkle3 + tinkle_noise) * glass_env * glass_env
 			sample += glass_sample * 0.04
+		# Distant door slam (percussive thud)
+		if door_active and door_phase < 0.12:
+			var door_env := (1.0 - door_phase / 0.12)
+			door_env = door_env * door_env * door_env  # cubic decay
+			var door_thud := sin(t * 120.0 * TAU) * 0.5
+			door_thud += sin(t * 180.0 * TAU) * 0.2
+			var door_noise := rng.randf_range(-1.0, 1.0) * 0.3
+			sample += (door_thud + door_noise) * door_env * 0.04
+		# Distant melody fragment (pentatonic sine tones)
+		if melody_active and melody_notes.size() > 0:
+			var note_dur := melody_duration / float(melody_notes.size())
+			var current_note_idx := mini(int(melody_phase / note_dur), melody_notes.size() - 1)
+			var note_local := fmod(melody_phase, note_dur)
+			var mel_env := 1.0
+			# Note envelope: fast attack, slow decay
+			if note_local < 0.02:
+				mel_env = note_local / 0.02
+			else:
+				mel_env = maxf(0.0, 1.0 - (note_local - 0.02) / (note_dur * 0.8))
+			mel_env = mel_env * mel_env
+			var freq := melody_notes[current_note_idx]
+			var mel_tone := sin(t * freq * TAU) * 0.3
+			mel_tone += sin(t * freq * 2.0 * TAU) * 0.08  # gentle octave
+			sample += mel_tone * mel_env * 0.02
 		# Distant explosion rumble (sub-bass boom)
 		if explosion_active:
 			var ex_env := 1.0
