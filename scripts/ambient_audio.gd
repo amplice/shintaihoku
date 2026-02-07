@@ -61,10 +61,20 @@ var bass_phase: float = 0.0
 var bass_active: bool = false
 var bass_duration: float = 10.0
 var bass_bpm: float = 120.0
+var spark_timer: float = 0.0
+var spark_phase: float = 0.0
+var spark_active: bool = false
+var world_env: WorldEnvironment = null
+var base_ambient_energy: float = 4.0
 var rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
 	rng.seed = 1234
+
+	# Grab WorldEnvironment for lightning ambient boost
+	world_env = get_node_or_null("../WorldEnvironment")
+	if world_env and world_env.environment:
+		base_ambient_energy = world_env.environment.ambient_light_energy
 
 	# Rain noise player
 	rain_player = AudioStreamPlayer.new()
@@ -151,8 +161,27 @@ func _process(delta: float) -> void:
 		else:
 			flash_val = maxf(0.0, (0.2 - ft) * 10.0)
 		lightning_light.light_energy = flash_val
+		# Boost ambient light during flash
+		if world_env and world_env.environment:
+			world_env.environment.ambient_light_energy = base_ambient_energy + flash_val * 0.4
 	elif lightning_light:
 		lightning_light.light_energy = 0.0
+		# Restore ambient light
+		if world_env and world_env.environment:
+			world_env.environment.ambient_light_energy = lerpf(
+				world_env.environment.ambient_light_energy, base_ambient_energy, 8.0 * delta)
+
+	# Electrical sparking crackle
+	spark_timer -= delta
+	if spark_timer <= 0.0 and not spark_active:
+		spark_timer = rng.randf_range(40.0, 90.0)
+		spark_active = true
+		spark_phase = 0.0
+
+	if spark_active:
+		spark_phase += delta
+		if spark_phase > 0.15:
+			spark_active = false
 
 	# Distant dog barking
 	bark_timer -= delta
@@ -386,6 +415,16 @@ func _fill_hum_buffer() -> void:
 				var tinkle_noise := rng.randf_range(-1.0, 1.0) * 0.2
 				glass_sample += (tinkle1 + tinkle2 + tinkle3 + tinkle_noise) * glass_env * glass_env
 			sample += glass_sample * 0.04
+		# Electrical spark crackle (short high-freq burst)
+		if spark_active and spark_phase < 0.12:
+			var sp_env := (1.0 - spark_phase / 0.12)
+			sp_env = sp_env * sp_env
+			# Rapid random clicks/pops
+			var sp_noise := rng.randf_range(-1.0, 1.0)
+			var sp_high := sin(t * 5500.0 * TAU) * 0.2 + sin(t * 8200.0 * TAU) * 0.1
+			# Gate: only crackle on random peaks
+			var sp_gate := 1.0 if absf(sp_noise) > 0.5 else 0.0
+			sample += (sp_noise * 0.4 + sp_high) * sp_env * sp_gate * 0.03
 		# Distant club bass thump (4-on-the-floor kick)
 		if bass_active:
 			var beat_period := 60.0 / bass_bpm

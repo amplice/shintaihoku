@@ -46,6 +46,9 @@ var is_crouching: bool = false
 var crouch_lerp: float = 1.0  # 1.0 = standing, CROUCH_HEIGHT = crouched
 var model_node: Node3D = null
 var shadow_blob: MeshInstance3D = null
+var sprint_breath_toggle: bool = false  # alternates per footstep when sprinting
+var sprint_time: float = 0.0  # how long we've been sprinting
+var impact_aberration: float = 0.0  # chromatic aberration from hard landing
 
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
@@ -88,11 +91,13 @@ func _physics_process(delta: float) -> void:
 	if not is_on_floor():
 		velocity.y -= GRAVITY * delta
 
-	# Landing screen shake
+	# Landing screen shake + chromatic aberration
 	var fall_speed := absf(velocity.y)
 	if is_on_floor() and not was_on_floor and fall_speed > 3.0:
 		shake_intensity = clampf(fall_speed * 0.008, 0.01, 0.06)
 		shake_timer = 0.25
+		if fall_speed > 6.0:
+			impact_aberration = clampf((fall_speed - 6.0) * 0.15, 0.0, 1.0)
 	was_on_floor = is_on_floor()
 
 	# Apply shake decay
@@ -153,6 +158,22 @@ func _physics_process(delta: float) -> void:
 		camera.rotation.z = lerpf(camera.rotation.z, strafe_roll, 6.0 * delta)
 	elif not (shake_timer > 0.0):
 		camera.rotation.z = lerpf(camera.rotation.z, 0.0, 8.0 * delta)
+
+	# Track sprint duration for breathing
+	if is_sprinting:
+		sprint_time += delta
+	else:
+		sprint_time = maxf(sprint_time - delta * 2.0, 0.0)
+
+	# Impact chromatic aberration decay
+	if impact_aberration > 0.0:
+		impact_aberration = maxf(0.0, impact_aberration - delta * 4.0)
+		if crt_material:
+			var base_aberration_val = crt_material.get_shader_parameter("aberration_amount")
+			var base_aberration: float = 1.0
+			if base_aberration_val != null:
+				base_aberration = float(base_aberration_val)
+			crt_material.set_shader_parameter("aberration_amount", base_aberration + impact_aberration * 3.0)
 
 	# Sprint rain streaks + speed blur
 	if sprint_streaks:
@@ -384,6 +405,11 @@ func _trigger_footstep(sprinting: bool) -> void:
 			sample = (noise * 0.6 + thump * 0.4) * env * volume
 		if step_playback.can_push_buffer(1):
 			step_playback.push_frame(Vector2(sample, sample))
+	# Sprint breathing: every other footstep when sprinting for >2s
+	if sprinting and sprint_time > 2.0:
+		sprint_breath_toggle = not sprint_breath_toggle
+		if sprint_breath_toggle:
+			_trigger_breath_sound()
 
 func _setup_flashlight() -> void:
 	flashlight = SpotLight3D.new()
@@ -536,3 +562,21 @@ func _setup_shadow_blob() -> void:
 	shadow_blob.set_surface_override_material(0, blob_mat)
 	shadow_blob.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	get_parent().call_deferred("add_child", shadow_blob)
+
+func _trigger_breath_sound() -> void:
+	if not step_playback:
+		return
+	# Breathy exhale: band-pass filtered noise with formant resonance
+	var breath_samples := 1200
+	var breath_filter := 0.0
+	for i in range(breath_samples):
+		var t := float(i) / float(breath_samples)
+		# Breath envelope: gentle rise then fall
+		var env := sin(t * PI) * 0.8
+		var noise := step_rng.randf_range(-1.0, 1.0)
+		# Band-pass for breathy quality (500-1500Hz range)
+		breath_filter = breath_filter * 0.65 + noise * 0.35
+		var formant := sin(t * 800.0 * TAU * 0.01) * breath_filter * 0.4
+		var sample := formant * env * 0.08
+		if step_playback.can_push_buffer(1):
+			step_playback.push_frame(Vector2(sample, sample))

@@ -27,6 +27,7 @@ var pipe_arcs: Array[Dictionary] = []  # [{light, phase, speed}]
 var police_red_light: OmniLight3D = null
 var police_blue_light: OmniLight3D = null
 var hologram_projections: Array[Dictionary] = []  # [{mesh, light, phase, speed}]
+var cycling_windows: Array[Dictionary] = []  # [{mesh, base_energy, period, phase}]
 var aircraft_node: Node3D = null
 var aircraft_time: float = 0.0
 var aircraft_nav_light: OmniLight3D = null
@@ -559,6 +560,14 @@ func _add_windows(building: MeshInstance3D, size: Vector3, rng: RandomNumberGene
 						"node": tv_light, "mesh": null,
 						"base_energy": 1.5, "phase": rng.randf() * TAU,
 						"speed": rng.randf_range(5.0, 15.0), "style": "tv",
+					})
+				# 3% of lit windows slowly cycle on/off
+				if rng.randf() < 0.03 and cycling_windows.size() < 20:
+					cycling_windows.append({
+						"mesh": win,
+						"base_energy": rng.randf_range(2.5, 5.0),
+						"period": rng.randf_range(30.0, 60.0),
+						"phase": rng.randf() * TAU,
 					})
 
 	# Windows on side faces (X axis)
@@ -5014,6 +5023,21 @@ func _process(_delta: float) -> void:
 			# Blink stop signal in last second before walk
 			if cs_cycle > 5.0:
 				stop_m.visible = fmod(time * 4.0, 1.0) < 0.5
+
+	# Cycling window lights (slow on/off)
+	for cw in cycling_windows:
+		var win_mesh: MeshInstance3D = cw["mesh"]
+		if not is_instance_valid(win_mesh):
+			continue
+		var cw_period: float = cw["period"]
+		var cw_phase: float = cw["phase"]
+		var cw_base: float = cw["base_energy"]
+		# Smooth sine cycle from 0 to 1
+		var brightness := (sin(time * TAU / cw_period + cw_phase) + 1.0) * 0.5
+		# Apply to emission strength via material
+		var mat := win_mesh.get_surface_override_material(0) as ShaderMaterial
+		if mat:
+			mat.set_shader_parameter("emission_strength", cw_base * brightness)
 
 	# Rotating ventilation fans
 	for fan in rotating_fans:
