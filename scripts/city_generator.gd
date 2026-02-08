@@ -195,6 +195,8 @@ func _ready() -> void:
 	_generate_wall_drips()
 	_generate_gutter_overflow()
 	_generate_street_name_signs()
+	_generate_wall_screens()
+	_generate_overhead_intersection_lights()
 	print("CityGenerator: generation complete, total children=", get_child_count())
 
 func _make_ps1_material(color: Color, is_emissive: bool = false,
@@ -7142,3 +7144,132 @@ func _generate_street_name_signs() -> void:
 			label_back.rotation.y = PI
 			sign_node.add_child(label_back)
 			add_child(sign_node)
+
+func _generate_wall_screens() -> void:
+	## Small mounted display screens on building walls — adds light and cyberpunk feel.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 8001
+	var stride := block_size + street_width
+	var screen_colors := [
+		Color(0.2, 0.6, 1.0),   # blue info screen
+		Color(0.1, 1.0, 0.5),   # green terminal
+		Color(1.0, 0.3, 0.5),   # red warning
+		Color(0.8, 0.5, 1.0),   # purple ad
+		Color(1.0, 0.8, 0.2),   # yellow status
+		Color(0.0, 0.9, 0.9),   # cyan data feed
+	]
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			if rng.randf() > 0.4:  # 40% of buildings get wall screens
+				continue
+			var bx := gx * stride + block_size * 0.5
+			var bz := gz * stride + block_size * 0.5
+			var num_screens := rng.randi_range(1, 3)
+			for _s in range(num_screens):
+				var face := rng.randi_range(0, 3)
+				var screen_h := rng.randf_range(2.5, 6.0)
+				var lateral := rng.randf_range(-block_size * 0.35, block_size * 0.35)
+				var sx := bx
+				var sz := bz
+				var ry := 0.0
+				var nx := 0.0
+				var nz := 0.0
+				match face:
+					0: sz -= block_size * 0.5 - 0.06; nx = 0.0; nz = -1.0  # front
+					1: sz += block_size * 0.5 - 0.06; nx = 0.0; nz = 1.0; ry = PI  # back
+					2: sx -= block_size * 0.5 - 0.06; nx = -1.0; nz = 0.0; ry = PI * 0.5  # left
+					3: sx += block_size * 0.5 - 0.06; nx = 1.0; nz = 0.0; ry = -PI * 0.5  # right
+				sx += lateral * absf(nz) if nz != 0.0 else 0.0
+				sz += lateral * absf(nx) if nx != 0.0 else 0.0
+				var screen_w := rng.randf_range(0.4, 0.9)
+				var screen_ht := rng.randf_range(0.3, 0.6)
+				var screen_color: Color = screen_colors[rng.randi_range(0, screen_colors.size() - 1)]
+				# Screen mesh (thin emissive box)
+				var screen := MeshInstance3D.new()
+				var sm := BoxMesh.new()
+				sm.size = Vector3(screen_w, screen_ht, 0.04)
+				screen.mesh = sm
+				screen.position = Vector3(sx, screen_h, sz)
+				screen.rotation.y = ry
+				screen.set_surface_override_material(0,
+					_make_ps1_material(screen_color * 0.3, true, screen_color, 2.0))
+				screen.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				add_child(screen)
+				# Frame around screen (dark border)
+				var frame := MeshInstance3D.new()
+				var fm := BoxMesh.new()
+				fm.size = Vector3(screen_w + 0.08, screen_ht + 0.08, 0.02)
+				frame.mesh = fm
+				frame.position = Vector3(sx, screen_h, sz)
+				frame.rotation.y = ry
+				frame.set_surface_override_material(0, _make_ps1_material(Color(0.05, 0.05, 0.07)))
+				frame.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				add_child(frame)
+				# Small omni light to illuminate surrounding wall
+				var sl := OmniLight3D.new()
+				sl.light_color = screen_color
+				sl.light_energy = 1.5
+				sl.omni_range = 4.0
+				sl.omni_attenuation = 1.5
+				sl.shadow_enabled = false
+				sl.position = Vector3(sx + nx * 0.3, screen_h, sz + nz * 0.3)
+				add_child(sl)
+
+func _generate_overhead_intersection_lights() -> void:
+	## Hanging lantern-style lights over intersections (Japanese shotengai feel).
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 8002
+	var stride := block_size + street_width
+	var lantern_colors := [
+		Color(1.0, 0.85, 0.5),  # warm yellow
+		Color(1.0, 0.6, 0.3),   # amber
+		Color(0.9, 0.9, 0.8),   # neutral white
+	]
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			if rng.randf() > 0.5:  # 50% of intersections
+				continue
+			var ix := gx * stride + block_size + street_width * 0.5
+			var iz := gz * stride + block_size + street_width * 0.5
+			var lc: Color = lantern_colors[rng.randi_range(0, lantern_colors.size() - 1)]
+			# Lantern housing (small cylinder)
+			var housing := MeshInstance3D.new()
+			var hm := CylinderMesh.new()
+			hm.top_radius = 0.15
+			hm.bottom_radius = 0.2
+			hm.height = 0.3
+			housing.mesh = hm
+			housing.position = Vector3(ix, 5.5, iz)
+			housing.set_surface_override_material(0,
+				_make_ps1_material(Color(0.15, 0.15, 0.18)))
+			housing.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			add_child(housing)
+			# Glowing bulb underneath
+			var bulb := MeshInstance3D.new()
+			var bm := SphereMesh.new()
+			bm.radius = 0.1
+			bm.height = 0.2
+			bulb.mesh = bm
+			bulb.position = Vector3(ix, 5.3, iz)
+			bulb.set_surface_override_material(0,
+				_make_ps1_material(lc * 0.5, true, lc, 3.0))
+			bulb.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			add_child(bulb)
+			# Wire to nearest building edge (thin line)
+			var wire := MeshInstance3D.new()
+			var wm := BoxMesh.new()
+			wm.size = Vector3(street_width * 0.7, 0.015, 0.015)
+			wire.mesh = wm
+			wire.position = Vector3(ix, 5.6, iz)
+			wire.set_surface_override_material(0, _make_ps1_material(Color(0.08, 0.08, 0.1)))
+			wire.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			add_child(wire)
+			# OmniLight casting warm pool below
+			var ol := OmniLight3D.new()
+			ol.light_color = lc
+			ol.light_energy = 5.0
+			ol.omni_range = 14.0
+			ol.omni_attenuation = 1.3
+			ol.shadow_enabled = false
+			ol.position = Vector3(ix, 5.2, iz)
+			add_child(ol)
