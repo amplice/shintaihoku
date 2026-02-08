@@ -5211,7 +5211,7 @@ func _process(_delta: float) -> void:
 		else:
 			screen.set_surface_override_material(0, vs["mat_dim"])
 
-	# Wall screen color cycling (data feed / ad rotation feel)
+	# Wall screen color cycling (hold color for 4-8s, brief transition)
 	for ws in wall_screen_anims:
 		var wscreen: MeshInstance3D = ws["node"]
 		if not is_instance_valid(wscreen):
@@ -5219,14 +5219,21 @@ func _process(_delta: float) -> void:
 		var wlight: OmniLight3D = ws["light"]
 		var wphase: float = ws["phase"]
 		var wcolors: Array = ws["colors"]
-		# Slow color cycle (each screen rotates through colors at its own pace)
-		var color_t := fmod(time * 0.3 + wphase, float(wcolors.size()))
-		var ci := int(color_t) % wcolors.size()
-		var blend := color_t - floorf(color_t)
+		# Each color held for ~6 seconds, 0.5s transition between
+		var cycle_period := 6.5  # 6s hold + 0.5s transition
+		var color_t := fmod(time * 0.15 + wphase * 3.0, float(wcolors.size()) * cycle_period)
+		var ci := int(color_t / cycle_period) % wcolors.size()
+		var within := fmod(color_t, cycle_period)
 		var c1: Color = wcolors[ci]
 		var c2: Color = wcolors[(ci + 1) % wcolors.size()]
-		var cur_color: Color = c1.lerp(c2, blend)
-		# Occasional brief static flicker
+		var cur_color: Color
+		if within > cycle_period - 0.5:
+			# Brief transition phase
+			var blend := (within - (cycle_period - 0.5)) / 0.5
+			cur_color = c1.lerp(c2, blend)
+		else:
+			cur_color = c1
+		# Rare brief static flicker (5% of time)
 		var flicker := sin(time * 8.0 + wphase * 5.0) > 0.95
 		if flicker:
 			cur_color = Color(0.7, 0.7, 0.7)

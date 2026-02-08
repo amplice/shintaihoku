@@ -5,10 +5,26 @@ extends Node3D
 
 var rain_player: AudioStreamPlayer
 var hum_player: AudioStreamPlayer
+var synth_player: AudioStreamPlayer
 var rain_generator: AudioStreamGenerator
 var hum_generator: AudioStreamGenerator
+var synth_generator: AudioStreamGenerator
 var rain_playback: AudioStreamGeneratorPlayback
 var hum_playback: AudioStreamGeneratorPlayback
+var synth_playback: AudioStreamGeneratorPlayback
+var synth_phase1: float = 0.0
+var synth_phase2: float = 0.0
+var synth_phase3: float = 0.0
+var synth_lfo: float = 0.0
+var synth_chord_timer: float = 0.0
+var synth_chord_idx: int = 0
+var synth_note1: float = 55.0  # A1
+var synth_note2: float = 82.41  # E2
+var synth_note3: float = 110.0  # A2
+var synth_target1: float = 55.0
+var synth_target2: float = 82.41
+var synth_target3: float = 110.0
+var synth_filter: float = 0.0
 
 var rain_phase: float = 0.0
 var hum_phase: float = 0.0
@@ -371,6 +387,18 @@ func _ready() -> void:
 	hum_player.play()
 	hum_playback = hum_player.get_stream_playback()
 
+	# Ambient synth pad player (Blade Runner-style evolving drone)
+	synth_player = AudioStreamPlayer.new()
+	synth_generator = AudioStreamGenerator.new()
+	synth_generator.mix_rate = 22050.0
+	synth_generator.buffer_length = 0.15
+	synth_player.stream = synth_generator
+	synth_player.volume_db = -22.0
+	synth_player.bus = "Master"
+	add_child(synth_player)
+	synth_player.play()
+	synth_playback = synth_player.get_stream_playback()
+
 	# Lightning flash light (normally off)
 	lightning_light = DirectionalLight3D.new()
 	lightning_light.light_color = Color(0.8, 0.85, 1.0)
@@ -392,6 +420,7 @@ var rain_intensity_time: float = 0.0
 func _process(delta: float) -> void:
 	_fill_rain_buffer()
 	_fill_hum_buffer()
+	_update_synth_pad(delta)
 
 	# Sync rain audio volume with intensity cycle (~60s period, matching rain.gd)
 	rain_intensity_time += delta
@@ -2626,3 +2655,58 @@ func _fill_hum_buffer() -> void:
 		sample += murmur
 		sample *= 0.3
 		hum_playback.push_frame(Vector2(sample, sample))
+
+var synth_filter_cutoff: float = 0.6
+
+func _update_synth_pad(delta: float) -> void:
+	## Blade Runner-style evolving synth pad — slow chord changes with portamento.
+	if not synth_playback:
+		return
+
+	# Slowly evolve chord tones (minor/suspended voicings)
+	synth_chord_timer -= delta
+	if synth_chord_timer <= 0.0:
+		synth_chord_timer = rng.randf_range(12.0, 25.0)
+		synth_chord_idx = (synth_chord_idx + 1) % 5
+		match synth_chord_idx:
+			0:  # Am
+				synth_target1 = 55.0; synth_target2 = 65.41; synth_target3 = 82.41
+			1:  # Em
+				synth_target1 = 41.2; synth_target2 = 61.74; synth_target3 = 82.41
+			2:  # Dm
+				synth_target1 = 36.71; synth_target2 = 55.0; synth_target3 = 73.42
+			3:  # F
+				synth_target1 = 43.65; synth_target2 = 55.0; synth_target3 = 65.41
+			4:  # Asus4
+				synth_target1 = 55.0; synth_target2 = 73.42; synth_target3 = 82.41
+
+	# Glide note frequencies (portamento)
+	synth_note1 = lerpf(synth_note1, synth_target1, 0.3 * delta)
+	synth_note2 = lerpf(synth_note2, synth_target2, 0.3 * delta)
+	synth_note3 = lerpf(synth_note3, synth_target3, 0.3 * delta)
+
+	# LFO for filter/tremolo
+	synth_lfo += delta * 0.2
+	var lfo_val := sin(synth_lfo * TAU)
+	synth_filter_cutoff = 0.6 + lfo_val * 0.2
+
+	# Fill synth audio buffer
+	var inv_rate := 1.0 / 22050.0
+	while synth_playback.can_push_buffer(1):
+		synth_phase1 += synth_note1 * inv_rate
+		synth_phase2 += synth_note2 * inv_rate
+		synth_phase3 += synth_note3 * inv_rate
+		if synth_phase1 > 1.0: synth_phase1 -= 1.0
+		if synth_phase2 > 1.0: synth_phase2 -= 1.0
+		if synth_phase3 > 1.0: synth_phase3 -= 1.0
+		# Soft saw waves (2 harmonics for warmth without aliasing)
+		var osc1 := sin(synth_phase1 * TAU) * 0.5 + sin(synth_phase1 * TAU * 2.0) * 0.2
+		var osc2 := sin(synth_phase2 * TAU) * 0.5 + sin(synth_phase2 * TAU * 2.0) * 0.2
+		var osc3 := sin(synth_phase3 * TAU) * 0.4 + sin(synth_phase3 * TAU * 3.0) * 0.1
+		var raw := (osc1 + osc2 + osc3) * 0.33
+		# Low-pass filter (one-pole)
+		synth_filter = synth_filter + (raw - synth_filter) * synth_filter_cutoff
+		# Slow tremolo
+		var tremolo := 0.85 + 0.15 * sin(synth_lfo * TAU * 0.7)
+		var synth_sample := synth_filter * tremolo * 0.15
+		synth_playback.push_frame(Vector2(synth_sample, synth_sample))
