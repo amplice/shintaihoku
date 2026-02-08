@@ -283,14 +283,14 @@ func _create_building(pos: Vector3, size: Vector3, rng: RandomNumberGenerator) -
 	# Emissive windows - scattered quads on building faces
 	_add_windows(mesh_instance, size, rng)
 
-	# Add 1-2 neon signs per building
-	var num_signs := rng.randi_range(1, 2)
+	# Add 2-4 neon signs per building
+	var num_signs := rng.randi_range(2, 4)
 	for _s in range(num_signs):
-		if rng.randf() < 0.7:
+		if rng.randf() < 0.8:
 			_add_neon_sign(mesh_instance, size, rng)
 
 	# Tall buildings (>25) get a large vertical sign (Blade Runner style)
-	if size.y > 25.0 and neon_font and rng.randf() < 0.4:
+	if size.y > 25.0 and neon_font and rng.randf() < 0.5:
 		_add_vertical_neon_sign(mesh_instance, size, rng)
 
 func _create_storefront(pos: Vector3, size: Vector3, rng: RandomNumberGenerator) -> void:
@@ -1660,7 +1660,7 @@ func _generate_billboards() -> void:
 
 	for gx in range(-grid_size, grid_size):
 		for gz in range(-grid_size, grid_size):
-			if rng.randf() > 0.12:  # ~12% of blocks get a billboard
+			if rng.randf() > 0.20:  # ~20% of blocks get a billboard
 				continue
 			var cell_x := gx * cell_stride
 			var cell_z := gz * cell_stride
@@ -2124,12 +2124,12 @@ func _generate_neon_underglow() -> void:
 		if not mi.mesh is BoxMesh:
 			continue
 		var bsize: Vector3 = (mi.mesh as BoxMesh).size
-		if bsize.y < 8.0 or rng.randf() > 0.3:  # 30% of buildings
+		if bsize.y < 8.0 or rng.randf() > 0.45:  # 45% of buildings
 			continue
 
 		var gc := neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
 		var strip_y := -bsize.y * 0.5 + 0.1  # just above ground
-		var num_faces := rng.randi_range(1, 2)  # 1-2 faces get underglow
+		var num_faces := rng.randi_range(1, 3)  # 1-3 faces get underglow
 
 		for _f in range(num_faces):
 			var face := rng.randi_range(0, 3)
@@ -2158,8 +2158,8 @@ func _generate_neon_underglow() -> void:
 			# Ground light for underglow effect
 			var glow := OmniLight3D.new()
 			glow.light_color = gc
-			glow.light_energy = 1.5
-			glow.omni_range = 5.0
+			glow.light_energy = 2.5
+			glow.omni_range = 7.0
 			glow.omni_attenuation = 1.8
 			glow.shadow_enabled = false
 			glow.position = strip.position + Vector3(0, -0.2, 0)
@@ -2422,7 +2422,7 @@ func _generate_holographic_signs() -> void:
 		if not mi.mesh is BoxMesh:
 			continue
 		var bsize: Vector3 = (mi.mesh as BoxMesh).size
-		if bsize.y < 20.0 or rng.randf() > 0.08:  # 8% of tall buildings
+		if bsize.y < 20.0 or rng.randf() > 0.15:  # 15% of tall buildings
 			continue
 
 		var neon_col := neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
@@ -6979,9 +6979,9 @@ func _generate_security_spotlights() -> void:
 	var count := 0
 	for gx in range(-grid_size, grid_size):
 		for gz in range(-grid_size, grid_size):
-			if count >= 8:
+			if count >= 15:
 				break
-			if rng.randf() > 0.06:
+			if rng.randf() > 0.12:
 				continue
 			var bx := gx * stride + rng.randf_range(2.0, block_size - 2.0)
 			var bz := gz * stride + rng.randf_range(-0.5, 0.5)
@@ -6990,8 +6990,8 @@ func _generate_security_spotlights() -> void:
 			spot.position = Vector3(bx, spot_y, bz)
 			spot.rotation_degrees = Vector3(-70, rng.randf_range(-30, 30), 0)
 			spot.light_color = Color(1.0, 0.95, 0.85)
-			spot.light_energy = rng.randf_range(1.5, 2.5)
-			spot.spot_range = 8.0
+			spot.light_energy = rng.randf_range(3.0, 5.0)
+			spot.spot_range = 12.0
 			spot.spot_angle = rng.randf_range(30.0, 45.0)
 			spot.shadow_enabled = false
 			add_child(spot)
