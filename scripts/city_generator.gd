@@ -28,6 +28,7 @@ var police_red_light: OmniLight3D = null
 var police_blue_light: OmniLight3D = null
 var hologram_projections: Array[Dictionary] = []  # [{mesh, light, phase, speed}]
 var cycling_windows: Array[Dictionary] = []  # [{mesh, base_energy, period, phase}]
+var wall_screen_anims: Array[Dictionary] = []  # [{node, light, phase, colors}]
 var aircraft_node: Node3D = null
 var aircraft_time: float = 0.0
 var aircraft_nav_light: OmniLight3D = null
@@ -5210,6 +5211,33 @@ func _process(_delta: float) -> void:
 		else:
 			screen.set_surface_override_material(0, vs["mat_dim"])
 
+	# Wall screen color cycling (data feed / ad rotation feel)
+	for ws in wall_screen_anims:
+		var wscreen: MeshInstance3D = ws["node"]
+		if not is_instance_valid(wscreen):
+			continue
+		var wlight: OmniLight3D = ws["light"]
+		var wphase: float = ws["phase"]
+		var wcolors: Array = ws["colors"]
+		# Slow color cycle (each screen rotates through colors at its own pace)
+		var color_t := fmod(time * 0.3 + wphase, float(wcolors.size()))
+		var ci := int(color_t) % wcolors.size()
+		var blend := color_t - floorf(color_t)
+		var c1: Color = wcolors[ci]
+		var c2: Color = wcolors[(ci + 1) % wcolors.size()]
+		var cur_color: Color = c1.lerp(c2, blend)
+		# Occasional brief static flicker
+		var flicker := sin(time * 8.0 + wphase * 5.0) > 0.95
+		if flicker:
+			cur_color = Color(0.7, 0.7, 0.7)
+		# Update shader parameters (no material allocation)
+		var smat: ShaderMaterial = wscreen.get_surface_override_material(0)
+		if smat:
+			smat.set_shader_parameter("albedo_color", cur_color * 0.3)
+			smat.set_shader_parameter("emission_color", cur_color)
+		if is_instance_valid(wlight):
+			wlight.light_color = cur_color
+
 	# Surveillance drone patrol (figure-8 path)
 	if drone_node and is_instance_valid(drone_node):
 		drone_time += _delta
@@ -7214,6 +7242,13 @@ func _generate_wall_screens() -> void:
 				sl.shadow_enabled = false
 				sl.position = Vector3(sx + nx * 0.3, screen_h, sz + nz * 0.3)
 				add_child(sl)
+				# Register for animation
+				wall_screen_anims.append({
+					"node": screen, "light": sl,
+					"phase": rng.randf() * TAU,
+					"colors": screen_colors.duplicate(),
+					"mat_cache": {}
+				})
 
 func _generate_overhead_intersection_lights() -> void:
 	## Hanging lantern-style lights over intersections (Japanese shotengai feel).
