@@ -194,6 +194,7 @@ func _ready() -> void:
 	_generate_security_spotlights()
 	_generate_wall_drips()
 	_generate_gutter_overflow()
+	_generate_street_name_signs()
 	print("CityGenerator: generation complete, total children=", get_child_count())
 
 func _make_ps1_material(color: Color, is_emissive: bool = false,
@@ -7069,3 +7070,75 @@ func _generate_gutter_overflow() -> void:
 			stream.draw_pass_1 = s_mesh
 			add_child(stream)
 			overflow_count += 1
+
+func _generate_street_name_signs() -> void:
+	# Japanese-style blue street name signs at intersections
+	if not neon_font:
+		return
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 9900
+	var stride := block_size + street_width
+	var sign_color := Color(0.15, 0.3, 0.7)  # blue sign background
+	var text_color := Color(0.9, 0.95, 1.0)  # white text
+
+	# Japanese street name components
+	var name_parts := ["新体", "北", "中央", "東", "西", "南", "一", "二", "三",
+		"本", "大", "上", "下", "桜", "松", "竹", "梅", "光", "明", "青"]
+	var suffixes := ["通り", "街", "路", "坂", "丁目"]
+
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			if rng.randf() > 0.35:  # 35% of intersections get a sign
+				continue
+			var cell_x := gx * stride + block_size * 0.5 + street_width * 0.5
+			var cell_z := gz * stride + block_size * 0.5 + street_width * 0.5
+			# Sign pole at corner of intersection
+			var pole_offset_x := rng.randf_range(-1.5, 1.5)
+			var pole_offset_z := rng.randf_range(-1.5, 1.5)
+			var sign_node := Node3D.new()
+			sign_node.position = Vector3(cell_x + pole_offset_x, 0, cell_z + pole_offset_z)
+			# Thin pole
+			var pole := MeshInstance3D.new()
+			var pole_mesh := CylinderMesh.new()
+			pole_mesh.top_radius = 0.04
+			pole_mesh.bottom_radius = 0.04
+			pole_mesh.height = 3.5
+			pole.mesh = pole_mesh
+			pole.position = Vector3(0, 1.75, 0)
+			pole.set_surface_override_material(0, _make_ps1_material(Color(0.25, 0.25, 0.28)))
+			sign_node.add_child(pole)
+			# Blue sign plate
+			var plate := MeshInstance3D.new()
+			var plate_mesh := BoxMesh.new()
+			plate_mesh.size = Vector3(1.2, 0.35, 0.04)
+			plate.mesh = plate_mesh
+			plate.position = Vector3(0, 3.3, 0)
+			plate.set_surface_override_material(0,
+				_make_ps1_material(sign_color * 0.4, true, sign_color, 1.5))
+			sign_node.add_child(plate)
+			# Street name text
+			var street_name: String = name_parts[rng.randi_range(0, name_parts.size() - 1)] + suffixes[rng.randi_range(0, suffixes.size() - 1)]
+			var label := Label3D.new()
+			label.text = street_name
+			label.font = neon_font
+			label.font_size = 24
+			label.pixel_size = 0.006
+			label.modulate = text_color
+			label.outline_size = 2
+			label.outline_modulate = Color(0.1, 0.15, 0.3)
+			label.position = Vector3(0, 3.3, 0.025)
+			label.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+			sign_node.add_child(label)
+			# Back side text (same name, facing other direction)
+			var label_back := Label3D.new()
+			label_back.text = street_name
+			label_back.font = neon_font
+			label_back.font_size = 24
+			label_back.pixel_size = 0.006
+			label_back.modulate = text_color
+			label_back.outline_size = 2
+			label_back.outline_modulate = Color(0.1, 0.15, 0.3)
+			label_back.position = Vector3(0, 3.3, -0.025)
+			label_back.rotation.y = PI
+			sign_node.add_child(label_back)
+			add_child(sign_node)
