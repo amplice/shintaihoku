@@ -48,6 +48,11 @@ void fragment() {
 	if (emissive) {
 		EMISSION = emission_color.rgb * emission_strength;
 		EMISSION = mix(EMISSION, vec3(0.0), fog_factor * 0.7);
+	} else {
+		// Subtle city ambient glow on non-emissive surfaces (simulates indirect neon bounce)
+		// Tinted slightly purple to match cyberpunk aesthetic
+		vec3 ambient_glow = color * 0.08 + vec3(0.01, 0.005, 0.02);
+		EMISSION = mix(ambient_glow, vec3(0.0), fog_factor);
 	}
 
 	// Wet surface: fake Fresnel specular shimmer
