@@ -38,9 +38,9 @@ volumetric_fog_length = 150.0
 size = Vector2(500, 500)
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_tefeu"]
-albedo_color = Color(0.04, 0.04, 0.06, 1)
-metallic = 0.3
-roughness = 0.15
+albedo_color = Color(0.07, 0.07, 0.09, 1)
+metallic = 0.4
+roughness = 0.1
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_ground"]
 size = Vector3(500, 0.1, 500)

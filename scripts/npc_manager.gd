@@ -2,7 +2,7 @@ extends Node3D
 
 ## Spawns NPC pedestrians that walk along streets.
 
-@export var num_npcs: int = 20
+@export var num_npcs: int = 50
 @export var grid_size: int = 6
 @export var block_size: float = 20.0
 @export var street_width: float = 8.0
@@ -1879,10 +1879,10 @@ func _add_body_part(parent: Node3D, part_name: String, mesh: Mesh, pos: Vector3,
 	parent.add_child(mi)
 
 func _spawn_conversation_groups(_rng: RandomNumberGenerator) -> void:
-	# Spawn 3 groups of 2-3 NPCs standing together chatting
+	# Spawn 6 groups of 2-3 NPCs standing together chatting
 	var group_rng := RandomNumberGenerator.new()
 	group_rng.seed = 8888
-	for _g in range(3):
+	for _g in range(6):
 		var group_size := group_rng.randi_range(2, 3)
 		# Pick a random street intersection for the group
 		var gx := group_rng.randi_range(-grid_size + 1, grid_size - 2)

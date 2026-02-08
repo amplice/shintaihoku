@@ -2,8 +2,8 @@ extends Node3D
 
 ## Manages moving ground cars and flying cars along the street grid.
 
-@export var num_ground_cars: int = 25
-@export var num_flying_cars: int = 12
+@export var num_ground_cars: int = 40
+@export var num_flying_cars: int = 18
 @export var grid_size: int = 6
 @export var block_size: float = 20.0
 @export var street_width: float = 8.0
