@@ -11,8 +11,8 @@ var environment: Environment
 var world_env: WorldEnvironment
 
 # Color presets for each period
-var night_bg := Color(0.01, 0.01, 0.03)
-var night_ambient := Color(0.15, 0.1, 0.22)
+var night_bg := Color(0.03, 0.02, 0.06)
+var night_ambient := Color(0.18, 0.12, 0.25)
 var night_sun_color := Color(0.2, 0.15, 0.3)
 var night_fog := Color(0.06, 0.03, 0.1)
 

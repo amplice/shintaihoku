@@ -5737,7 +5737,7 @@ func _generate_building_entrances() -> void:
 		# Only buildings tall enough to have a lobby, not too small
 		if bsize.y < 12.0 or bsize.x < 7.0:
 			continue
-		if rng.randf() > 0.35:
+		if rng.randf() > 0.45:
 			continue
 		var half_w := bsize.x * 0.5
 		var half_h := bsize.y * 0.5
@@ -5769,8 +5769,8 @@ func _generate_building_entrances() -> void:
 			door_light.light_color = Color(1.0, 0.8, 0.5)
 		else:
 			door_light.light_color = Color(0.7, 0.85, 1.0)  # cool fluorescent
-		door_light.light_energy = rng.randf_range(1.5, 3.0)
-		door_light.omni_range = 5.0
+		door_light.light_energy = rng.randf_range(3.0, 5.0)
+		door_light.omni_range = 8.0
 		door_light.omni_attenuation = 1.5
 		door_light.shadow_enabled = false
 		door_light.position = door_pos + Vector3(0, 1.8, 0)
@@ -5814,7 +5814,7 @@ func _generate_street_vendors() -> void:
 	# Small street vendor stalls along sidewalks with canopy, counter, and warm light
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7400
-	var num_vendors := 5
+	var num_vendors := 12
 	for _i in range(num_vendors):
 		var gx := rng.randi_range(-grid_size + 1, grid_size - 1)
 		var gz := rng.randi_range(-grid_size + 1, grid_size - 1)
@@ -5856,8 +5856,8 @@ func _generate_street_vendors() -> void:
 		# Warm light under canopy
 		var stall_light := OmniLight3D.new()
 		stall_light.light_color = Color(1.0, 0.85, 0.5)
-		stall_light.light_energy = 2.5
-		stall_light.omni_range = 5.0
+		stall_light.light_energy = 4.0
+		stall_light.omni_range = 8.0
 		stall_light.omni_attenuation = 1.5
 		stall_light.shadow_enabled = false
 		stall_light.position = Vector3(0, 2.1, 0)
@@ -5899,6 +5899,28 @@ func _generate_street_vendors() -> void:
 			sign_glow.shadow_enabled = false
 			sign_glow.position = sign_label.position
 			vendor.add_child(sign_glow)
+		# Cooking steam rising from the stall
+		var steam := GPUParticles3D.new()
+		steam.position = Vector3(rng.randf_range(-0.3, 0.3), 1.2, rng.randf_range(-0.2, 0.2))
+		steam.amount = 8
+		steam.lifetime = 2.0
+		steam.visibility_aabb = AABB(Vector3(-2, -1, -2), Vector3(4, 5, 4))
+		var steam_mat := ParticleProcessMaterial.new()
+		steam_mat.direction = Vector3(0, 1, 0)
+		steam_mat.spread = 20.0
+		steam_mat.initial_velocity_min = 0.5
+		steam_mat.initial_velocity_max = 1.2
+		steam_mat.gravity = Vector3(0, 0.1, 0)
+		steam_mat.damping_min = 1.0
+		steam_mat.damping_max = 2.0
+		steam_mat.scale_min = 0.15
+		steam_mat.scale_max = 0.4
+		steam_mat.color = Color(0.7, 0.7, 0.75, 0.12)
+		steam.process_material = steam_mat
+		var steam_mesh := BoxMesh.new()
+		steam_mesh.size = Vector3(0.15, 0.15, 0.15)
+		steam.draw_pass_1 = steam_mesh
+		vendor.add_child(steam)
 		add_child(vendor)
 
 func _generate_alleys() -> void:
@@ -5906,7 +5928,7 @@ func _generate_alleys() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7500
 	var alley_count := 0
-	var max_alleys := 10
+	var max_alleys := 18
 	var children_snapshot := get_children()
 	for idx in range(children_snapshot.size()):
 		if alley_count >= max_alleys:
@@ -6563,7 +6585,7 @@ func _generate_lobby_lights() -> void:
 	rng.seed = 8700
 	var count := 0
 	for child in get_children():
-		if count >= 15:
+		if count >= 30:
 			break
 		if not child is MeshInstance3D:
 			continue
@@ -6573,7 +6595,7 @@ func _generate_lobby_lights() -> void:
 		var bsize: Vector3 = (mi.mesh as BoxMesh).size
 		if bsize.y < 10.0:
 			continue
-		if rng.randf() > 0.10:
+		if rng.randf() > 0.20:
 			continue
 		count += 1
 		var base_y := mi.position.y - bsize.y * 0.5 + 1.5
@@ -6586,8 +6608,8 @@ func _generate_lobby_lights() -> void:
 		if warm_idx == 1: warm_col = Color(1.0, 0.7, 0.3)
 		elif warm_idx == 2: warm_col = Color(0.9, 0.85, 0.6)
 		lobby_light.light_color = warm_col
-		lobby_light.light_energy = rng.randf_range(1.5, 3.0)
-		lobby_light.omni_range = rng.randf_range(5.0, 8.0)
+		lobby_light.light_energy = rng.randf_range(3.0, 5.0)
+		lobby_light.omni_range = rng.randf_range(8.0, 14.0)
 		lobby_light.omni_attenuation = 1.5
 		lobby_light.shadow_enabled = false
 		lobby_light.position = Vector3(lobby_x, base_y, lobby_z)
@@ -6823,9 +6845,9 @@ func _generate_fluorescent_tubes() -> void:
 	var tube_count := 0
 	for gx in range(-grid_size, grid_size):
 		for gz in range(-grid_size, grid_size):
-			if tube_count >= 15:
+			if tube_count >= 30:
 				break
-			if rng.randf() > 0.10:
+			if rng.randf() > 0.18:
 				continue
 			var bx := gx * stride + rng.randf_range(2.0, block_size - 2.0)
 			var bz := gz * stride + rng.randf_range(-1.0, 1.0)  # near building edge/street
@@ -6843,15 +6865,15 @@ func _generate_fluorescent_tubes() -> void:
 			var tube_light := OmniLight3D.new()
 			tube_light.position = Vector3(bx, tube_y - 0.1, bz)
 			tube_light.light_color = tube_col
-			tube_light.light_energy = 1.5
-			tube_light.omni_range = 4.0
+			tube_light.light_energy = 2.5
+			tube_light.omni_range = 6.0
 			tube_light.shadow_enabled = false
 			add_child(tube_light)
 			# Register for flickering (50% flicker, 50% steady)
 			if rng.randf() < 0.5:
 				flickering_lights.append({
 					"node": tube_light,
-					"base_energy": 1.5,
+					"base_energy": 2.5,
 					"phase": rng.randf() * TAU,
 					"speed": rng.randf_range(8.0, 20.0),
 					"style": "buzz",
@@ -6863,7 +6885,7 @@ func _generate_fire_barrels() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 9500
 	var stride := block_size + street_width
-	for _i in range(4):
+	for _i in range(8):
 		var gx := rng.randi_range(-grid_size + 1, grid_size - 1)
 		var gz := rng.randi_range(-grid_size + 1, grid_size - 1)
 		var bx := gx * stride + rng.randf_range(1.0, 3.0)  # near building edge
@@ -6882,14 +6904,14 @@ func _generate_fire_barrels() -> void:
 		var fire_light := OmniLight3D.new()
 		fire_light.position = Vector3(bx, 1.2, bz)
 		fire_light.light_color = Color(1.0, 0.6, 0.2)
-		fire_light.light_energy = 2.0
-		fire_light.omni_range = 5.0
+		fire_light.light_energy = 3.5
+		fire_light.omni_range = 8.0
 		fire_light.shadow_enabled = false
 		add_child(fire_light)
 		# Flicker the fire light
 		flickering_lights.append({
 			"node": fire_light,
-			"base_energy": 2.0,
+			"base_energy": 3.5,
 			"phase": rng.randf() * TAU,
 			"speed": rng.randf_range(5.0, 10.0),
 			"style": "default",
