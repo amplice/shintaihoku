@@ -514,6 +514,8 @@ func _add_storefront_windows(building: Node3D, size: Vector3, rng: RandomNumberG
 	# Windows on side walls (-X and +X faces) and back wall
 	var window_color := Color(1.0, 0.2, 0.6)
 	var cold_color := Color(0.0, 0.9, 0.9)
+	var warm_color := Color(1.0, 0.85, 0.5)
+	var cool_white := Color(0.8, 0.9, 1.0)
 	var half_h := size.y * 0.5
 
 	# Side walls (X axis)
@@ -532,7 +534,16 @@ func _add_storefront_windows(building: Node3D, size: Vector3, rng: RandomNumberG
 				var wy := -half_h + (row + 0.5) * (size.y / float(num_rows))
 				win.position = Vector3(face * size.x * 0.51, wy, wz)
 				win.rotation.y = PI * 0.5 if face > 0 else -PI * 0.5
-				var wc := cold_color if rng.randf() > 0.5 else window_color
+				var cr := rng.randf()
+				var wc: Color
+				if cr < 0.30:
+					wc = window_color
+				elif cr < 0.60:
+					wc = cold_color
+				elif cr < 0.85:
+					wc = warm_color
+				else:
+					wc = cool_white
 				win.set_surface_override_material(0,
 					_make_ps1_material(wc * 0.3, true, wc, rng.randf_range(2.5, 5.0)))
 				building.add_child(win)
@@ -540,6 +551,8 @@ func _add_storefront_windows(building: Node3D, size: Vector3, rng: RandomNumberG
 func _add_windows(building: MeshInstance3D, size: Vector3, rng: RandomNumberGenerator) -> void:
 	var window_color := Color(1.0, 0.2, 0.6)   # hot pink / magenta
 	var cold_color := Color(0.0, 0.9, 0.9)     # cyan / teal
+	var warm_color := Color(1.0, 0.85, 0.5)    # warm apartment yellow
+	var cool_white := Color(0.8, 0.9, 1.0)     # cool office fluorescent
 
 	# Window grid on front and back faces (Z axis)
 	for face in [1.0, -1.0]:
@@ -560,7 +573,17 @@ func _add_windows(building: MeshInstance3D, size: Vector3, rng: RandomNumberGene
 				if face < 0:
 					win.rotation.y = PI
 
-				var wc := cold_color if rng.randf() > 0.5 else window_color
+				# Window color variety: 30% magenta, 30% cyan, 25% warm apartment, 15% cool office
+				var color_roll := rng.randf()
+				var wc: Color
+				if color_roll < 0.30:
+					wc = window_color
+				elif color_roll < 0.60:
+					wc = cold_color
+				elif color_roll < 0.85:
+					wc = warm_color
+				else:
+					wc = cool_white
 				win.set_surface_override_material(0,
 					_make_ps1_material(wc * 0.3, true, wc, rng.randf_range(2.5, 5.0)))
 				building.add_child(win)
@@ -651,7 +674,16 @@ func _add_windows(building: MeshInstance3D, size: Vector3, rng: RandomNumberGene
 				if face < 0:
 					win.rotation.y = -PI * 0.5
 
-				var wc := cold_color if rng.randf() > 0.5 else window_color
+				var color_roll2 := rng.randf()
+				var wc: Color
+				if color_roll2 < 0.30:
+					wc = window_color
+				elif color_roll2 < 0.60:
+					wc = cold_color
+				elif color_roll2 < 0.85:
+					wc = warm_color
+				else:
+					wc = cool_white
 				win.set_surface_override_material(0,
 					_make_ps1_material(wc * 0.3, true, wc, rng.randf_range(2.5, 5.0)))
 				building.add_child(win)
@@ -3013,7 +3045,7 @@ func _generate_awning_lights() -> void:
 			if sub is OmniLight3D:
 				has_interior_light = true
 				break
-		if not has_interior_light or rng.randf() > 0.5:
+		if not has_interior_light or rng.randf() > 0.7:
 			continue
 
 		# Add a fluorescent tube under the awning area
@@ -3031,8 +3063,8 @@ func _generate_awning_lights() -> void:
 
 		var tube_light := OmniLight3D.new()
 		tube_light.light_color = tube_color
-		tube_light.light_energy = 2.0
-		tube_light.omni_range = 5.0
+		tube_light.light_energy = 3.5
+		tube_light.omni_range = 8.0
 		tube_light.omni_attenuation = 1.5
 		tube_light.shadow_enabled = false
 		tube_light.position = tube.position
