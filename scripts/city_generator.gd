@@ -564,8 +564,8 @@ func _add_windows(building: MeshInstance3D, size: Vector3, rng: RandomNumberGene
 				win.set_surface_override_material(0,
 					_make_ps1_material(wc * 0.3, true, wc, rng.randf_range(2.5, 5.0)))
 				building.add_child(win)
-				# 10% of lit windows get horizontal blinds overlay
-				if rng.randf() < 0.10:
+				# 18% of lit windows get horizontal blinds overlay
+				if rng.randf() < 0.18:
 					for blind_row in range(4):
 						var blind := MeshInstance3D.new()
 						var blind_mesh := QuadMesh.new()
@@ -578,8 +578,8 @@ func _add_windows(building: MeshInstance3D, size: Vector3, rng: RandomNumberGene
 							_make_ps1_material(Color(0.06, 0.05, 0.04)))
 						blind.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 						building.add_child(blind)
-				# 10% of lit windows get a half-drawn curtain
-				elif rng.randf() < 0.10:
+				# 15% of lit windows get a half-drawn curtain
+				elif rng.randf() < 0.15:
 					var curtain := MeshInstance3D.new()
 					var curtain_mesh := QuadMesh.new()
 					var curtain_height := rng.randf_range(0.4, 0.8)
@@ -593,8 +593,8 @@ func _add_windows(building: MeshInstance3D, size: Vector3, rng: RandomNumberGene
 						_make_ps1_material(Color(0.08, 0.06, 0.1)))
 					curtain.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 					building.add_child(curtain)
-				# 8% of lit windows get a person silhouette
-				if rng.randf() < 0.08:
+				# 15% of lit windows get a person silhouette
+				if rng.randf() < 0.15:
 					var sil := MeshInstance3D.new()
 					var sil_mesh := QuadMesh.new()
 					sil_mesh.size = Vector2(0.4, 0.9)
@@ -607,8 +607,8 @@ func _add_windows(building: MeshInstance3D, size: Vector3, rng: RandomNumberGene
 						_make_ps1_material(Color(0.02, 0.02, 0.03)))
 					sil.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 					building.add_child(sil)
-				# 5% of lit windows get a TV glow
-				if rng.randf() < 0.05:
+				# 10% of lit windows get a TV glow
+				if rng.randf() < 0.10:
 					var tv_light := OmniLight3D.new()
 					tv_light.light_color = Color(0.3, 0.4, 0.9)
 					tv_light.light_energy = 1.5
@@ -622,8 +622,8 @@ func _add_windows(building: MeshInstance3D, size: Vector3, rng: RandomNumberGene
 						"base_energy": 1.5, "phase": rng.randf() * TAU,
 						"speed": rng.randf_range(5.0, 15.0), "style": "tv",
 					})
-				# 3% of lit windows slowly cycle on/off
-				if rng.randf() < 0.03 and cycling_windows.size() < 20:
+				# 5% of lit windows slowly cycle on/off
+				if rng.randf() < 0.05 and cycling_windows.size() < 30:
 					cycling_windows.append({
 						"mesh": win,
 						"base_energy": rng.randf_range(2.5, 5.0),
@@ -655,8 +655,8 @@ func _add_windows(building: MeshInstance3D, size: Vector3, rng: RandomNumberGene
 				win.set_surface_override_material(0,
 					_make_ps1_material(wc * 0.3, true, wc, rng.randf_range(2.5, 5.0)))
 				building.add_child(win)
-				# 10% blinds on side windows
-				if rng.randf() < 0.10:
+				# 18% blinds on side windows
+				if rng.randf() < 0.18:
 					for blind_row in range(4):
 						var blind := MeshInstance3D.new()
 						var blind_mesh := QuadMesh.new()
@@ -670,8 +670,8 @@ func _add_windows(building: MeshInstance3D, size: Vector3, rng: RandomNumberGene
 							_make_ps1_material(Color(0.06, 0.05, 0.04)))
 						blind.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 						building.add_child(blind)
-				# 8% silhouette on side windows too
-				if rng.randf() < 0.08:
+				# 15% silhouette on side windows too
+				if rng.randf() < 0.15:
 					var sil := MeshInstance3D.new()
 					var sil_mesh := QuadMesh.new()
 					sil_mesh.size = Vector2(0.4, 0.9)
@@ -685,7 +685,7 @@ func _add_windows(building: MeshInstance3D, size: Vector3, rng: RandomNumberGene
 						_make_ps1_material(Color(0.02, 0.02, 0.03)))
 					sil.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 					building.add_child(sil)
-				if rng.randf() < 0.05:
+				if rng.randf() < 0.10:
 					var tv_light := OmniLight3D.new()
 					tv_light.light_color = Color(0.3, 0.4, 0.9)
 					tv_light.light_energy = 1.5
@@ -2872,7 +2872,7 @@ func _generate_exposed_pipes() -> void:
 		if not mi.mesh is BoxMesh:
 			continue
 		var bsize: Vector3 = (mi.mesh as BoxMesh).size
-		if bsize.y < 12.0 or rng.randf() > 0.2:  # 20% of buildings
+		if bsize.y < 12.0 or rng.randf() > 0.35:  # 35% of buildings
 			continue
 
 		var num_pipes := rng.randi_range(1, 3)
@@ -6141,9 +6141,9 @@ func _generate_facade_stripes() -> void:
 		var bsize: Vector3 = (mi.mesh as BoxMesh).size
 		if bsize.y < 12.0:
 			continue
-		if rng.randf() > 0.20:
+		if rng.randf() > 0.40:
 			continue
-		var num_stripes := rng.randi_range(2, 4)
+		var num_stripes := rng.randi_range(2, 5)
 		var stripe_color_offset := rng.randf_range(-0.08, 0.08)
 		for _s in range(num_stripes):
 			var stripe_y := mi.position.y + rng.randf_range(-bsize.y * 0.35, bsize.y * 0.35)
@@ -6179,9 +6179,9 @@ func _generate_balcony_ledges() -> void:
 		var bsize: Vector3 = (mi.mesh as BoxMesh).size
 		if bsize.y < 14.0:
 			continue
-		if rng.randf() > 0.12:
+		if rng.randf() > 0.25:
 			continue
-		var num_balc := rng.randi_range(1, 3)
+		var num_balc := rng.randi_range(1, 4)
 		for _b in range(num_balc):
 			var balc_y := mi.position.y + rng.randf_range(-bsize.y * 0.3, bsize.y * 0.25)
 			var face_side := rng.randi_range(0, 1)  # 0=front(+Z), 1=back(-Z)
@@ -6314,7 +6314,7 @@ func _generate_building_cornices() -> void:
 		var bsize: Vector3 = (mi.mesh as BoxMesh).size
 		if bsize.y < 12.0:
 			continue
-		if rng.randf() > 0.18:
+		if rng.randf() > 0.35:
 			continue
 		var roof_y := mi.position.y + bsize.y * 0.5
 		var cornice_h := rng.randf_range(0.2, 0.4)
@@ -6344,7 +6344,7 @@ func _generate_window_frames() -> void:
 	rng.seed = 8300
 	var frame_mat := _make_ps1_material(Color(0.15, 0.14, 0.13))
 	var count := 0
-	var max_frames := 80
+	var max_frames := 160
 	for child in get_children():
 		if count >= max_frames:
 			break
@@ -6368,7 +6368,7 @@ func _generate_window_frames() -> void:
 			# Must be window-sized (roughly 1.2 x 1.5)
 			if qsize.x < 0.8 or qsize.x > 2.0 or qsize.y < 1.0 or qsize.y > 2.0:
 				continue
-			if rng.randf() > 0.12:
+			if rng.randf() > 0.22:
 				continue
 			count += 1
 			# Frame thickness
@@ -6420,7 +6420,7 @@ func _generate_building_stoops() -> void:
 	var step_mat := _make_ps1_material(Color(0.3, 0.28, 0.26))
 	var count := 0
 	for child in get_children():
-		if count >= 20:
+		if count >= 40:
 			break
 		if not child is MeshInstance3D:
 			continue
@@ -6430,7 +6430,7 @@ func _generate_building_stoops() -> void:
 		var bsize: Vector3 = (mi.mesh as BoxMesh).size
 		if bsize.y < 10.0:
 			continue
-		if rng.randf() > 0.08:
+		if rng.randf() > 0.18:
 			continue
 		count += 1
 		var face_sign := 1.0 if rng.randf() < 0.5 else -1.0
@@ -6457,7 +6457,7 @@ func _generate_exit_signs() -> void:
 	var exit_color := Color(0.0, 0.9, 0.3)
 	var count := 0
 	for child in get_children():
-		if count >= 25:
+		if count >= 40:
 			break
 		if not child is MeshInstance3D:
 			continue
@@ -6467,7 +6467,7 @@ func _generate_exit_signs() -> void:
 		var bsize: Vector3 = (mi.mesh as BoxMesh).size
 		if bsize.y < 10.0:
 			continue
-		if rng.randf() > 0.15:
+		if rng.randf() > 0.25:
 			continue
 		count += 1
 		var sign_y := mi.position.y - bsize.y * 0.5 + rng.randf_range(2.5, 4.0)
