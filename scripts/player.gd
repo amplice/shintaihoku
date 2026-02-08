@@ -77,6 +77,7 @@ var shadow_flicker_amount: float = 0.0  # current flicker vignette boost
 var thunder_flinch: float = 0.0  # involuntary camera dip from thunder
 var thunder_was_active: bool = false  # edge detection for thunder start
 var prev_move_dir: Vector2 = Vector2.ZERO  # for bob phase reset on direction flip
+var targeted_npc: Node3D = null  # NPC currently being looked at
 var was_sprinting_last: bool = false  # edge detect for sprint stop exhale
 var land_nod: float = 0.0  # forward nod on landing
 var lens_water_timer: float = 0.0  # rain lens distortion pulse timer
@@ -122,6 +123,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		if (event as InputEventKey).keycode == KEY_F:
 			if flashlight:
 				flashlight.visible = not flashlight.visible
+		if (event as InputEventKey).keycode == KEY_E:
+			if targeted_npc and is_instance_valid(targeted_npc):
+				var npc_mgr := get_node_or_null("../NPCManager")
+				if npc_mgr and npc_mgr.has_method("trigger_talk"):
+					npc_mgr.trigger_talk(targeted_npc)
 
 func _physics_process(delta: float) -> void:
 	# Gravity
@@ -485,12 +491,14 @@ func _physics_process(delta: float) -> void:
 			crt_material.set_shader_parameter("aberration_amount", cur_ab_f + lens_water_pulse)
 
 	# Interaction prompt (proximity + look direction NPC detection)
+	targeted_npc = null
 	if interact_label:
-		var npc_mgr := get_node_or_null("../NpcManager")
+		var npc_mgr := get_node_or_null("../NPCManager")
 		var show_prompt := false
 		if npc_mgr:
 			var cam_forward := -camera.global_transform.basis.z
 			var cam_pos := camera.global_position
+			var best_dot := 0.85  # minimum threshold (~30 degree cone)
 			for npc_child in npc_mgr.get_children():
 				if not npc_child is Node3D:
 					continue
@@ -500,9 +508,10 @@ func _physics_process(delta: float) -> void:
 				if dist_to > 5.0 or dist_to < 0.5:
 					continue
 				var dot := cam_forward.dot(to_npc.normalized())
-				if dot > 0.85:  # within ~30 degree cone
+				if dot > best_dot:
+					best_dot = dot
+					targeted_npc = npc_child as Node3D
 					show_prompt = true
-					break
 		interact_label.visible = show_prompt
 
 	# Head bob phase reset on sharp direction change (prevents mid-stride glitch)

@@ -31,6 +31,24 @@ const SIGH_RANGE: float = 10.0
 var sigh_pool: Array[Dictionary] = []
 var sigh_rng := RandomNumberGenerator.new()
 
+# Speech bubble system
+var speech_bubbles: Array[Dictionary] = []  # [{label, timer, npc_node}]
+var talk_rng := RandomNumberGenerator.new()
+var talk_cooldowns: Dictionary = {}  # {npc_node_id: cooldown_timer}
+var dialogue_lines: Array[String] = [
+	"...", "Leave me alone.", "Rain never stops.",
+	"You got the time?", "Keep walking.", "What do you want?",
+	"I've seen things...", "This city eats people.",
+	"Don't trust anyone.", "Move along.", "Got a smoke?",
+	"Watch your back.", "Nothing to say.", "It's always night here.",
+	"You lost?", "Stay out of the alleys.", "Mind your business.",
+	"Cold tonight.", "I'm waiting for someone.", "Not interested.",
+	"You hear that?", "They're watching.", "Wrong neighborhood.",
+	"Go away.", "I don't talk to strangers.", "Everything's fine.",
+	"Sector 7 is locked down.", "Credits only.", "No refunds.",
+	"The network is down again.", "Have you seen the drones?",
+]
+
 # NPC outfit color palettes
 var jacket_colors: Array[Color] = [
 	Color(0.12, 0.12, 0.15),  # dark charcoal
@@ -1181,6 +1199,18 @@ func _process(delta: float) -> void:
 	# Update NPC sigh vocalization audio
 	_update_sigh_audio(cam_pos)
 
+	# Update speech bubble timers
+	_update_speech_bubbles(delta)
+
+	# Decay talk cooldowns
+	var expired_keys: Array = []
+	for npc_id in talk_cooldowns:
+		talk_cooldowns[npc_id] -= delta
+		if talk_cooldowns[npc_id] <= 0.0:
+			expired_keys.append(npc_id)
+	for k in expired_keys:
+		talk_cooldowns.erase(k)
+
 func _update_umbrella_audio(cam_pos: Vector3) -> void:
 	# Find nearest umbrella NPCs to camera
 	var umbrella_npcs: Array[Dictionary] = []
@@ -1971,3 +2001,65 @@ func _spawn_conversation_groups(_rng: RandomNumberGenerator) -> void:
 				"gesture_timer": group_rng.randf_range(0.0, 3.0),
 				"gesture_active": gi == 0,  # first NPC starts gesturing
 			})
+
+func trigger_talk(npc_node: Node3D) -> void:
+	## Called by player when pressing E near an NPC. Shows a speech bubble.
+	if not is_instance_valid(npc_node):
+		return
+	# Cooldown check (don't spam same NPC)
+	var npc_id := npc_node.get_instance_id()
+	if talk_cooldowns.has(npc_id):
+		return
+	talk_cooldowns[npc_id] = 5.0  # 5 second cooldown per NPC
+
+	# Stop the NPC briefly when talked to
+	for npc_data in npcs:
+		if npc_data["node"] == npc_node:
+			npc_data["is_stopped"] = true
+			npc_data["stop_duration"] = 4.0
+			break
+
+	# Pick random dialogue
+	var line: String = dialogue_lines[talk_rng.randi_range(0, dialogue_lines.size() - 1)]
+
+	# Create speech bubble Label3D above NPC head
+	var bubble := Label3D.new()
+	bubble.text = line
+	bubble.font_size = 18
+	bubble.pixel_size = 0.008
+	bubble.modulate = Color(1.0, 1.0, 1.0, 0.95)
+	bubble.outline_size = 3
+	bubble.outline_modulate = Color(0.0, 0.0, 0.0, 0.8)
+	bubble.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	bubble.position = npc_node.global_position + Vector3(0, 2.3, 0)
+	bubble.no_depth_test = true
+	get_parent().add_child(bubble)
+
+	speech_bubbles.append({
+		"label": bubble,
+		"timer": 3.5,
+		"npc_node": npc_node,
+	})
+
+func _update_speech_bubbles(delta: float) -> void:
+	var to_remove: Array[int] = []
+	for i in range(speech_bubbles.size()):
+		var sb: Dictionary = speech_bubbles[i]
+		var label: Label3D = sb["label"]
+		var npc: Node3D = sb["npc_node"]
+		sb["timer"] -= delta
+		if sb["timer"] <= 0.0 or not is_instance_valid(label):
+			if is_instance_valid(label):
+				label.queue_free()
+			to_remove.append(i)
+			continue
+		# Follow NPC position
+		if is_instance_valid(npc):
+			label.global_position = npc.global_position + Vector3(0, 2.3, 0)
+		# Fade out in last second
+		if sb["timer"] < 1.0:
+			label.modulate.a = sb["timer"]
+	# Remove expired bubbles (reverse order to preserve indices)
+	to_remove.reverse()
+	for idx in to_remove:
+		speech_bubbles.remove_at(idx)
