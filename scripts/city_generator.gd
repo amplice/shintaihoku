@@ -181,7 +181,7 @@ func _ready() -> void:
 	_generate_exit_signs()
 	_generate_puddle_splash_rings()
 	_generate_lobby_lights()
-	_generate_height_fog_layers()
+	# _generate_height_fog_layers() -- removed: 300x300 planes at y=5/15/25 created ceiling artifacts
 	_generate_barricade_tape()
 	_generate_cardboard_boxes()
 	_generate_puddle_mist()
@@ -203,9 +203,9 @@ func _make_ps1_material(color: Color, is_emissive: bool = false,
 	mat.set_shader_parameter("albedo_color", color)
 	mat.set_shader_parameter("vertex_snap_intensity", 1.0)
 	mat.set_shader_parameter("color_depth", 12.0)
-	mat.set_shader_parameter("fog_color", Color(0.05, 0.03, 0.1, 1.0))
-	mat.set_shader_parameter("fog_distance", 100.0)
-	mat.set_shader_parameter("fog_density", 0.3)
+	mat.set_shader_parameter("fog_color", Color(0.03, 0.02, 0.06, 1.0))
+	mat.set_shader_parameter("fog_distance", 150.0)
+	mat.set_shader_parameter("fog_density", 0.15)
 	if is_emissive:
 		mat.set_shader_parameter("emissive", true)
 		mat.set_shader_parameter("emission_color", emit_color)
@@ -248,10 +248,26 @@ func _create_building(pos: Vector3, size: Vector3, rng: RandomNumberGenerator) -
 	mesh_instance.mesh = box
 	mesh_instance.position = pos
 
-	# Dark concrete material with PS1 shader
+	# Dark concrete material with PS1 shader - per-building color tint for facade variety
 	var darkness := rng.randf_range(0.3, 0.5)
-	mesh_instance.set_surface_override_material(0,
-		_make_ps1_material(Color(darkness, darkness, darkness + 0.05, 1.0)))
+	var tint_roll := rng.randf()
+	var facade_color: Color
+	if tint_roll < 0.4:
+		# 40% gray concrete (original)
+		facade_color = Color(darkness, darkness, darkness + 0.05, 1.0)
+	elif tint_roll < 0.6:
+		# 20% dark blue-gray (office blocks)
+		facade_color = Color(darkness * 0.8, darkness * 0.85, darkness * 1.2, 1.0)
+	elif tint_roll < 0.75:
+		# 15% dark brown (old brick)
+		facade_color = Color(darkness * 1.1, darkness * 0.9, darkness * 0.7, 1.0)
+	elif tint_roll < 0.9:
+		# 15% dark teal (modern glass)
+		facade_color = Color(darkness * 0.8, darkness * 1.0, darkness * 1.1, 1.0)
+	else:
+		# 10% dark purple-gray (residential)
+		facade_color = Color(darkness * 0.95, darkness * 0.85, darkness * 1.0, 1.0)
+	mesh_instance.set_surface_override_material(0, _make_ps1_material(facade_color))
 
 	# Static body for collision
 	var static_body := StaticBody3D.new()
@@ -292,7 +308,18 @@ func _create_storefront(pos: Vector3, size: Vector3, rng: RandomNumberGenerator)
 	var door_height := 3.0
 
 	var darkness := rng.randf_range(0.3, 0.5)
-	var wall_color := Color(darkness, darkness, darkness + 0.05, 1.0)
+	var tint_roll := rng.randf()
+	var wall_color: Color
+	if tint_roll < 0.4:
+		wall_color = Color(darkness, darkness, darkness + 0.05, 1.0)
+	elif tint_roll < 0.6:
+		wall_color = Color(darkness * 0.8, darkness * 0.85, darkness * 1.2, 1.0)
+	elif tint_roll < 0.75:
+		wall_color = Color(darkness * 1.1, darkness * 0.9, darkness * 0.7, 1.0)
+	elif tint_roll < 0.9:
+		wall_color = Color(darkness * 0.8, darkness * 1.0, darkness * 1.1, 1.0)
+	else:
+		wall_color = Color(darkness * 0.95, darkness * 0.85, darkness * 1.0, 1.0)
 	var wall_mat := _make_ps1_material(wall_color)
 	var floor_mat := _make_ps1_material(Color(0.2, 0.18, 0.15))
 
@@ -345,8 +372,8 @@ func _create_storefront(pos: Vector3, size: Vector3, rng: RandomNumberGenerator)
 	# Door spill light -- warm light that spills out onto the street
 	var spill_light := OmniLight3D.new()
 	spill_light.light_color = Color(1.0, 0.85, 0.6)
-	spill_light.light_energy = 3.0
-	spill_light.omni_range = 8.0
+	spill_light.light_energy = 5.0
+	spill_light.omni_range = 14.0
 	spill_light.omni_attenuation = 1.5
 	spill_light.shadow_enabled = false
 	spill_light.position = Vector3(0, -half_h + door_height * 0.5, half_d + 1.0)
@@ -439,8 +466,8 @@ func _create_storefront(pos: Vector3, size: Vector3, rng: RandomNumberGenerator)
 
 			var sign_light := OmniLight3D.new()
 			sign_light.light_color = neon_col
-			sign_light.light_energy = 2.5
-			sign_light.omni_range = 6.0
+			sign_light.light_energy = 4.0
+			sign_light.omni_range = 10.0
 			sign_light.omni_attenuation = 1.5
 			sign_light.shadow_enabled = false
 			sign_light.position = Vector3(0, 0, 0.5)
@@ -458,8 +485,8 @@ func _create_storefront(pos: Vector3, size: Vector3, rng: RandomNumberGenerator)
 
 			var sign_light := OmniLight3D.new()
 			sign_light.light_color = neon_col
-			sign_light.light_energy = 2.0
-			sign_light.omni_range = 6.0
+			sign_light.light_energy = 3.5
+			sign_light.omni_range = 10.0
 			sign_light.omni_attenuation = 1.5
 			sign_light.shadow_enabled = false
 			sign_light.position = Vector3(0, 0, 0.5)
@@ -727,8 +754,8 @@ func _add_neon_sign(building: MeshInstance3D, size: Vector3, rng: RandomNumberGe
 
 		var light := OmniLight3D.new()
 		light.light_color = neon_col
-		light.light_energy = rng.randf_range(1.5, 3.0)
-		light.omni_range = rng.randf_range(6.0, 12.0)
+		light.light_energy = rng.randf_range(3.0, 5.0)
+		light.omni_range = rng.randf_range(8.0, 14.0)
 		light.omni_attenuation = 1.5
 		light.shadow_enabled = false
 		light.position = Vector3(0, 0, 0.5)
@@ -761,8 +788,8 @@ func _add_neon_sign(building: MeshInstance3D, size: Vector3, rng: RandomNumberGe
 
 		var light := OmniLight3D.new()
 		light.light_color = neon_col
-		light.light_energy = rng.randf_range(1.5, 3.0)
-		light.omni_range = rng.randf_range(6.0, 12.0)
+		light.light_energy = rng.randf_range(3.0, 5.0)
+		light.omni_range = rng.randf_range(8.0, 14.0)
 		light.omni_attenuation = 1.5
 		light.shadow_enabled = false
 		light.position = Vector3(0, 0, 0.5)
@@ -955,7 +982,7 @@ func _create_car(pos: Vector3, rot_y: float, colors: Array[Color],
 func _generate_street_lights() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 150
-	var light_spacing := 14.0
+	var light_spacing := 10.0
 	var cell_stride := block_size + street_width
 	var pole_mat := _make_ps1_material(Color(0.2, 0.2, 0.22))
 	var lamp_color := Color(1.0, 0.8, 0.4)
@@ -966,21 +993,25 @@ func _generate_street_lights() -> void:
 			var cell_x := gx * cell_stride
 			var cell_z := gz * cell_stride
 
-			# Lights along Z-streets (east side of block)
-			var street_x := cell_x + block_size * 0.5 + street_width * 0.8
+			# Lights along Z-streets — BOTH sides of the street
+			var street_x_east := cell_x + block_size * 0.5 + street_width * 0.8
+			var street_x_west := cell_x + block_size * 0.5 + street_width * 0.2
 			var z_start := cell_z - block_size * 0.5
 			var num_along_z := int(block_size / light_spacing)
 			for i in range(num_along_z):
 				var lz := z_start + (i + 0.5) * light_spacing
-				_create_street_light(Vector3(street_x, 0, lz), pole_mat, lamp_mat, lamp_color, rng)
+				_create_street_light(Vector3(street_x_east, 0, lz), pole_mat, lamp_mat, lamp_color, rng)
+				_create_street_light(Vector3(street_x_west, 0, lz), pole_mat, lamp_mat, lamp_color, rng)
 
-			# Lights along X-streets (south side of block)
-			var street_z := cell_z + block_size * 0.5 + street_width * 0.8
+			# Lights along X-streets — BOTH sides of the street
+			var street_z_south := cell_z + block_size * 0.5 + street_width * 0.8
+			var street_z_north := cell_z + block_size * 0.5 + street_width * 0.2
 			var x_start := cell_x - block_size * 0.5
 			var num_along_x := int(block_size / light_spacing)
 			for i in range(num_along_x):
 				var lx := x_start + (i + 0.5) * light_spacing
-				_create_street_light(Vector3(lx, 0, street_z), pole_mat, lamp_mat, lamp_color, rng)
+				_create_street_light(Vector3(lx, 0, street_z_south), pole_mat, lamp_mat, lamp_color, rng)
+				_create_street_light(Vector3(lx, 0, street_z_north), pole_mat, lamp_mat, lamp_color, rng)
 
 func _create_street_light(pos: Vector3, pole_mat: ShaderMaterial,
 		lamp_mat: ShaderMaterial, lamp_color: Color, rng: RandomNumberGenerator = null) -> void:
@@ -1023,8 +1054,8 @@ func _create_street_light(pos: Vector3, pole_mat: ShaderMaterial,
 	# Light source
 	var light := OmniLight3D.new()
 	light.light_color = lamp_color
-	light.light_energy = 2.5
-	light.omni_range = 12.0
+	light.light_energy = 4.0
+	light.omni_range = 18.0
 	light.omni_attenuation = 1.5
 	light.shadow_enabled = false
 	light.position = Vector3(1.0, 5.5, 0)
@@ -1035,7 +1066,7 @@ func _create_street_light(pos: Vector3, pole_mat: ShaderMaterial,
 		flickering_lights.append({
 			"node": light,
 			"mesh": head,
-			"base_energy": 2.5,
+			"base_energy": 4.0,
 			"phase": rng.randf() * TAU,
 			"speed": rng.randf_range(8.0, 20.0),
 			"style": "buzz",
@@ -1082,8 +1113,8 @@ func _generate_puddles() -> void:
 				if rng.randf() < 0.35:
 					var puddle_glow := OmniLight3D.new()
 					puddle_glow.light_color = puddle_col
-					puddle_glow.light_energy = rng.randf_range(0.3, 0.8)
-					puddle_glow.omni_range = maxf(puddle_w, puddle_d) * 0.8
+					puddle_glow.light_energy = rng.randf_range(0.5, 1.2)
+					puddle_glow.omni_range = maxf(puddle_w, puddle_d) * 1.1
 					puddle_glow.omni_attenuation = 2.0
 					puddle_glow.shadow_enabled = false
 					puddle_glow.position = Vector3(px, 0.1, pz)
@@ -1136,7 +1167,7 @@ func _generate_skyline() -> void:
 	var cell_stride := block_size + street_width
 	var inner_edge := grid_size * cell_stride + street_width
 	var outer_edge := inner_edge + 120.0
-	var skyline_mat := _make_ps1_material(Color(0.03, 0.02, 0.05))
+	var skyline_mat := _make_ps1_material(Color(0.06, 0.04, 0.09))
 
 	# Place buildings around all four sides
 	for side in range(4):
@@ -1163,9 +1194,9 @@ func _generate_skyline() -> void:
 			mi.set_surface_override_material(0, skyline_mat)
 			add_child(mi)
 
-			# Scattered dim windows on skyline buildings (30% get windows)
-			if rng.randf() < 0.3:
-				var num_wins := rng.randi_range(3, 8)
+			# Scattered dim windows on skyline buildings (50% get windows)
+			if rng.randf() < 0.5:
+				var num_wins := rng.randi_range(5, 12)
 				for _w in range(num_wins):
 					var win := MeshInstance3D.new()
 					var quad := QuadMesh.new()
@@ -1303,7 +1334,7 @@ func _generate_sidewalks() -> void:
 	var cell_stride := block_size + street_width
 	var curb_height := 0.15
 	var sidewalk_width := 2.0
-	var sidewalk_mat := _make_ps1_material(Color(0.12, 0.12, 0.14))
+	var sidewalk_mat := _make_ps1_material(Color(0.16, 0.15, 0.17))
 	sidewalk_mat.set_shader_parameter("wet_surface", true)
 	sidewalk_mat.set_shader_parameter("wet_strength", 0.25)
 	var curb_mat := _make_ps1_material(Color(0.18, 0.18, 0.2))
@@ -2777,8 +2808,19 @@ func _generate_building_setbacks() -> void:
 		tier.mesh = tier_mesh
 		tier.position = Vector3(0, roof_y + tier_h * 0.5, 0)
 		var darkness := rng.randf_range(0.25, 0.45)
-		tier.set_surface_override_material(0,
-			_make_ps1_material(Color(darkness, darkness, darkness + 0.05)))
+		var tint_roll := rng.randf()
+		var tier_color: Color
+		if tint_roll < 0.4:
+			tier_color = Color(darkness, darkness, darkness + 0.05)
+		elif tint_roll < 0.6:
+			tier_color = Color(darkness * 0.8, darkness * 0.85, darkness * 1.2)
+		elif tint_roll < 0.75:
+			tier_color = Color(darkness * 1.1, darkness * 0.9, darkness * 0.7)
+		elif tint_roll < 0.9:
+			tier_color = Color(darkness * 0.8, darkness * 1.0, darkness * 1.1)
+		else:
+			tier_color = Color(darkness * 0.95, darkness * 0.85, darkness * 1.0)
+		tier.set_surface_override_material(0, _make_ps1_material(tier_color))
 		mi.add_child(tier)
 
 		# A few windows on the upper tier
