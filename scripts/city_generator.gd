@@ -560,7 +560,7 @@ func _add_windows(building: MeshInstance3D, size: Vector3, rng: RandomNumberGene
 		var num_rows := int(size.y / 3.5)
 		for col in range(num_cols):
 			for row in range(num_rows):
-				if rng.randf() > 0.6:  # 60% of windows are dark
+				if rng.randf() > 0.5:  # 50% of windows are dark
 					continue
 				var win := MeshInstance3D.new()
 				var quad := QuadMesh.new()

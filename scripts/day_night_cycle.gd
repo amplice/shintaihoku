@@ -64,8 +64,8 @@ func _process(delta: float) -> void:
 		ambient_color = night_ambient
 		sun_color = night_sun_color
 		fog_color = night_fog
-		sun_energy = 0.05
-		ambient_energy = 5.0
+		sun_energy = 0.15
+		ambient_energy = 6.0
 		vol_fog_density = 0.015
 	elif time_of_day < 7.0:
 		# Dawn (5:00 - 7:00) -- blend from night to dawn to day
@@ -74,8 +74,8 @@ func _process(delta: float) -> void:
 		ambient_color = night_ambient.lerp(dawn_ambient, t)
 		sun_color = night_sun_color.lerp(dawn_sun_color, t)
 		fog_color = night_fog.lerp(dawn_fog, t)
-		sun_energy = lerpf(0.05, 0.6, t)
-		ambient_energy = lerpf(5.0, 4.0, t)
+		sun_energy = lerpf(0.15, 0.6, t)
+		ambient_energy = lerpf(6.0, 4.0, t)
 		vol_fog_density = lerpf(0.015, 0.008, t)
 	elif time_of_day < 17.0:
 		# Day (7:00 - 17:00)
@@ -116,8 +116,8 @@ func _process(delta: float) -> void:
 		ambient_color = dusk_ambient.lerp(night_ambient, t)
 		sun_color = dusk_sun_color.lerp(night_sun_color, t)
 		fog_color = dusk_fog.lerp(night_fog, t)
-		sun_energy = lerpf(0.5, 0.05, t)
-		ambient_energy = lerpf(4.0, 5.0, t)
+		sun_energy = lerpf(0.5, 0.15, t)
+		ambient_energy = lerpf(4.0, 6.0, t)
 		vol_fog_density = lerpf(0.01, 0.015, t)
 
 	# Apply to environment
