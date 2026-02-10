@@ -300,12 +300,6 @@ func _physics_process(delta: float) -> void:
 	# Impact chromatic aberration decay
 	if impact_aberration > 0.0:
 		impact_aberration = maxf(0.0, impact_aberration - delta * 4.0)
-		if crt_material:
-			var base_aberration_val = crt_material.get_shader_parameter("aberration_amount")
-			var base_aberration: float = 1.0
-			if base_aberration_val != null:
-				base_aberration = float(base_aberration_val)
-			crt_material.set_shader_parameter("aberration_amount", base_aberration + impact_aberration * 3.0)
 
 	# Fade out wet footprints
 	_update_footprints(delta)
@@ -325,13 +319,6 @@ func _physics_process(delta: float) -> void:
 		var current_blur: float = current_blur_val if current_blur_val != null else 0.0
 		crt_material.set_shader_parameter("speed_blur", lerpf(current_blur, blur_target, 8.0 * delta))
 
-	# Sprint rain streak: chromatic aberration oscillation when running in rain
-	if crt_material and is_sprinting and impact_aberration <= 0.0:
-		var streak_rain := get_node_or_null("../Rain")
-		if streak_rain and "rain_time" in streak_rain:
-			var rain_intensity: float = 0.5 + 0.5 * sin(streak_rain.rain_time * 0.1)
-			var streak_ab := 0.8 + sin(streak_rain.rain_time * 3.0) * 0.4 * rain_intensity
-			crt_material.set_shader_parameter("aberration_amount", lerpf(0.8, streak_ab, 4.0 * delta))
 
 	# Turn momentum lean (sprint only, decay toward 0)
 	if not is_sprinting:
@@ -485,10 +472,20 @@ func _physics_process(delta: float) -> void:
 			else:
 				lens_water_timer = randf_range(10.0, 20.0)
 		lens_water_pulse = maxf(0.0, lens_water_pulse - delta * 0.6)
-		if lens_water_pulse > 0.0 and impact_aberration <= 0.0:
-			var cur_ab = crt_material.get_shader_parameter("aberration_amount")
-			var cur_ab_f: float = cur_ab if cur_ab != null else 1.0
-			crt_material.set_shader_parameter("aberration_amount", cur_ab_f + lens_water_pulse)
+
+	# Unified chromatic aberration: compute all contributions from scratch each frame
+	# (prevents feedback loop where reading the shader value and adding to it caused RGB split to grow)
+	if crt_material:
+		var ab := 0.5
+		ab += impact_aberration * 3.0
+		if is_sprinting and impact_aberration <= 0.0:
+			var streak_rain := get_node_or_null("../Rain")
+			if streak_rain and "rain_time" in streak_rain:
+				var rain_intensity: float = 0.5 + 0.5 * sin(streak_rain.rain_time * 0.1)
+				ab += sin(streak_rain.rain_time * 3.0) * 0.4 * rain_intensity
+		if lens_water_pulse > 0.0:
+			ab += lens_water_pulse
+		crt_material.set_shader_parameter("aberration_amount", ab)
 
 	# Interaction prompt (proximity + look direction NPC detection)
 	targeted_npc = null

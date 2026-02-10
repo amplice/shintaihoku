@@ -225,24 +225,27 @@ func _generate_city() -> void:
 			var cell_x := gx * (block_size + street_width)
 			var cell_z := gz * (block_size + street_width)
 
-			# 1-3 buildings per block
-			var num_buildings := rng.randi_range(1, 3)
+			# 1-4 buildings per block (more variety)
+			var num_buildings := rng.randi_range(1, 4)
 			for b in range(num_buildings):
 				var bw := rng.randf_range(min_width, max_width)
 				var bd := rng.randf_range(min_width, max_width)
 				var bh := rng.randf_range(min_height, max_height)
 
-				var offset_x := rng.randf_range(-block_size * 0.3, block_size * 0.3)
-				var offset_z := rng.randf_range(-block_size * 0.3, block_size * 0.3)
+				# Wider offset range breaks grid regularity
+				var offset_x := rng.randf_range(-block_size * 0.45, block_size * 0.45)
+				var offset_z := rng.randf_range(-block_size * 0.45, block_size * 0.45)
 
 				var pos := Vector3(cell_x + offset_x, bh * 0.5, cell_z + offset_z)
-				_create_building(pos, Vector3(bw, bh, bd), rng)
+				# Random Y rotation breaks axis-aligned box feel
+				var rot_y := rng.randf_range(-0.2, 0.2)  # ±~12 degrees
+				_create_building(pos, Vector3(bw, bh, bd), rng, rot_y)
 
-func _create_building(pos: Vector3, size: Vector3, rng: RandomNumberGenerator) -> void:
+func _create_building(pos: Vector3, size: Vector3, rng: RandomNumberGenerator, rot_y: float = 0.0) -> void:
 	# Check if this building qualifies as an enterable storefront
 	var is_storefront := size.y < 20.0 and size.x > 8.0 and rng.randf() < 0.18
 	if is_storefront:
-		_create_storefront(pos, size, rng)
+		_create_storefront(pos, size, rng, rot_y)
 		return
 
 	# Main building body
@@ -251,6 +254,7 @@ func _create_building(pos: Vector3, size: Vector3, rng: RandomNumberGenerator) -
 	box.size = size
 	mesh_instance.mesh = box
 	mesh_instance.position = pos
+	mesh_instance.rotation.y = rot_y
 
 	# Dark concrete material with PS1 shader - per-building color tint for facade variety
 	var darkness := rng.randf_range(0.3, 0.5)
@@ -297,9 +301,10 @@ func _create_building(pos: Vector3, size: Vector3, rng: RandomNumberGenerator) -
 	if size.y > 25.0 and neon_font and rng.randf() < 0.5:
 		_add_vertical_neon_sign(mesh_instance, size, rng)
 
-func _create_storefront(pos: Vector3, size: Vector3, rng: RandomNumberGenerator) -> void:
+func _create_storefront(pos: Vector3, size: Vector3, rng: RandomNumberGenerator, rot_y: float = 0.0) -> void:
 	var building := Node3D.new()
 	building.position = pos
+	building.rotation.y = rot_y
 
 	var w := size.x
 	var h := size.y
