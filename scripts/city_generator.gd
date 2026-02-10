@@ -257,7 +257,7 @@ func _create_building(pos: Vector3, size: Vector3, rng: RandomNumberGenerator, r
 	mesh_instance.rotation.y = rot_y
 
 	# Dark concrete material with PS1 shader - per-building color tint for facade variety
-	var darkness := rng.randf_range(0.3, 0.5)
+	var darkness := rng.randf_range(0.4, 0.65)
 	var tint_roll := rng.randf()
 	var facade_color: Color
 	if tint_roll < 0.4:
@@ -301,6 +301,112 @@ func _create_building(pos: Vector3, size: Vector3, rng: RandomNumberGenerator, r
 	if size.y > 25.0 and neon_font and rng.randf() < 0.5:
 		_add_vertical_neon_sign(mesh_instance, size, rng)
 
+	# Facade accents: horizontal neon strips + concrete floor ledges
+	_add_facade_accents(mesh_instance, size, facade_color, rng)
+
+	# Stepped upper sections for tall buildings (terraced roofline)
+	if size.y > 18.0 and rng.randf() < 0.55:
+		var tower_w := size.x * rng.randf_range(0.45, 0.8)
+		var tower_d := size.z * rng.randf_range(0.45, 0.8)
+		var tower_h := size.y * rng.randf_range(0.2, 0.45)
+		var tower := MeshInstance3D.new()
+		var tower_box := BoxMesh.new()
+		tower_box.size = Vector3(tower_w, tower_h, tower_d)
+		tower.mesh = tower_box
+		var tower_off_x := rng.randf_range(-0.15, 0.15) * size.x
+		var tower_off_z := rng.randf_range(-0.15, 0.15) * size.z
+		tower.position = Vector3(tower_off_x, size.y * 0.5 + tower_h * 0.5, tower_off_z)
+		tower.set_surface_override_material(0, _make_ps1_material(facade_color * 0.95))
+		tower.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+		mesh_instance.add_child(tower)
+		# Windows on tower section
+		_add_windows(tower, Vector3(tower_w, tower_h, tower_d), rng)
+		# Neon strips on tower too
+		_add_facade_accents(tower, Vector3(tower_w, tower_h, tower_d), facade_color, rng)
+
+func _add_facade_accents(building: Node3D, size: Vector3, facade_color: Color, rng: RandomNumberGenerator) -> void:
+	var floor_h := 3.5
+	var num_floors := int(size.y / floor_h)
+	if num_floors < 2:
+		return
+
+	# Horizontal neon accent strips (1-3 per building, wrapping 1-2 faces)
+	var num_strips := rng.randi_range(1, 3)
+	for _i in range(num_strips):
+		var strip_floor := rng.randi_range(1, num_floors)
+		var strip_y := -size.y * 0.5 + strip_floor * floor_h
+		var strip_col := neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
+		var strip_width := rng.randf_range(0.6, 1.0)
+		# Place on 1-2 faces
+		var face_idx := rng.randi_range(0, 3)
+		var strip := MeshInstance3D.new()
+		var strip_mesh := BoxMesh.new()
+		match face_idx:
+			0:  # front
+				strip_mesh.size = Vector3(size.x * strip_width, 0.12, 0.06)
+				strip.position = Vector3(0, strip_y, size.z * 0.51)
+			1:  # back
+				strip_mesh.size = Vector3(size.x * strip_width, 0.12, 0.06)
+				strip.position = Vector3(0, strip_y, -size.z * 0.51)
+			2:  # right
+				strip_mesh.size = Vector3(0.06, 0.12, size.z * strip_width)
+				strip.position = Vector3(size.x * 0.51, strip_y, 0)
+			3:  # left
+				strip_mesh.size = Vector3(0.06, 0.12, size.z * strip_width)
+				strip.position = Vector3(-size.x * 0.51, strip_y, 0)
+		strip.mesh = strip_mesh
+		strip.set_surface_override_material(0,
+			_make_ps1_material(strip_col * 0.4, true, strip_col, rng.randf_range(2.5, 4.5)))
+		strip.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		building.add_child(strip)
+		# 50% chance: wrap around corner to adjacent face
+		if rng.randf() < 0.5:
+			var corner := MeshInstance3D.new()
+			var corner_mesh := BoxMesh.new()
+			if face_idx < 2:  # was on Z face, wrap to X face
+				var side := 1.0 if rng.randf() < 0.5 else -1.0
+				corner_mesh.size = Vector3(0.06, 0.12, size.z * rng.randf_range(0.3, 0.6))
+				corner.position = Vector3(side * size.x * 0.51, strip_y, 0)
+			else:  # was on X face, wrap to Z face
+				var side := 1.0 if rng.randf() < 0.5 else -1.0
+				corner_mesh.size = Vector3(size.x * rng.randf_range(0.3, 0.6), 0.12, 0.06)
+				corner.position = Vector3(0, strip_y, side * size.z * 0.51)
+			corner.mesh = corner_mesh
+			corner.set_surface_override_material(0,
+				_make_ps1_material(strip_col * 0.4, true, strip_col, rng.randf_range(2.5, 4.5)))
+			corner.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			building.add_child(corner)
+
+	# Concrete floor ledges (2-4 protruding strips on front face)
+	var num_ledges := rng.randi_range(2, mini(num_floors - 1, 4))
+	var used_floors: Array[int] = []
+	for _j in range(num_ledges):
+		var ledge_floor := rng.randi_range(1, num_floors - 1)
+		if ledge_floor in used_floors:
+			continue
+		used_floors.append(ledge_floor)
+		var ledge_y := -size.y * 0.5 + ledge_floor * floor_h
+		# Front face ledge
+		var ledge := MeshInstance3D.new()
+		var ledge_mesh := BoxMesh.new()
+		ledge_mesh.size = Vector3(size.x + 0.1, 0.12, 0.3)
+		ledge.mesh = ledge_mesh
+		ledge.position = Vector3(0, ledge_y, size.z * 0.5 + 0.13)
+		ledge.set_surface_override_material(0, _make_ps1_material(facade_color * 1.15))
+		ledge.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		building.add_child(ledge)
+		# Side face ledge (one side, 60% chance)
+		if rng.randf() < 0.6:
+			var side_ledge := MeshInstance3D.new()
+			var side_mesh := BoxMesh.new()
+			var side_dir := 1.0 if rng.randf() < 0.5 else -1.0
+			side_mesh.size = Vector3(0.3, 0.12, size.z + 0.1)
+			side_ledge.mesh = side_mesh
+			side_ledge.position = Vector3(side_dir * (size.x * 0.5 + 0.13), ledge_y, 0)
+			side_ledge.set_surface_override_material(0, _make_ps1_material(facade_color * 1.15))
+			side_ledge.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			building.add_child(side_ledge)
+
 func _create_storefront(pos: Vector3, size: Vector3, rng: RandomNumberGenerator, rot_y: float = 0.0) -> void:
 	var building := Node3D.new()
 	building.position = pos
@@ -316,7 +422,7 @@ func _create_storefront(pos: Vector3, size: Vector3, rng: RandomNumberGenerator,
 	var door_width := 2.0
 	var door_height := 3.0
 
-	var darkness := rng.randf_range(0.3, 0.5)
+	var darkness := rng.randf_range(0.4, 0.65)
 	var tint_roll := rng.randf()
 	var wall_color: Color
 	if tint_roll < 0.4:
@@ -793,6 +899,19 @@ func _add_neon_sign(building: MeshInstance3D, size: Vector3, rng: RandomNumberGe
 		label.billboard = BaseMaterial3D.BILLBOARD_DISABLED
 		building.add_child(label)
 
+		# Backing panel behind text sign
+		var text_w: float = label.text.length() * label.font_size * label.pixel_size * 0.7
+		var text_h: float = label.font_size * label.pixel_size * 1.4
+		var backing := MeshInstance3D.new()
+		var backing_box := BoxMesh.new()
+		backing_box.size = Vector3(text_w + 0.5, text_h + 0.3, 0.12)
+		backing.mesh = backing_box
+		backing.position = Vector3(0, 0, -0.08)
+		var back_col := neon_col * 0.08
+		backing.set_surface_override_material(0, _make_ps1_material(Color(back_col.r + 0.04, back_col.g + 0.04, back_col.b + 0.05)))
+		backing.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		label.add_child(backing)
+
 		var light := OmniLight3D.new()
 		light.light_color = neon_col
 		light.light_energy = rng.randf_range(3.0, 5.0)
@@ -814,7 +933,7 @@ func _add_neon_sign(building: MeshInstance3D, size: Vector3, rng: RandomNumberGe
 				"label": label,
 			})
 	else:
-		# Quad sign (original behavior)
+		# Quad sign with backing panel
 		var sign_mesh := MeshInstance3D.new()
 		var quad := QuadMesh.new()
 		var sign_w := rng.randf_range(2.0, 5.0)
@@ -826,6 +945,16 @@ func _add_neon_sign(building: MeshInstance3D, size: Vector3, rng: RandomNumberGe
 
 		sign_mesh.set_surface_override_material(0,
 			_make_ps1_material(neon_col * 0.5, true, neon_col, rng.randf_range(3.0, 6.0)))
+
+		# Backing panel
+		var backing := MeshInstance3D.new()
+		var backing_box := BoxMesh.new()
+		backing_box.size = Vector3(sign_w + 0.4, sign_h + 0.3, 0.15)
+		backing.mesh = backing_box
+		backing.position = Vector3(0, 0, -0.1)
+		backing.set_surface_override_material(0, _make_ps1_material(Color(0.06, 0.06, 0.08)))
+		backing.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		sign_mesh.add_child(backing)
 
 		var light := OmniLight3D.new()
 		light.light_color = neon_col
