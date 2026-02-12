@@ -124,6 +124,7 @@ func _ready() -> void:
 	_generate_walkway_window_glow()
 	_generate_walkway_underside_lights()
 	_generate_walkway_drip_puddles()
+	_generate_walkway_rain_drips()
 	_generate_road_markings()
 	_generate_vending_machines()
 	_generate_traffic_lights()
@@ -10028,6 +10029,65 @@ func _generate_walkway_drip_puddles() -> void:
 		sheen_count += 1
 
 	print("CityGenerator: walkway drip puddles=", puddle_count, " wet sheens=", sheen_count)
+
+func _generate_walkway_rain_drips() -> void:
+	## Adds water drip particle effects along walkway edges where rain runs off.
+	## Creates visible water droplets falling from elevated platforms to the ground.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 9110
+	var drip_count := 0
+
+	# Pre-create a shared particle mesh (tiny elongated drop)
+	var drop_mesh := BoxMesh.new()
+	drop_mesh.size = Vector3(0.02, 0.12, 0.02)
+
+	for key in walkway_map:
+		var seg: Dictionary = walkway_map[key]
+		if seg["level"] != 1:
+			continue  # only Level 1 drips to ground visibly
+		if rng.randf() > 0.50:
+			continue  # 50% of segments get drip effects
+
+		var seg_pos: Vector3 = seg["position"]
+		var seg_axis: String = seg["axis"]
+		var seg_length: float = seg.get("length", block_size)
+
+		# Place 2-3 drip emitters along the street-side edge of the walkway
+		var num_drips := rng.randi_range(2, 3)
+		for di in range(num_drips):
+			var drip_offset := rng.randf_range(-seg_length * 0.4, seg_length * 0.4)
+			var drip_pos := Vector3.ZERO
+
+			if seg_axis == "z":
+				# Street-side edge is +X from walkway center (1.25m from center of 2.5m platform)
+				drip_pos = Vector3(seg_pos.x + 1.2, seg_pos.y - 0.1, seg_pos.z + drip_offset)
+			else:
+				drip_pos = Vector3(seg_pos.x + drip_offset, seg_pos.y - 0.1, seg_pos.z + 1.2)
+
+			var drip := GPUParticles3D.new()
+			drip.position = drip_pos
+			drip.amount = 4
+			drip.lifetime = 1.2
+			drip.visibility_aabb = AABB(Vector3(-1, -9, -1), Vector3(2, 10, 2))
+
+			var mat := ParticleProcessMaterial.new()
+			mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+			mat.emission_box_extents = Vector3(0.3, 0.0, 0.3)
+			mat.direction = Vector3(0, -1, 0)
+			mat.spread = 5.0
+			mat.initial_velocity_min = 0.5
+			mat.initial_velocity_max = 1.5
+			mat.gravity = Vector3(0, -9.8, 0)
+			mat.scale_min = 0.8
+			mat.scale_max = 1.2
+			mat.color = Color(0.5, 0.55, 0.65, 0.25)
+			drip.process_material = mat
+			drip.draw_pass_1 = drop_mesh
+
+			add_child(drip)
+			drip_count += 1
+
+	print("CityGenerator: walkway rain drips=", drip_count)
 
 func _generate_hk_neon_signs() -> void:
 	## HK-style protruding neon signs distributed across city buildings.
