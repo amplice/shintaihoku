@@ -120,6 +120,7 @@ func _ready() -> void:
 	_generate_walkway_building_doors()
 	_generate_walkway_passthroughs()
 	_generate_walkway_elevated_details()
+	_generate_walkway_furniture()
 	_generate_road_markings()
 	_generate_vending_machines()
 	_generate_traffic_lights()
@@ -9036,20 +9037,18 @@ func _generate_walkway_passthroughs() -> void:
 			var passthrough_len := 0.0
 
 			if seg_axis == "z":
-				# Walkway runs along Z, check X proximity
+				# Walkway runs along Z, check X proximity (3m tolerance for near-misses)
 				var bx_min := bp.x - bs.x * 0.5
 				var bx_max := bp.x + bs.x * 0.5
-				# Walkway X position
 				var wx := seg_pos.x
-				if wx > bx_min - 1.0 and wx < bx_max + 1.0:
-					# Check Z overlap
+				if wx > bx_min - 3.0 and wx < bx_max + 3.0:
 					var wz_min := seg_pos.z - seg_length * 0.5
 					var wz_max := seg_pos.z + seg_length * 0.5
 					var bz_min := bp.z - bs.z * 0.5
 					var bz_max := bp.z + bs.z * 0.5
 					var oz_min := maxf(wz_min, bz_min)
 					var oz_max := minf(wz_max, bz_max)
-					if oz_max - oz_min > 3.0:  # At least 3m overlap
+					if oz_max - oz_min > 2.0:  # At least 2m overlap
 						overlap = true
 						passthrough_len = oz_max - oz_min
 						passthrough_center = Vector3(wx, walkway_y, (oz_min + oz_max) * 0.5)
@@ -9058,14 +9057,14 @@ func _generate_walkway_passthroughs() -> void:
 				var bz_min := bp.z - bs.z * 0.5
 				var bz_max := bp.z + bs.z * 0.5
 				var wz := seg_pos.z
-				if wz > bz_min - 1.0 and wz < bz_max + 1.0:
+				if wz > bz_min - 3.0 and wz < bz_max + 3.0:
 					var wx_min := seg_pos.x - seg_length * 0.5
 					var wx_max := seg_pos.x + seg_length * 0.5
 					var bx_min := bp.x - bs.x * 0.5
 					var bx_max := bp.x + bs.x * 0.5
 					var ox_min := maxf(wx_min, bx_min)
 					var ox_max := minf(wx_max, bx_max)
-					if ox_max - ox_min > 3.0:
+					if ox_max - ox_min > 2.0:
 						overlap = true
 						passthrough_len = ox_max - ox_min
 						passthrough_center = Vector3((ox_min + ox_max) * 0.5, walkway_y, wz)
@@ -9313,6 +9312,197 @@ func _generate_walkway_elevated_details() -> void:
 			detail_count += 1
 
 	print("CityGenerator: walkway elevated details=", detail_count)
+
+func _generate_walkway_furniture() -> void:
+	## Places vending machines, benches, waste bins, and payphones on walkway platforms.
+	## Makes the elevated level feel lived-in like the ground level.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 9106
+	var furniture_count := 0
+
+	var vending_colors: Array[Color] = [
+		Color(1.0, 0.05, 0.4), Color(0.0, 0.9, 1.0),
+		Color(1.0, 0.4, 0.0), Color(0.0, 1.0, 0.5),
+	]
+
+	for key in walkway_map:
+		var seg: Dictionary = walkway_map[key]
+		var seg_pos: Vector3 = seg["position"]
+		var seg_axis: String = seg["axis"]
+		var seg_length: float = seg.get("length", block_size)
+
+		# Vending machine (30% chance per segment)
+		if rng.randf() < 0.30:
+			var vc := vending_colors[rng.randi_range(0, vending_colors.size() - 1)]
+			var offset := rng.randf_range(-seg_length * 0.3, seg_length * 0.3)
+			var vm := Node3D.new()
+			if seg_axis == "z":
+				vm.position = seg_pos + Vector3(0.8, 0, offset)
+			else:
+				vm.position = seg_pos + Vector3(offset, 0, 0.8)
+
+			# Body
+			var body := MeshInstance3D.new()
+			var body_bm := BoxMesh.new()
+			body_bm.size = Vector3(0.6, 1.6, 0.5)
+			body.mesh = body_bm
+			body.position = Vector3(0, 0.9, 0)
+			body.set_surface_override_material(0, _make_ps1_material(Color(0.15, 0.15, 0.18)))
+			vm.add_child(body)
+
+			# Glowing panel
+			var panel := MeshInstance3D.new()
+			var panel_qm := QuadMesh.new()
+			panel_qm.size = Vector2(0.5, 1.0)
+			panel.mesh = panel_qm
+			panel.position = Vector3(0, 1.0, 0.26)
+			if seg_axis == "x":
+				panel.rotation.y = PI * 0.5
+				panel.position = Vector3(0.26, 1.0, 0)
+			panel.set_surface_override_material(0, _make_ps1_material(vc * 0.3, true, vc, 3.0))
+			panel.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			vm.add_child(panel)
+
+			# Small light
+			var vl := OmniLight3D.new()
+			vl.light_color = vc
+			vl.light_energy = 1.0
+			vl.omni_range = 3.0
+			vl.omni_attenuation = 1.5
+			vl.shadow_enabled = false
+			vl.position = Vector3(0, 1.2, 0.4) if seg_axis == "z" else Vector3(0.4, 1.2, 0)
+			vm.add_child(vl)
+
+			add_child(vm)
+			furniture_count += 1
+
+		# Bench (25% chance)
+		if rng.randf() < 0.25:
+			var offset := rng.randf_range(-seg_length * 0.25, seg_length * 0.25)
+			var bench := Node3D.new()
+			if seg_axis == "z":
+				bench.position = seg_pos + Vector3(-0.7, 0, offset)
+			else:
+				bench.position = seg_pos + Vector3(offset, 0, -0.7)
+
+			# Seat
+			var seat := MeshInstance3D.new()
+			var seat_bm := BoxMesh.new()
+			seat_bm.size = Vector3(1.2, 0.08, 0.4) if seg_axis == "z" else Vector3(0.4, 0.08, 1.2)
+			seat.mesh = seat_bm
+			seat.position = Vector3(0, 0.45, 0)
+			seat.set_surface_override_material(0, _make_ps1_material(Color(0.2, 0.15, 0.1)))
+			bench.add_child(seat)
+
+			# Legs
+			for leg_s in [-0.4, 0.4]:
+				var leg := MeshInstance3D.new()
+				var leg_bm := BoxMesh.new()
+				leg_bm.size = Vector3(0.06, 0.45, 0.06)
+				leg.mesh = leg_bm
+				if seg_axis == "z":
+					leg.position = Vector3(leg_s, 0.225, 0)
+				else:
+					leg.position = Vector3(0, 0.225, leg_s)
+				leg.set_surface_override_material(0, _make_ps1_material(Color(0.2, 0.2, 0.22)))
+				bench.add_child(leg)
+
+			# Backrest
+			var back := MeshInstance3D.new()
+			var back_bm := BoxMesh.new()
+			back_bm.size = Vector3(1.2, 0.5, 0.06) if seg_axis == "z" else Vector3(0.06, 0.5, 1.2)
+			back.mesh = back_bm
+			if seg_axis == "z":
+				back.position = Vector3(0, 0.7, -0.17)
+			else:
+				back.position = Vector3(-0.17, 0.7, 0)
+			back.set_surface_override_material(0, _make_ps1_material(Color(0.2, 0.15, 0.1)))
+			bench.add_child(back)
+
+			add_child(bench)
+			furniture_count += 1
+
+		# Waste bin (20% chance)
+		if rng.randf() < 0.20:
+			var offset := rng.randf_range(-seg_length * 0.35, seg_length * 0.35)
+			var bin_mi := MeshInstance3D.new()
+			var bin_bm := BoxMesh.new()
+			bin_bm.size = Vector3(0.35, 0.7, 0.35)
+			bin_mi.mesh = bin_bm
+			if seg_axis == "z":
+				bin_mi.position = seg_pos + Vector3(0.9, 0.35, offset)
+			else:
+				bin_mi.position = seg_pos + Vector3(offset, 0.35, 0.9)
+			bin_mi.set_surface_override_material(0, _make_ps1_material(Color(0.12, 0.12, 0.14)))
+			add_child(bin_mi)
+			furniture_count += 1
+
+		# Payphone (15% chance)
+		if rng.randf() < 0.15:
+			var offset := rng.randf_range(-seg_length * 0.3, seg_length * 0.3)
+			var phone := Node3D.new()
+			if seg_axis == "z":
+				phone.position = seg_pos + Vector3(0.9, 0, offset)
+			else:
+				phone.position = seg_pos + Vector3(offset, 0, 0.9)
+
+			# Post
+			var post := MeshInstance3D.new()
+			var post_bm := BoxMesh.new()
+			post_bm.size = Vector3(0.12, 1.5, 0.12)
+			post.mesh = post_bm
+			post.position = Vector3(0, 0.75, 0)
+			post.set_surface_override_material(0, _make_ps1_material(Color(0.2, 0.2, 0.22)))
+			phone.add_child(post)
+
+			# Phone box
+			var box := MeshInstance3D.new()
+			var box_bm := BoxMesh.new()
+			box_bm.size = Vector3(0.3, 0.4, 0.2)
+			box.mesh = box_bm
+			box.position = Vector3(0, 1.3, 0)
+			var phone_col := neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
+			box.set_surface_override_material(0, _make_ps1_material(phone_col * 0.2, true, phone_col, 1.5))
+			phone.add_child(box)
+
+			add_child(phone)
+			furniture_count += 1
+
+		# Overhead walkway light (40% — fluorescent tube)
+		if rng.randf() < 0.40:
+			var offset := rng.randf_range(-seg_length * 0.3, seg_length * 0.3)
+			var light_pos: Vector3
+			if seg_axis == "z":
+				light_pos = seg_pos + Vector3(0, 2.8, offset)
+			else:
+				light_pos = seg_pos + Vector3(offset, 2.8, 0)
+
+			# Fixture
+			var fix := MeshInstance3D.new()
+			var fix_bm := BoxMesh.new()
+			if seg_axis == "z":
+				fix_bm.size = Vector3(1.5, 0.06, 0.12)
+			else:
+				fix_bm.size = Vector3(0.12, 0.06, 1.5)
+			fix.mesh = fix_bm
+			fix.position = light_pos
+			var is_warm := rng.randf() < 0.3
+			var light_col := Color(1.0, 0.85, 0.6) if is_warm else Color(0.7, 0.85, 1.0)
+			fix.set_surface_override_material(0, _make_ps1_material(light_col * 0.5, true, light_col, 2.0))
+			fix.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			add_child(fix)
+
+			var ol := OmniLight3D.new()
+			ol.light_color = light_col
+			ol.light_energy = 2.0
+			ol.omni_range = 5.0
+			ol.omni_attenuation = 1.3
+			ol.shadow_enabled = false
+			ol.position = light_pos - Vector3(0, 0.1, 0)
+			add_child(ol)
+			furniture_count += 1
+
+	print("CityGenerator: walkway furniture=", furniture_count)
 
 func _generate_hk_neon_signs() -> void:
 	## HK-style protruding neon signs distributed across city buildings.
