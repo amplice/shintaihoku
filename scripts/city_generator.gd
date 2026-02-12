@@ -123,6 +123,7 @@ func _ready() -> void:
 	_generate_walkway_furniture()
 	_generate_walkway_window_glow()
 	_generate_walkway_underside_lights()
+	_generate_walkway_drip_puddles()
 	_generate_road_markings()
 	_generate_vending_machines()
 	_generate_traffic_lights()
@@ -9921,6 +9922,112 @@ func _generate_walkway_underside_lights() -> void:
 			light_count += 1
 
 	print("CityGenerator: walkway underside lights=", light_count)
+
+func _generate_walkway_drip_puddles() -> void:
+	## Places puddles at the base of walkway support columns where rain drips down.
+	## Each puddle reflects the neon color from the walkway above, creating
+	## glowing pools at ground level under the elevated platforms.
+	if not puddle_shader:
+		return
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 9109
+	var puddle_count := 0
+
+	for key in walkway_map:
+		var seg: Dictionary = walkway_map[key]
+		var seg_pos: Vector3 = seg["position"]
+		var seg_axis: String = seg["axis"]
+		var seg_length: float = seg.get("length", block_size)
+		var col_idx: int = seg.get("color_idx", 0)
+		var neon_col: Color = neon_colors[col_idx % neon_colors.size()]
+
+		# Place puddles at column base positions (every 5m along the walkway)
+		var num_columns := int(seg_length / 5.0)
+		for ci in range(num_columns):
+			if rng.randf() > 0.55:  # 55% of column bases get a puddle
+				continue
+
+			var col_offset := -seg_length * 0.5 + (ci + 0.5) * (seg_length / float(num_columns))
+			var puddle_pos := Vector3.ZERO
+			if seg_axis == "z":
+				puddle_pos = Vector3(seg_pos.x, 0.02, seg_pos.z + col_offset)
+			else:
+				puddle_pos = Vector3(seg_pos.x + col_offset, 0.02, seg_pos.z)
+
+			# Puddle (larger than regular puddles — water pools here)
+			var puddle_w := rng.randf_range(2.0, 4.5)
+			var puddle_d := rng.randf_range(1.5, 3.5)
+			# Slight random offset so they don't look perfectly centered
+			puddle_pos.x += rng.randf_range(-0.5, 0.5)
+			puddle_pos.z += rng.randf_range(-0.5, 0.5)
+
+			var puddle := MeshInstance3D.new()
+			var quad := QuadMesh.new()
+			quad.size = Vector2(puddle_w, puddle_d)
+			puddle.mesh = quad
+			puddle.position = puddle_pos
+			puddle.rotation.x = -PI * 0.5
+			var puddle_mat := ShaderMaterial.new()
+			puddle_mat.shader = puddle_shader
+			puddle_mat.set_shader_parameter("puddle_tint", neon_col * 0.06)
+			puddle_mat.set_shader_parameter("neon_tint", neon_col)
+			puddle_mat.set_shader_parameter("neon_strength", rng.randf_range(0.6, 1.4))
+			puddle_mat.set_shader_parameter("reflection_strength", rng.randf_range(0.3, 0.5))
+			puddle_mat.set_shader_parameter("ripple_speed", rng.randf_range(2.0, 3.5))
+			puddle_mat.set_shader_parameter("ripple_scale", rng.randf_range(8.0, 14.0))
+			puddle.set_surface_override_material(0, puddle_mat)
+			add_child(puddle)
+
+			# Neon glow light from puddle (matching walkway underglow color)
+			if rng.randf() < 0.45:
+				var glow := OmniLight3D.new()
+				glow.light_color = neon_col
+				glow.light_energy = rng.randf_range(0.4, 0.9)
+				glow.omni_range = maxf(puddle_w, puddle_d) * 1.0
+				glow.omni_attenuation = 2.0
+				glow.shadow_enabled = false
+				glow.position = Vector3(puddle_pos.x, 0.1, puddle_pos.z)
+				add_child(glow)
+
+			puddle_count += 1
+
+	# Also add wet sheen strips along walkway edges (rain drip line)
+	var sheen_count := 0
+	for key in walkway_map:
+		var seg: Dictionary = walkway_map[key]
+		if seg["level"] != 1:
+			continue  # only ground-adjacent walkways create drip lines
+		if rng.randf() > 0.40:
+			continue
+
+		var seg_pos: Vector3 = seg["position"]
+		var seg_axis: String = seg["axis"]
+		var seg_length: float = seg.get("length", block_size)
+
+		# Wet sheen strip under the walkway edge (where rain drips off)
+		var sheen := MeshInstance3D.new()
+		var sheen_quad := QuadMesh.new()
+		if seg_axis == "z":
+			sheen_quad.size = Vector2(0.8, seg_length * 0.8)
+		else:
+			sheen_quad.size = Vector2(seg_length * 0.8, 0.8)
+		sheen.mesh = sheen_quad
+		sheen.position = Vector3(seg_pos.x, 0.015, seg_pos.z)
+		sheen.rotation.x = -PI * 0.5
+		# Subtle dark reflective strip
+		var sheen_mat := ShaderMaterial.new()
+		sheen_mat.shader = puddle_shader
+		sheen_mat.set_shader_parameter("puddle_tint", Color(0.02, 0.02, 0.03))
+		sheen_mat.set_shader_parameter("neon_tint", Color(0.3, 0.35, 0.4))
+		sheen_mat.set_shader_parameter("neon_strength", 0.3)
+		sheen_mat.set_shader_parameter("reflection_strength", 0.2)
+		sheen_mat.set_shader_parameter("ripple_speed", 2.5)
+		sheen_mat.set_shader_parameter("ripple_scale", 15.0)
+		sheen.set_surface_override_material(0, sheen_mat)
+		add_child(sheen)
+		sheen_count += 1
+
+	print("CityGenerator: walkway drip puddles=", puddle_count, " wet sheens=", sheen_count)
 
 func _generate_hk_neon_signs() -> void:
 	## HK-style protruding neon signs distributed across city buildings.
