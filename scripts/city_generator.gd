@@ -128,6 +128,7 @@ func _ready() -> void:
 	_generate_walkway_rain_drips()
 	_generate_walkway_ad_panels()
 	_generate_walkway_cables()
+	_generate_walkway_rail_leds()
 	_generate_road_markings()
 	_generate_vending_machines()
 	_generate_traffic_lights()
@@ -10271,6 +10272,44 @@ func _generate_walkway_cables() -> void:
 				add_child(led)
 
 	print("CityGenerator: walkway cables=", cable_count)
+
+func _generate_walkway_rail_leds() -> void:
+	## Evenly-spaced small LED dots along walkway railing tops, like runway lights.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 9113
+	var led_count := 0
+	var led_mesh := BoxMesh.new()
+	led_mesh.size = Vector3(0.06, 0.06, 0.06)
+
+	for key in walkway_map:
+		var seg: Dictionary = walkway_map[key]
+		var seg_pos: Vector3 = seg["position"]
+		var seg_axis: String = seg["axis"]
+		var seg_length: float = seg.get("length", block_size)
+		var col_idx: int = seg.get("color_idx", 0)
+		var neon_col: Color = neon_colors[col_idx % neon_colors.size()]
+
+		# LEDs every 1.5m along the street-side railing
+		var spacing := 1.5
+		var num_leds := int(seg_length / spacing)
+		var led_mat := _make_ps1_material(neon_col * 0.3, true, neon_col, 4.0)
+
+		for li in range(num_leds):
+			var offset := -seg_length * 0.5 + (li + 0.5) * spacing
+			var led := MeshInstance3D.new()
+			led.mesh = led_mesh
+			led.set_surface_override_material(0, led_mat)
+			led.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+			if seg_axis == "z":
+				led.position = Vector3(seg_pos.x + 1.22, seg_pos.y + 1.1, seg_pos.z + offset)
+			else:
+				led.position = Vector3(seg_pos.x + offset, seg_pos.y + 1.1, seg_pos.z + 1.22)
+
+			add_child(led)
+			led_count += 1
+
+	print("CityGenerator: walkway rail LEDs=", led_count)
 
 func _generate_hk_neon_signs() -> void:
 	## HK-style protruding neon signs distributed across city buildings.
