@@ -121,6 +121,7 @@ func _ready() -> void:
 	_generate_walkway_passthroughs()
 	_generate_walkway_elevated_details()
 	_generate_walkway_furniture()
+	_generate_walkway_window_glow()
 	_generate_road_markings()
 	_generate_vending_machines()
 	_generate_traffic_lights()
@@ -9503,6 +9504,184 @@ func _generate_walkway_furniture() -> void:
 			furniture_count += 1
 
 	print("CityGenerator: walkway furniture=", furniture_count)
+
+func _generate_walkway_window_glow() -> void:
+	## Adds glowing windows and interior glimpses on buildings at walkway height.
+	## Creates the feeling of walking past lit apartments on elevated walkways.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 9107
+	var glow_count := 0
+
+	var neon_colors_local: Array[Color] = [
+		Color(1.0, 0.1, 0.4), Color(0.1, 0.9, 1.0), Color(0.8, 0.2, 1.0),
+		Color(1.0, 0.5, 0.0), Color(0.0, 1.0, 0.5), Color(1.0, 0.9, 0.1),
+	]
+
+	# Collect buildings with their positions and sizes
+	var buildings: Array[Dictionary] = []
+	for child in get_children():
+		if child is MeshInstance3D and (child as MeshInstance3D).mesh is BoxMesh:
+			var mi := child as MeshInstance3D
+			var bsize: Vector3 = (mi.mesh as BoxMesh).size
+			if bsize.y >= 10.0:
+				buildings.append({"node": mi, "pos": mi.position, "size": bsize})
+
+	for key in walkway_map:
+		var seg: Dictionary = walkway_map[key]
+		var seg_pos: Vector3 = seg["position"]
+		var seg_axis: String = seg["axis"]
+		var seg_level: int = seg["level"]
+		var seg_length: float = seg.get("length", block_size)
+		var walkway_y: float = seg_pos.y  # 8.0 or 18.0
+
+		# Find buildings close to this walkway segment (building side)
+		for bdata in buildings:
+			var bpos: Vector3 = bdata["pos"]
+			var bsize: Vector3 = bdata["size"]
+			var building_top: float = bpos.y + bsize.y * 0.5
+
+			# Building must be tall enough to have windows at walkway height
+			if building_top < walkway_y + 1.0:
+				continue
+
+			# Check proximity — building must be near the walkway and on the building side
+			var dist: float
+			var face_dir: float  # which face of the building faces the walkway
+			var along_axis_match := false
+
+			if seg_axis == "z":
+				dist = absf(bpos.x - seg_pos.x)
+				# Building center should be on the building side (negative X from walkway)
+				if bpos.x > seg_pos.x:
+					continue  # building is on street side, not building side
+				face_dir = 1.0  # building's +X face faces the walkway
+				# Check if building overlaps along Z with walkway segment
+				if absf(bpos.z - seg_pos.z) < (bsize.z * 0.5 + seg_length * 0.5):
+					along_axis_match = true
+			else:
+				dist = absf(bpos.z - seg_pos.z)
+				if bpos.z > seg_pos.z:
+					continue
+				face_dir = 1.0
+				if absf(bpos.x - seg_pos.x) < (bsize.x * 0.5 + seg_length * 0.5):
+					along_axis_match = true
+
+			if not along_axis_match or dist > 15.0 or dist < 1.0:
+				continue
+
+			# Place a row of glowing windows at walkway height on the building face
+			var window_y_base: float = walkway_y - bpos.y  # local Y in building coords
+			var num_windows := rng.randi_range(2, 5)
+			var face_width: float = bsize.z if seg_axis == "z" else bsize.x
+
+			for wi in range(num_windows):
+				if rng.randf() > 0.65:  # 65% of slots get a window
+					continue
+
+				var wc := _pick_window_color(rng)
+				var lateral := rng.randf_range(-face_width * 0.35, face_width * 0.35)
+				var wy := window_y_base + rng.randf_range(-0.5, 1.5)
+
+				# Window quad on building face
+				var win := MeshInstance3D.new()
+				var quad := QuadMesh.new()
+				quad.size = Vector2(1.3, 1.6)
+				win.mesh = quad
+				win.set_surface_override_material(0,
+					_make_ps1_material(wc * 0.3, true, wc, rng.randf_range(3.0, 6.0)))
+				win.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+				if seg_axis == "z":
+					win.position = Vector3(bsize.x * 0.51 * face_dir, wy, lateral)
+				else:
+					win.position = Vector3(lateral, wy, bsize.z * 0.51 * face_dir)
+					win.rotation.y = PI * 0.5
+
+				(bdata["node"] as Node3D).add_child(win)
+				glow_count += 1
+
+				# 30% get horizontal blinds
+				if rng.randf() < 0.30:
+					for blind_row in range(4):
+						var blind := MeshInstance3D.new()
+						var blind_mesh := QuadMesh.new()
+						blind_mesh.size = Vector2(1.2, 0.07)
+						blind.mesh = blind_mesh
+						var blind_y := wy - 0.5 + blind_row * 0.35
+						if seg_axis == "z":
+							blind.position = Vector3(bsize.x * 0.51 * face_dir + 0.005, blind_y, lateral)
+						else:
+							blind.position = Vector3(lateral, blind_y, bsize.z * 0.51 * face_dir + 0.005)
+							blind.rotation.y = PI * 0.5
+						blind.set_surface_override_material(0,
+							_make_ps1_material(Color(0.05, 0.04, 0.03)))
+						blind.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+						(bdata["node"] as Node3D).add_child(blind)
+
+				# 20% get a person silhouette
+				elif rng.randf() < 0.20:
+					var sil := MeshInstance3D.new()
+					var sil_mesh := QuadMesh.new()
+					sil_mesh.size = Vector2(0.4, 0.9)
+					sil.mesh = sil_mesh
+					var sil_lat := lateral + rng.randf_range(-0.15, 0.15)
+					if seg_axis == "z":
+						sil.position = Vector3(bsize.x * 0.51 * face_dir + 0.01, wy + 0.1, sil_lat)
+					else:
+						sil.position = Vector3(sil_lat, wy + 0.1, bsize.z * 0.51 * face_dir + 0.01)
+						sil.rotation.y = PI * 0.5
+					sil.set_surface_override_material(0,
+						_make_ps1_material(Color(0.02, 0.02, 0.03)))
+					sil.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+					(bdata["node"] as Node3D).add_child(sil)
+
+				# 15% get a warm light spill (OmniLight casting onto walkway)
+				if rng.randf() < 0.15:
+					var spill := OmniLight3D.new()
+					spill.light_color = wc
+					spill.light_energy = 0.8
+					spill.omni_range = 4.0
+					spill.omni_attenuation = 1.5
+					spill.shadow_enabled = false
+					if seg_axis == "z":
+						spill.position = Vector3(bsize.x * 0.5 * face_dir + 0.5, wy, lateral)
+					else:
+						spill.position = Vector3(lateral, wy, bsize.z * 0.5 * face_dir + 0.5)
+					(bdata["node"] as Node3D).add_child(spill)
+
+				# 10% get a neon window frame (colored border around window)
+				if rng.randf() < 0.10:
+					var neon_col: Color = neon_colors_local[rng.randi_range(0, neon_colors_local.size() - 1)]
+					# Top bar
+					var top_bar := MeshInstance3D.new()
+					var top_bm := BoxMesh.new()
+					top_bm.size = Vector3(1.4, 0.06, 0.06)
+					top_bar.mesh = top_bm
+					top_bar.set_surface_override_material(0,
+						_make_ps1_material(neon_col * 0.4, true, neon_col, 4.0))
+					top_bar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+					if seg_axis == "z":
+						top_bar.position = Vector3(bsize.x * 0.51 * face_dir + 0.02, wy + 0.8, lateral)
+					else:
+						top_bar.position = Vector3(lateral, wy + 0.8, bsize.z * 0.51 * face_dir + 0.02)
+						top_bar.rotation.y = PI * 0.5
+					(bdata["node"] as Node3D).add_child(top_bar)
+					# Bottom bar
+					var bot_bar := MeshInstance3D.new()
+					var bot_bm := BoxMesh.new()
+					bot_bm.size = Vector3(1.4, 0.06, 0.06)
+					bot_bar.mesh = bot_bm
+					bot_bar.set_surface_override_material(0,
+						_make_ps1_material(neon_col * 0.4, true, neon_col, 4.0))
+					bot_bar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+					if seg_axis == "z":
+						bot_bar.position = Vector3(bsize.x * 0.51 * face_dir + 0.02, wy - 0.8, lateral)
+					else:
+						bot_bar.position = Vector3(lateral, wy - 0.8, bsize.z * 0.51 * face_dir + 0.02)
+						bot_bar.rotation.y = PI * 0.5
+					(bdata["node"] as Node3D).add_child(bot_bar)
+
+	print("CityGenerator: walkway window glow=", glow_count)
 
 func _generate_hk_neon_signs() -> void:
 	## HK-style protruding neon signs distributed across city buildings.
