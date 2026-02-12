@@ -519,7 +519,7 @@ func _add_mech_penthouse(root: MeshInstance3D, top_y: float, size: Vector3,
 	_add_windows(pent, Vector3(pw, ph, pd), rng)
 
 func _add_radar_dome(root: MeshInstance3D, top_y: float, size: Vector3,
-	facade_color: Color, rng: RandomNumberGenerator) -> void:
+	_facade_color: Color, rng: RandomNumberGenerator) -> void:
 	var r := rng.randf_range(1.2, 2.5)
 	var dome := MeshInstance3D.new()
 	var sphere := SphereMesh.new()
@@ -6712,11 +6712,11 @@ func _generate_building_entrances() -> void:
 			var max_extent := Vector3.ZERO
 			for gc in n3d.get_children():
 				if gc is MeshInstance3D and (gc as MeshInstance3D).mesh is BoxMesh:
-					var piece := gc as MeshInstance3D
+					var piece: MeshInstance3D = gc as MeshInstance3D
 					var ps: Vector3 = (piece.mesh as BoxMesh).size
-					var top := piece.position.y + ps.y * 0.5
-					var right := absf(piece.position.x) + ps.x * 0.5
-					var front := absf(piece.position.z) + ps.z * 0.5
+					var top: float = piece.position.y + ps.y * 0.5
+					var right: float = absf(piece.position.x) + ps.x * 0.5
+					var front: float = absf(piece.position.z) + ps.z * 0.5
 					max_extent.y = maxf(max_extent.y, top)
 					max_extent.x = maxf(max_extent.x, right * 2.0)
 					max_extent.z = maxf(max_extent.z, front * 2.0)
@@ -9180,8 +9180,8 @@ func _generate_walkway_elevated_details() -> void:
 		var seg_pos: Vector3 = seg["position"]
 		var seg_axis: String = seg["axis"]
 		var seg_length: float = seg.get("length", block_size)
-		var seg_level: int = seg["level"]
-		var col_idx: int = seg.get("color_idx", 0)
+		var _seg_level: int = seg["level"]
+		var _col_idx: int = seg.get("color_idx", 0)
 
 		# Hanging sign under walkway (40% chance)
 		if rng.randf() < 0.40:
@@ -9513,7 +9513,7 @@ func _generate_hk_neon_signs() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 9500
 
-	var min_height := 4.5  # minimum 1.5 stories above ground
+	var _wk_min_height := 4.5  # minimum 1.5 stories above ground
 
 	for child in get_children():
 		if not child is MeshInstance3D:

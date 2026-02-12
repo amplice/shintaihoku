@@ -684,50 +684,60 @@ func _trigger_footstep(sprinting: bool) -> void:
 		_place_footprint()
 	if not step_playback:
 		return
-	# Surface detection: near storefront grid cells = tile/metal, otherwise concrete
+	# Surface detection
 	var cell_stride := 28.0  # block_size(20) + street_width(8)
 	var gx := fmod(absf(global_position.x), cell_stride)
 	var gz := fmod(absf(global_position.z), cell_stride)
 	var near_storefront := gx < 3.0 or gx > cell_stride - 3.0 or gz < 3.0 or gz > cell_stride - 3.0
+	var on_walkway := global_position.y > 5.0  # elevated walkway metal grating
 	# Randomly vary between dry and wet footstep sounds
-	var is_wet := step_rng.randf() < 0.35  # 35% chance of splashy step
+	var is_wet := step_rng.randf() < 0.35 and not on_walkway  # walkways are covered/dry
 	var num_samples := 800 if sprinting else 600
 	if is_crouching:
-		num_samples = 350  # shorter, lighter
-	if is_wet:
-		num_samples = int(num_samples * 1.3)  # wet steps ring longer
-	if near_storefront:
-		num_samples = int(num_samples * 1.4)  # tile/metal rings longer
+		num_samples = 350
+	if on_walkway:
+		num_samples = int(num_samples * 1.6)  # metal rings much longer
+	elif is_wet:
+		num_samples = int(num_samples * 1.3)
+	elif near_storefront:
+		num_samples = int(num_samples * 1.4)
 	var pitch := step_rng.randf_range(0.7, 1.0) if sprinting else step_rng.randf_range(0.9, 1.3)
 	if is_crouching:
-		pitch = step_rng.randf_range(1.2, 1.6)  # higher pitch = lighter taps
-	if near_storefront:
-		pitch *= 1.3  # higher pitch on tile
+		pitch = step_rng.randf_range(1.2, 1.6)
+	if on_walkway:
+		pitch *= 1.5  # high pitched metallic
+	elif near_storefront:
+		pitch *= 1.3
 	var volume := 0.35 if sprinting else 0.2
 	if is_crouching:
-		volume = 0.08  # very quiet sneaky steps
+		volume = 0.08
+	if on_walkway:
+		volume *= 1.15  # metal steps are a bit louder
 	var phase := 0.0
 	var filter_state := 0.0
 	for i in range(num_samples):
 		var t := float(i) / float(num_samples)
-		# Envelope: sharp attack, fast decay
 		var env := (1.0 - t) * (1.0 - t)
 		var noise := step_rng.randf_range(-1.0, 1.0)
 		phase += pitch * 0.02
 		var sample: float
-		if near_storefront and not is_wet:
-			# Tile/metal: resonant ring with less noise
+		if on_walkway:
+			# Metal grating: sharp resonant ring with harmonic overtones, thin noise
+			var ring1 := sin(phase * 200.0 * TAU) * 0.35
+			var ring2 := sin(phase * 400.0 * TAU) * 0.2
+			var ring3 := sin(phase * 600.0 * TAU) * 0.1  # high harmonic shimmer
+			var clank := noise * 0.15 * env * env  # sharp transient noise only at attack
+			sample = (clank + (ring1 + ring2 + ring3) * 0.8) * env * volume
+		elif near_storefront and not is_wet:
 			var ring := sin(phase * 140.0 * TAU) * 0.4
 			ring += sin(phase * 280.0 * TAU) * 0.15
 			sample = (noise * 0.3 + ring * 0.7) * env * volume * 0.9
 		elif is_wet:
-			# Wet: more noise, higher pitch splash, less thump
 			var splash := noise * 0.85
 			var water_ring := sin(phase * 120.0 * TAU) * 0.15 * (1.0 - t)
 			filter_state = filter_state * 0.6 + splash * 0.4
 			sample = (filter_state + water_ring) * env * volume * 1.2
 		else:
-			# Dry: standard thump + noise
 			var thump := sin(phase * 80.0 * TAU) * 0.5
 			sample = (noise * 0.6 + thump * 0.4) * env * volume
 		if step_playback.can_push_buffer(1):
