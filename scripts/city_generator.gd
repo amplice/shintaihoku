@@ -122,6 +122,7 @@ func _ready() -> void:
 	_generate_walkway_elevated_details()
 	_generate_walkway_furniture()
 	_generate_walkway_window_glow()
+	_generate_walkway_underside_lights()
 	_generate_road_markings()
 	_generate_vending_machines()
 	_generate_traffic_lights()
@@ -9682,6 +9683,104 @@ func _generate_walkway_window_glow() -> void:
 					(bdata["node"] as Node3D).add_child(bot_bar)
 
 	print("CityGenerator: walkway window glow=", glow_count)
+
+func _generate_walkway_underside_lights() -> void:
+	## Adds flickering fluorescent tube lights on the underside of walkway platforms.
+	## Some working, some flickering, some dead — classic dystopian corridor lighting.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 9108
+	var light_count := 0
+
+	for key in walkway_map:
+		var seg: Dictionary = walkway_map[key]
+		var seg_pos: Vector3 = seg["position"]
+		var seg_axis: String = seg["axis"]
+		var seg_length: float = seg.get("length", block_size)
+
+		# Place 3-5 tube lights per walkway segment on the underside
+		var num_tubes := rng.randi_range(3, 5)
+		for ti in range(num_tubes):
+			var roll := rng.randf()
+			if roll > 0.75:  # 25% of slots are empty (dead/missing)
+				continue
+
+			var tube_offset := -seg_length * 0.4 + ti * (seg_length * 0.8 / float(num_tubes))
+			var tube_pos := Vector3.ZERO
+			var tube_rot := 0.0
+
+			if seg_axis == "z":
+				tube_pos = Vector3(seg_pos.x, seg_pos.y - 0.3, seg_pos.z + tube_offset)
+				tube_rot = 0.0  # tube runs along X (perpendicular to walkway)
+			else:
+				tube_pos = Vector3(seg_pos.x + tube_offset, seg_pos.y - 0.3, seg_pos.z)
+				tube_rot = PI * 0.5  # tube runs along Z
+
+			# Tube mesh (long thin glowing box)
+			var tube := MeshInstance3D.new()
+			var tube_mesh := BoxMesh.new()
+			tube_mesh.size = Vector3(2.0, 0.05, 0.05)
+			tube.mesh = tube_mesh
+			tube.position = tube_pos
+			tube.rotation.y = tube_rot
+
+			# Color: mostly cool white, some warm
+			var is_warm := rng.randf() < 0.25
+			var tube_col := Color(1.0, 0.95, 0.85) if is_warm else Color(0.85, 0.92, 1.0)
+
+			# Status: 60% working, 30% flickering, 10% dead (dim)
+			var status_roll := rng.randf()
+			var is_dead := status_roll > 0.9
+			var is_flickering := status_roll > 0.6 and not is_dead
+
+			if is_dead:
+				# Dead tube — very dim, no light
+				tube.set_surface_override_material(0,
+					_make_ps1_material(tube_col * 0.05, true, tube_col * 0.1, 0.3))
+				add_child(tube)
+				light_count += 1
+				continue
+
+			# Working or flickering tube
+			var energy := 2.0 if not is_flickering else rng.randf_range(1.5, 2.5)
+			tube.set_surface_override_material(0,
+				_make_ps1_material(tube_col * 0.4, true, tube_col, 2.5))
+			add_child(tube)
+
+			# OmniLight beneath tube
+			var tube_light := OmniLight3D.new()
+			tube_light.position = tube_pos - Vector3(0, 0.15, 0)
+			tube_light.light_color = tube_col
+			tube_light.light_energy = energy
+			tube_light.omni_range = 5.0
+			tube_light.omni_attenuation = 1.4
+			tube_light.shadow_enabled = false
+			add_child(tube_light)
+
+			# Flickering tubes get registered for buzz animation
+			if is_flickering:
+				flickering_lights.append({
+					"node": tube_light,
+					"base_energy": energy,
+					"phase": rng.randf() * TAU,
+					"speed": rng.randf_range(10.0, 25.0),
+					"style": "buzz",
+					"mesh": tube,
+				})
+
+			# Mounting bracket (small dark box connecting tube to walkway underside)
+			var bracket := MeshInstance3D.new()
+			var bracket_mesh := BoxMesh.new()
+			bracket_mesh.size = Vector3(0.15, 0.25, 0.08)
+			bracket.mesh = bracket_mesh
+			bracket.position = tube_pos + Vector3(0, 0.12, 0)
+			bracket.set_surface_override_material(0,
+				_make_ps1_material(Color(0.12, 0.12, 0.14)))
+			bracket.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			add_child(bracket)
+
+			light_count += 1
+
+	print("CityGenerator: walkway underside lights=", light_count)
 
 func _generate_hk_neon_signs() -> void:
 	## HK-style protruding neon signs distributed across city buildings.
