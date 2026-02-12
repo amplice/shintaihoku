@@ -82,6 +82,13 @@ var was_sprinting_last: bool = false  # edge detect for sprint stop exhale
 var land_nod: float = 0.0  # forward nod on landing
 var lens_water_timer: float = 0.0  # rain lens distortion pulse timer
 var lens_water_pulse: float = 0.0  # current lens pulse intensity
+var wind_player: AudioStreamPlayer
+var wind_generator: AudioStreamGenerator
+var wind_playback: AudioStreamGeneratorPlayback
+var wind_phase: float = 0.0
+var wind_gust_phase: float = 0.0
+var wind_volume_target: float = 0.0
+var wind_volume_current: float = 0.0
 
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
@@ -101,6 +108,7 @@ func _ready() -> void:
 	_setup_shadow_blob()
 	_setup_head_rain_splash()
 	_setup_footprint_pool()
+	_setup_wind_audio()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
@@ -572,6 +580,9 @@ func _physics_process(delta: float) -> void:
 		if echo_delay <= 0.0:
 			echo_pending = false
 			_play_echo_step()
+
+	# Wind audio: crossfade in when elevated on walkways
+	_fill_wind_audio(delta)
 
 	# Camera collision: reset camera to default distance, then pull forward if clipping
 	camera.position.z = 2.5
@@ -1054,6 +1065,67 @@ func _setup_footprint_pool() -> void:
 		fp.visible = false
 		get_tree().root.call_deferred("add_child", fp)
 		footprints.append({"mesh": fp, "timer": 0.0})
+
+func _setup_wind_audio() -> void:
+	wind_player = AudioStreamPlayer.new()
+	wind_generator = AudioStreamGenerator.new()
+	wind_generator.mix_rate = 22050.0
+	wind_generator.buffer_length = 0.1
+	wind_player.stream = wind_generator
+	wind_player.volume_db = -18.0
+	wind_player.bus = "Master"
+	add_child(wind_player)
+	wind_player.play()
+	wind_playback = wind_player.get_stream_playback()
+
+func _fill_wind_audio(delta: float) -> void:
+	if not wind_playback:
+		return
+
+	# Determine target volume based on height
+	var height := global_position.y
+	if height > 5.0:
+		# Crossfade in: full volume at y=8+, ramp from y=5 to y=8
+		wind_volume_target = clampf((height - 5.0) / 3.0, 0.0, 1.0)
+		# Even louder at Level 2
+		if height > 15.0:
+			wind_volume_target = clampf(wind_volume_target + (height - 15.0) / 5.0 * 0.3, 0.0, 1.3)
+	else:
+		wind_volume_target = 0.0
+
+	wind_volume_current = lerpf(wind_volume_current, wind_volume_target, 3.0 * delta)
+
+	# Fill audio buffer with procedural wind noise
+	var frames_available := wind_playback.get_frames_available()
+	if frames_available <= 0:
+		return
+
+	var mix_rate := 22050.0
+	var dt := 1.0 / mix_rate
+	for _i in range(frames_available):
+		if wind_volume_current < 0.001:
+			wind_playback.push_frame(Vector2.ZERO)
+			continue
+
+		wind_phase += dt
+		wind_gust_phase += dt * 0.15  # slow gust modulation
+
+		# Base wind: filtered noise (low-pass via phase accumulation)
+		var noise := randf_range(-1.0, 1.0)
+		var wind_lp := 0.03 + 0.02 * sin(wind_gust_phase * TAU)  # filter cutoff modulation
+		wind_phase = lerpf(wind_phase, noise, wind_lp)
+
+		# Wind whistle: faint high tone that comes and goes
+		var whistle_freq := 800.0 + 200.0 * sin(wind_gust_phase * 0.7 * TAU)
+		var whistle_amp := 0.08 * maxf(0.0, sin(wind_gust_phase * 0.3 * TAU))
+		var whistle := sin(wind_phase * whistle_freq * TAU) * whistle_amp
+
+		# Gust swell: periodic volume increase
+		var gust := 0.6 + 0.4 * sin(wind_gust_phase * 0.5 * TAU)
+
+		var sample := (wind_phase * 0.7 + whistle) * gust * wind_volume_current * 0.4
+		sample = clampf(sample, -1.0, 1.0)
+		wind_playback.push_frame(Vector2(sample, sample))
 
 func _place_footprint() -> void:
 	if footprints.is_empty():
