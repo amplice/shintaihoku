@@ -29,6 +29,7 @@ var police_blue_light: OmniLight3D = null
 var hologram_projections: Array[Dictionary] = []  # [{mesh, light, phase, speed}]
 var cycling_windows: Array[Dictionary] = []  # [{mesh, base_energy, period, phase}]
 var wall_screen_anims: Array[Dictionary] = []  # [{node, light, phase, colors}]
+var walkway_ad_panels: Array[Dictionary] = []  # [{node, phase, speed, colors}]
 var aircraft_node: Node3D = null
 var aircraft_time: float = 0.0
 var aircraft_nav_light: OmniLight3D = null
@@ -125,6 +126,7 @@ func _ready() -> void:
 	_generate_walkway_underside_lights()
 	_generate_walkway_drip_puddles()
 	_generate_walkway_rain_drips()
+	_generate_walkway_ad_panels()
 	_generate_road_markings()
 	_generate_vending_machines()
 	_generate_traffic_lights()
@@ -6141,6 +6143,28 @@ func _process(_delta: float) -> void:
 		if is_instance_valid(wlight):
 			wlight.light_color = cur_color
 
+	# Walkway ad panel color cycling
+	for ap in walkway_ad_panels:
+		var ap_node: MeshInstance3D = ap["node"]
+		if not is_instance_valid(ap_node):
+			continue
+		var ap_phase: float = ap["phase"]
+		var ap_speed: float = ap["speed"]
+		var ap_colors: Array = ap["colors"]
+		var cycle_t := fmod(time * ap_speed + ap_phase, float(ap_colors.size()) * 5.0)
+		var ci := int(cycle_t / 5.0) % ap_colors.size()
+		var within := fmod(cycle_t, 5.0)
+		var c1: Color = ap_colors[ci]
+		var c2: Color = ap_colors[(ci + 1) % ap_colors.size()]
+		var cur_col: Color = c1 if within < 4.5 else c1.lerp(c2, (within - 4.5) / 0.5)
+		# Occasional flicker/static
+		if sin(time * 12.0 + ap_phase * 7.0) > 0.93:
+			cur_col = Color(0.5, 0.5, 0.6)
+		var smat: ShaderMaterial = ap_node.get_surface_override_material(0)
+		if smat:
+			smat.set_shader_parameter("albedo_color", cur_col * 0.3)
+			smat.set_shader_parameter("emission_color", cur_col)
+
 	# Surveillance drone patrol (figure-8 path)
 	if drone_node and is_instance_valid(drone_node):
 		drone_time += _delta
@@ -10088,6 +10112,79 @@ func _generate_walkway_rain_drips() -> void:
 			drip_count += 1
 
 	print("CityGenerator: walkway rain drips=", drip_count)
+
+func _generate_walkway_ad_panels() -> void:
+	## Small holographic ad panels on walkway railings — animated color cycling.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 9111
+	var panel_count := 0
+
+	var ad_color_sets: Array[Array] = [
+		[Color(1.0, 0.1, 0.4), Color(0.1, 0.9, 1.0), Color(1.0, 0.9, 0.1)],  # magenta-cyan-gold
+		[Color(0.8, 0.2, 1.0), Color(0.0, 1.0, 0.5), Color(1.0, 0.5, 0.0)],  # purple-green-orange
+		[Color(0.1, 0.5, 1.0), Color(1.0, 0.3, 0.3), Color(0.3, 1.0, 0.8)],  # blue-red-teal
+		[Color(1.0, 0.6, 0.0), Color(0.6, 0.1, 1.0), Color(0.0, 0.8, 1.0)],  # amber-violet-sky
+	]
+
+	for key in walkway_map:
+		var seg: Dictionary = walkway_map[key]
+		var seg_pos: Vector3 = seg["position"]
+		var seg_axis: String = seg["axis"]
+		var seg_length: float = seg.get("length", block_size)
+
+		# 35% of segments get ad panels
+		if rng.randf() > 0.35:
+			continue
+
+		# 1-3 panels per segment
+		var num_panels := rng.randi_range(1, 3)
+		for _pi in range(num_panels):
+			var panel_offset := rng.randf_range(-seg_length * 0.35, seg_length * 0.35)
+			var color_set: Array = ad_color_sets[rng.randi_range(0, ad_color_sets.size() - 1)]
+			var start_col: Color = color_set[0]
+
+			# Panel on the street-side railing (facing outward)
+			var panel := MeshInstance3D.new()
+			var panel_mesh := QuadMesh.new()
+			panel_mesh.size = Vector2(0.5, 0.7)
+			panel.mesh = panel_mesh
+			panel.set_surface_override_material(0,
+				_make_ps1_material(start_col * 0.3, true, start_col, 3.5))
+			panel.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+			# Position on the railing
+			if seg_axis == "z":
+				panel.position = Vector3(seg_pos.x + 1.25, seg_pos.y + 0.5, seg_pos.z + panel_offset)
+				# Face outward (street side)
+			else:
+				panel.position = Vector3(seg_pos.x + panel_offset, seg_pos.y + 0.5, seg_pos.z + 1.25)
+				panel.rotation.y = PI * 0.5
+
+			add_child(panel)
+
+			# Thin frame border (dark metal)
+			var frame := MeshInstance3D.new()
+			var frame_mesh := BoxMesh.new()
+			frame_mesh.size = Vector3(0.55, 0.75, 0.02)
+			frame.mesh = frame_mesh
+			frame.set_surface_override_material(0, _make_ps1_material(Color(0.08, 0.08, 0.1)))
+			frame.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			frame.position = panel.position
+			if seg_axis == "x":
+				frame.rotation.y = PI * 0.5
+			add_child(frame)
+
+			# Register for color cycling animation
+			walkway_ad_panels.append({
+				"node": panel,
+				"phase": rng.randf() * TAU,
+				"speed": rng.randf_range(0.3, 0.8),
+				"colors": color_set,
+			})
+
+			panel_count += 1
+
+	print("CityGenerator: walkway ad panels=", panel_count)
 
 func _generate_hk_neon_signs() -> void:
 	## HK-style protruding neon signs distributed across city buildings.
