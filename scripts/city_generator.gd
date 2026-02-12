@@ -2,7 +2,7 @@ extends Node3D
 
 ## Procedurally generates a grid of cyberpunk buildings with emissive windows and neon signs.
 
-@export var grid_size: int = 6
+@export var grid_size: int = 3
 @export var block_size: float = 20.0
 @export var street_width: float = 8.0
 @export var min_height: float = 10.0
@@ -58,8 +58,10 @@ var fly_positions: Array[Vector3] = []
 var fly_rng := RandomNumberGenerator.new()
 var steam_bursts: Array[Dictionary] = []  # [{particles, timer, interval}]
 var dish_nodes: Array[Node3D] = []  # satellite dishes for slow rotation
+var walkway_map: Dictionary = {}  # populated during generation, read by NPCManager
 var boot_time: float = 0.0
 var boot_complete: bool = false
+var prefab_buildings: Array[PackedScene] = []  # preloaded GLB building scenes
 
 var neon_colors: Array[Color] = [
 	Color(1.0, 0.05, 0.4),   # hot magenta
@@ -83,6 +85,15 @@ const NEON_TEXTS: Array[String] = [
 	"サイバー", "ネオン", "パチンコ",
 ]
 
+# Mixed English/kanji for HK-style protruding neon signs
+const HK_SIGN_TEXTS: Array[String] = [
+	"酒場", "薬局", "電器", "旅館", "夜光", "歌舞",
+	"BAR", "NOODLES", "HOTEL", "CLUB", "CYBER",
+	"GIRLS", "LOANS", "24HR", "OPEN", "KARAOKE",
+	"MASSAGE", "CAFE", "TAXI", "PAWN",
+	"危険", "出口", "未来", "電脳", "新体北",
+]
+
 func _ready() -> void:
 	ps1_shader = load("res://shaders/ps1.gdshader")
 	puddle_shader = load("res://shaders/puddle.gdshader")
@@ -93,128 +104,632 @@ func _ready() -> void:
 	else:
 		neon_font = null
 		print("CityGenerator: CJK font not found, using quad-only neon signs")
+	_load_prefab_buildings()
 	print("CityGenerator: starting generation with grid_size=", grid_size)
 	_generate_city()
-	_generate_cars()
+	#_generate_cars()
 	_generate_street_lights()
-	_generate_puddles()
-	_generate_steam_vents()
-	_generate_skyline()
-	_generate_rooftop_details()
+	#_generate_puddles()
+	#_generate_steam_vents()
+	#_generate_skyline()
+	#_generate_rooftop_details()
 	_generate_sidewalks()
+	_generate_elevated_walkways()
+	_generate_walkway_ramps()
+	_generate_walkway_bridges()
+	_generate_walkway_building_doors()
+	_generate_walkway_passthroughs()
+	_generate_walkway_elevated_details()
 	_generate_road_markings()
 	_generate_vending_machines()
 	_generate_traffic_lights()
 	_generate_billboards()
-	_generate_dumpsters()
-	_generate_fire_escapes()
+	#_generate_dumpsters()
+	#_generate_fire_escapes()
 	_generate_window_ac_units()
-	_generate_telephone_poles()
-	_generate_graffiti()
-	_generate_neon_underglow()
-	_generate_manholes()
-	_generate_litter()
+	#_generate_telephone_poles()
+	#_generate_graffiti()
+	#_generate_neon_underglow()
+	#_generate_manholes()
+	#_generate_litter()
 	_generate_overhead_cables()
-	_generate_skyline_warning_lights()
+	#_generate_skyline_warning_lights()
 	_generate_holographic_signs()
-	_generate_phone_booths()
-	_generate_wind_debris()
+	#_generate_phone_booths()
+	#_generate_wind_debris()
 	_generate_utility_boxes()
-	_generate_street_furniture()
-	_generate_construction_zones()
-	_generate_drain_grates()
+	#_generate_street_furniture()
+	#_generate_construction_zones()
+	#_generate_drain_grates()
 	_generate_building_setbacks()
-	_generate_exposed_pipes()
-	_generate_security_cameras()
-	_generate_awning_lights()
-	_generate_chain_link_fences()
-	_generate_trash_bags()
-	_generate_bus_stops()
-	_generate_fire_hydrants()
+	#_generate_exposed_pipes()
+	#_generate_security_cameras()
+	#_generate_awning_lights()
+	#_generate_chain_link_fences()
+	#_generate_trash_bags()
+	#_generate_bus_stops()
+	#_generate_fire_hydrants()
 	_generate_water_towers()
 	_generate_satellite_dishes()
-	_generate_roof_access_doors()
-	_generate_rain_gutters()
-	_generate_parking_meters()
-	_generate_shipping_containers()
-	_generate_scaffolding()
-	_generate_antenna_arrays()
-	_generate_laundry_lines()
-	_generate_ground_fog()
-	_generate_sparking_boxes()
-	_generate_ventilation_fans()
+	#_generate_roof_access_doors()
+	#_generate_rain_gutters()
+	#_generate_parking_meters()
+	#_generate_shipping_containers()
+	#_generate_scaffolding()
+	#_generate_antenna_arrays()
+	#_generate_laundry_lines()
+	#_generate_ground_fog()
+	#_generate_sparking_boxes()
+	#_generate_ventilation_fans()
 	_generate_power_cables()
-	_generate_rooftop_ac_units()
-	_generate_rain_drips()
-	_generate_neon_arrows()
-	_generate_surveillance_drone()
-	_generate_pipe_arcs()
-	_generate_open_signs()
-	_generate_police_car()
-	_generate_car_rain_splashes()
-	_generate_haze_layers()
-	_generate_neon_reflections()
-	_generate_rooftop_exhaust()
-	_generate_hologram_projections()
-	_generate_newspaper_boxes()
+	#_generate_rooftop_ac_units()
+	#_generate_rain_drips()
+	#_generate_neon_arrows()
+	#_generate_surveillance_drone()
+	#_generate_pipe_arcs()
+	#_generate_open_signs()
+	#_generate_police_car()
+	#_generate_car_rain_splashes()
+	#_generate_haze_layers()
+	#_generate_neon_reflections()
+	#_generate_rooftop_exhaust()
+	#_generate_hologram_projections()
+	#_generate_newspaper_boxes()
 	_generate_crosswalks()
-	_generate_aircraft_flyover()
-	_generate_helicopter_patrol()
-	_generate_subway_entrances()
-	_generate_neon_light_shafts()
-	_generate_distant_city_glow()
-	_generate_rooftop_water_tanks()
-	_setup_neon_buzz_audio()
-	_setup_radio_audio()
-	_generate_stray_cats()
+	#_generate_aircraft_flyover()
+	#_generate_helicopter_patrol()
+	#_generate_subway_entrances()
+	#_generate_neon_light_shafts()
+	#_generate_distant_city_glow()
+	#_generate_rooftop_water_tanks()
+	#_setup_neon_buzz_audio()
+	#_setup_radio_audio()
+	#_generate_stray_cats()
 	_generate_building_entrances()
-	_generate_street_vendors()
-	_generate_alleys()
-	_generate_pigeon_flocks()
-	_generate_rooftop_gardens()
-	_generate_scattered_papers()
-	_generate_facade_stripes()
+	#_generate_street_vendors()
+	#_generate_alleys()
+	#_generate_pigeon_flocks()
+	#_generate_rooftop_gardens()
+	#_generate_scattered_papers()
+	#_generate_facade_stripes()
 	_generate_balcony_ledges()
 	_generate_roof_parapets()
 	_generate_building_cornices()
-	_generate_window_frames()
+	#_generate_window_frames()
 	_generate_building_stoops()
 	_generate_exit_signs()
-	_generate_puddle_splash_rings()
-	_generate_lobby_lights()
-	# _generate_height_fog_layers() -- removed: 300x300 planes at y=5/15/25 created ceiling artifacts
-	_generate_barricade_tape()
-	_generate_cardboard_boxes()
-	_generate_puddle_mist()
-	_setup_fly_buzz_audio()
-	_setup_neon_flicker()
-	_setup_color_shift_signs()
-	_generate_chimney_smoke()
-	_generate_fluorescent_tubes()
-	_generate_fire_barrels()
-	_generate_security_spotlights()
-	_generate_wall_drips()
-	_generate_gutter_overflow()
-	_generate_street_name_signs()
-	_generate_wall_screens()
-	_generate_overhead_intersection_lights()
+	#_generate_puddle_splash_rings()
+	#_generate_lobby_lights()
+	#_generate_barricade_tape()
+	#_generate_cardboard_boxes()
+	#_generate_puddle_mist()
+	#_setup_fly_buzz_audio()
+	#_setup_neon_flicker()
+	#_setup_color_shift_signs()
+	#_generate_chimney_smoke()
+	#_generate_fluorescent_tubes()
+	#_generate_fire_barrels()
+	#_generate_security_spotlights()
+	#_generate_wall_drips()
+	#_generate_gutter_overflow()
+	#_generate_street_name_signs()
+	#_generate_wall_screens()
+	#_generate_overhead_intersection_lights()
+	# (elevated walkways now called earlier in _ready)
+	_generate_hk_neon_signs()
 	print("CityGenerator: generation complete, total children=", get_child_count())
 
 func _make_ps1_material(color: Color, is_emissive: bool = false,
-		emit_color: Color = Color.BLACK, emit_strength: float = 0.0) -> ShaderMaterial:
+	emit_color: Color = Color.BLACK, emit_strength: float = 0.0) -> ShaderMaterial:
 	var mat := ShaderMaterial.new()
 	mat.shader = ps1_shader
 	mat.set_shader_parameter("albedo_color", color)
 	mat.set_shader_parameter("vertex_snap_intensity", 1.0)
 	mat.set_shader_parameter("color_depth", 12.0)
 	mat.set_shader_parameter("fog_color", Color(0.03, 0.02, 0.06, 1.0))
-	mat.set_shader_parameter("fog_distance", 150.0)
-	mat.set_shader_parameter("fog_density", 0.15)
+	mat.set_shader_parameter("fog_distance", 250.0)
+	mat.set_shader_parameter("fog_density", 0.08)
 	if is_emissive:
 		mat.set_shader_parameter("emissive", true)
 		mat.set_shader_parameter("emission_color", emit_color)
 		mat.set_shader_parameter("emission_strength", emit_strength)
 	return mat
+
+func _load_prefab_buildings() -> void:
+	# Prefab buildings removed — using modular box-based buildings instead
+	pass
+
+func _apply_ps1_materials(node: Node, facade_color: Color, rng: RandomNumberGenerator) -> void:
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		var mesh := mi.mesh
+		if mesh:
+			for surf_idx in range(mesh.get_surface_count()):
+				mi.set_surface_override_material(surf_idx, _make_ps1_material(facade_color))
+	for child in node.get_children():
+		_apply_ps1_materials(child, facade_color, rng)
+
+## Modular building system — assembles interesting silhouettes from BoxMesh pieces.
+## Each piece is an exact box, so windows always sit flush on the surface.
+
+func _add_building_piece(parent: MeshInstance3D, local_pos: Vector3, piece_size: Vector3,
+		facade_color: Color, rng: RandomNumberGenerator, add_win: bool = true) -> void:
+	var mi := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = piece_size
+	mi.mesh = box
+	mi.position = local_pos
+	mi.set_surface_override_material(0, _make_ps1_material(facade_color))
+	# Collision
+	var sb := StaticBody3D.new()
+	var col := CollisionShape3D.new()
+	var cs := BoxShape3D.new()
+	cs.size = piece_size
+	col.shape = cs
+	sb.add_child(col)
+	mi.add_child(sb)
+	parent.add_child(mi)
+	if add_win:
+		_add_windows(mi, piece_size, rng)
+
+func _create_modular_building(pos: Vector3, size: Vector3, rng: RandomNumberGenerator, rot_y: float) -> void:
+	# Root node for the whole building (positioned, rotated)
+	var root := MeshInstance3D.new()
+	root.position = pos
+	root.rotation.y = rot_y
+	add_child(root)
+
+	var facade_color := _pick_facade_color(rng)
+	var template := rng.randi_range(0, 5)
+
+	match template:
+		0:
+			# Stepped tower: wide base + narrower mid + narrow top
+			var base_h := size.y * 0.45
+			var mid_h := size.y * 0.3
+			var top_h := size.y * 0.25
+			# Base (full width)
+			_add_building_piece(root, Vector3(0, -size.y * 0.5 + base_h * 0.5, 0),
+				Vector3(size.x, base_h, size.z), facade_color, rng)
+			# Mid section (75% width, offset slightly)
+			var mid_w := size.x * 0.75
+			var mid_d := size.z * 0.8
+			var off_x := rng.randf_range(-1.0, 1.0)
+			_add_building_piece(root, Vector3(off_x, -size.y * 0.5 + base_h + mid_h * 0.5, 0),
+				Vector3(mid_w, mid_h, mid_d), facade_color * 0.95, rng)
+			# Top tower (50% width)
+			var top_w := size.x * 0.5
+			var top_d := size.z * 0.55
+			_add_building_piece(root, Vector3(off_x, -size.y * 0.5 + base_h + mid_h + top_h * 0.5, 0),
+				Vector3(top_w, top_h, top_d), facade_color * 0.9, rng)
+		1:
+			# Twin towers: two slim towers connected by a low bridge
+			var tower_w := size.x * 0.4
+			var gap := size.x * 0.2
+			var bridge_h := size.y * 0.25
+			# Left tower
+			_add_building_piece(root, Vector3(-tower_w * 0.5 - gap * 0.5, 0, 0),
+				Vector3(tower_w, size.y, size.z * 0.8), facade_color, rng)
+			# Right tower (slightly different height)
+			var rh := size.y * rng.randf_range(0.75, 1.0)
+			_add_building_piece(root, Vector3(tower_w * 0.5 + gap * 0.5, (rh - size.y) * 0.5, 0),
+				Vector3(tower_w, rh, size.z * 0.8), facade_color * 0.95, rng)
+			# Bridge connecting them
+			_add_building_piece(root, Vector3(0, -size.y * 0.5 + bridge_h * 0.5, 0),
+				Vector3(size.x, bridge_h, size.z * 0.6), facade_color * 0.9, rng, false)
+		2:
+			# Cantilever: base with wider overhang on top
+			var base_h := size.y * 0.6
+			var over_h := size.y * 0.4
+			var base_w := size.x * 0.7
+			# Narrow base
+			_add_building_piece(root, Vector3(0, -size.y * 0.5 + base_h * 0.5, 0),
+				Vector3(base_w, base_h, size.z * 0.8), facade_color, rng)
+			# Wide overhang
+			_add_building_piece(root, Vector3(0, -size.y * 0.5 + base_h + over_h * 0.5, 0),
+				Vector3(size.x * 1.1, over_h, size.z), facade_color * 0.95, rng)
+		3:
+			# U-shape: main body with two forward wings
+			var body_d := size.z * 0.4
+			var wing_w := size.x * 0.3
+			var wing_d := size.z * 0.6
+			var wing_h := size.y * rng.randf_range(0.7, 0.9)
+			# Main body (back)
+			_add_building_piece(root, Vector3(0, 0, -size.z * 0.5 + body_d * 0.5),
+				Vector3(size.x, size.y, body_d), facade_color, rng)
+			# Left wing
+			_add_building_piece(root, Vector3(-size.x * 0.5 + wing_w * 0.5, (wing_h - size.y) * 0.5, size.z * 0.5 - wing_d * 0.5),
+				Vector3(wing_w, wing_h, wing_d), facade_color * 0.95, rng)
+			# Right wing
+			_add_building_piece(root, Vector3(size.x * 0.5 - wing_w * 0.5, (wing_h - size.y) * 0.5, size.z * 0.5 - wing_d * 0.5),
+				Vector3(wing_w, wing_h, wing_d), facade_color * 0.95, rng)
+		4:
+			# Wedge: tall front, shorter back (like a sloped roofline simulated with steps)
+			var num_steps := rng.randi_range(3, 5)
+			var step_d := size.z / float(num_steps)
+			for i in range(num_steps):
+				var step_h := size.y * (1.0 - float(i) * 0.15)
+				var step_z := -size.z * 0.5 + step_d * (float(i) + 0.5)
+				_add_building_piece(root, Vector3(0, (step_h - size.y) * 0.5, step_z),
+					Vector3(size.x, step_h, step_d * 0.95), facade_color * (1.0 - float(i) * 0.03), rng)
+		5:
+			# Offset stack: 2-3 boxes stacked with random XZ offsets
+			var num_sections := rng.randi_range(2, 3)
+			var section_h := size.y / float(num_sections)
+			var cur_y := -size.y * 0.5 + section_h * 0.5
+			for i in range(num_sections):
+				var sw := size.x * rng.randf_range(0.65, 1.0)
+				var sd := size.z * rng.randf_range(0.65, 1.0)
+				var ox := rng.randf_range(-2.0, 2.0)
+				var oz := rng.randf_range(-2.0, 2.0)
+				_add_building_piece(root, Vector3(ox, cur_y, oz),
+					Vector3(sw, section_h * 0.95, sd), facade_color * (1.0 - float(i) * 0.04), rng)
+				cur_y += section_h
+
+	# --- Architectural detail elements (randomly applied to any template) ---
+	var top_y := size.y * 0.5  # top of building relative to root
+
+	# Pilotis: raise building on columns (25% of tall buildings)
+	if size.y > 15.0 and rng.randf() < 0.25:
+		_add_pilotis(root, size, top_y, facade_color, rng)
+		top_y += 4.0  # building is now 4m higher
+
+	# Pitched roof (25%)
+	if rng.randf() < 0.25:
+		_add_pitched_roof(root, top_y, size, facade_color, rng)
+
+	# Smokestacks (30%)
+	if rng.randf() < 0.30:
+		_add_smokestacks(root, top_y, size, facade_color, rng)
+
+	# Antenna spires (25%)
+	if rng.randf() < 0.25:
+		_add_antenna_spire(root, top_y, rng)
+
+	# Mechanical penthouse (35%)
+	if rng.randf() < 0.35:
+		_add_mech_penthouse(root, top_y, size, facade_color, rng)
+
+	# Radar dome (15%)
+	if rng.randf() < 0.15:
+		_add_radar_dome(root, top_y, size, facade_color, rng)
+
+ 	# Balconies (30%)
+	if rng.randf() < 0.30:
+		_add_balconies(root, size, facade_color, rng)
+
+	# Corner turret (20%)
+	if rng.randf() < 0.20:
+		_add_corner_turret(root, size, facade_color, rng)
+
+
+func _add_pilotis(root: MeshInstance3D, size: Vector3, _top_y: float,
+		facade_color: Color, rng: RandomNumberGenerator) -> void:
+	var lift := 4.0
+	# Raise all existing building pieces
+	for child in root.get_children():
+		child.position.y += lift
+	# Floor plate under the raised building
+	var plate := MeshInstance3D.new()
+	var plate_box := BoxMesh.new()
+	plate_box.size = Vector3(size.x * 1.05, 0.3, size.z * 1.05)
+	plate.mesh = plate_box
+	plate.position = Vector3(0, -size.y * 0.5 + lift - 0.15, 0)
+	plate.set_surface_override_material(0, _make_ps1_material(facade_color * 0.85))
+	# Plate collision
+	var sb := StaticBody3D.new()
+	var col := CollisionShape3D.new()
+	var cs := BoxShape3D.new()
+	cs.size = plate_box.size
+	col.shape = cs
+	sb.add_child(col)
+	plate.add_child(sb)
+	root.add_child(plate)
+	# Columns
+	var num_cols := rng.randi_range(4, 6)
+	var col_positions: Array[Vector2] = []
+	# Place columns in a grid-ish pattern
+	for i in range(num_cols):
+		var cx := lerpf(-size.x * 0.35, size.x * 0.35, float(i % 3) / 2.0)
+		var cz := -size.z * 0.25 if i < 3 else size.z * 0.25
+		col_positions.append(Vector2(cx, cz))
+	for cp in col_positions:
+		var pillar := MeshInstance3D.new()
+		var cyl := CylinderMesh.new()
+		cyl.top_radius = 0.35
+		cyl.bottom_radius = 0.4
+		cyl.height = lift
+		cyl.radial_segments = 8
+		pillar.mesh = cyl
+		pillar.position = Vector3(cp.x, -size.y * 0.5 + lift * 0.5, cp.y)
+		pillar.set_surface_override_material(0, _make_ps1_material(facade_color * 0.8))
+		root.add_child(pillar)
+
+func _add_pitched_roof(root: MeshInstance3D, top_y: float, size: Vector3,
+	facade_color: Color, rng: RandomNumberGenerator) -> void:
+	var roof_h := rng.randf_range(2.0, 4.5)
+	var roof := MeshInstance3D.new()
+	var prism := PrismMesh.new()
+	prism.size = Vector3(size.x * 0.95, roof_h, size.z * 0.9)
+	prism.left_to_right = 0.5  # centered peak
+	roof.mesh = prism
+	roof.position = Vector3(0, top_y + roof_h * 0.5, 0)
+	roof.set_surface_override_material(0, _make_ps1_material(facade_color * 0.7))
+	roof.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	root.add_child(roof)
+
+func _add_smokestacks(root: MeshInstance3D, top_y: float, size: Vector3,
+	facade_color: Color, rng: RandomNumberGenerator) -> void:
+	var num := rng.randi_range(1, 3)
+	for i in range(num):
+		var stack := MeshInstance3D.new()
+		var cyl := CylinderMesh.new()
+		var h := rng.randf_range(3.0, 6.0)
+		cyl.top_radius = rng.randf_range(0.3, 0.6)
+		cyl.bottom_radius = rng.randf_range(0.5, 0.8)
+		cyl.height = h
+		cyl.radial_segments = 8
+		stack.mesh = cyl
+		var sx := rng.randf_range(-size.x * 0.3, size.x * 0.3)
+		var sz := rng.randf_range(-size.z * 0.3, size.z * 0.3)
+		stack.position = Vector3(sx, top_y + h * 0.5, sz)
+		stack.set_surface_override_material(0, _make_ps1_material(facade_color * 0.6))
+		root.add_child(stack)
+
+func _add_antenna_spire(root: MeshInstance3D, top_y: float,
+	rng: RandomNumberGenerator) -> void:
+	var h := rng.randf_range(4.0, 8.0)
+	var spire := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = 0.03
+	cyl.bottom_radius = 0.06
+	cyl.height = h
+	cyl.radial_segments = 6
+	spire.mesh = cyl
+	spire.position = Vector3(rng.randf_range(-1.0, 1.0), top_y + h * 0.5, rng.randf_range(-1.0, 1.0))
+	spire.set_surface_override_material(0, _make_ps1_material(Color(0.5, 0.5, 0.55)))
+	root.add_child(spire)
+	# Small sphere at tip
+	var ball := MeshInstance3D.new()
+	var sphere := SphereMesh.new()
+	sphere.radius = 0.15
+	sphere.height = 0.3
+	sphere.radial_segments = 6
+	sphere.rings = 4
+	ball.mesh = sphere
+	ball.position = Vector3(0, h * 0.5 + 0.15, 0)
+	ball.set_surface_override_material(0, _make_ps1_material(Color(0.8, 0.2, 0.2), true, Color(1, 0.1, 0.1), 2.0))
+	spire.add_child(ball)
+
+func _add_mech_penthouse(root: MeshInstance3D, top_y: float, size: Vector3,
+	facade_color: Color, rng: RandomNumberGenerator) -> void:
+	var pw := rng.randf_range(3.0, min(5.0, size.x * 0.5))
+	var ph := rng.randf_range(2.0, 3.0)
+	var pd := rng.randf_range(3.0, min(4.0, size.z * 0.5))
+	var pent := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = Vector3(pw, ph, pd)
+	pent.mesh = box
+	var ox := rng.randf_range(-size.x * 0.2, size.x * 0.2)
+	var oz := rng.randf_range(-size.z * 0.2, size.z * 0.2)
+	pent.position = Vector3(ox, top_y + ph * 0.5, oz)
+	pent.set_surface_override_material(0, _make_ps1_material(facade_color * 0.85))
+	root.add_child(pent)
+	_add_windows(pent, Vector3(pw, ph, pd), rng)
+
+func _add_radar_dome(root: MeshInstance3D, top_y: float, size: Vector3,
+	facade_color: Color, rng: RandomNumberGenerator) -> void:
+	var r := rng.randf_range(1.2, 2.5)
+	var dome := MeshInstance3D.new()
+	var sphere := SphereMesh.new()
+	sphere.radius = r
+	sphere.height = r * 2.0
+	sphere.radial_segments = 10
+	sphere.rings = 6
+	dome.mesh = sphere
+	# Sink bottom half into roof surface
+	var ox := rng.randf_range(-size.x * 0.2, size.x * 0.2)
+	var oz := rng.randf_range(-size.z * 0.2, size.z * 0.2)
+	dome.position = Vector3(ox, top_y + r * 0.3, oz)
+	dome.set_surface_override_material(0, _make_ps1_material(Color(0.7, 0.75, 0.8)))
+	root.add_child(dome)
+
+func _add_balconies(root: MeshInstance3D, size: Vector3,
+	facade_color: Color, rng: RandomNumberGenerator) -> void:
+	var floor_h := 3.5
+	var num_floors := int(size.y / floor_h)
+	var balcony_mat := _make_ps1_material(facade_color * 0.75)
+	var rail_mat := _make_ps1_material(Color(0.4, 0.4, 0.45))
+	# Pick one or two faces to add balconies (front=+Z, back=-Z)
+	var face_sign := 1.0 if rng.randf() < 0.5 else -1.0
+	var num_per_floor := rng.randi_range(1, max(1, int(size.x / 4.0)))
+	for floor_i in range(1, num_floors):  # skip ground floor
+		for bi in range(num_per_floor):
+			if rng.randf() > 0.6:
+				continue
+			var bx := -size.x * 0.35 + (float(bi) + 0.5) * (size.x * 0.7 / float(num_per_floor))
+			var by := -size.y * 0.5 + (floor_i + 0.3) * floor_h
+			var bz := face_sign * (size.z * 0.5 + 0.6)
+			# Floor slab
+			var slab := MeshInstance3D.new()
+			var slab_box := BoxMesh.new()
+			slab_box.size = Vector3(2.0, 0.15, 1.2)
+			slab.mesh = slab_box
+			slab.position = Vector3(bx, by, bz)
+			slab.set_surface_override_material(0, balcony_mat)
+			root.add_child(slab)
+			# Railing
+			var rail := MeshInstance3D.new()
+			var rail_box := BoxMesh.new()
+			rail_box.size = Vector3(2.0, 0.8, 0.06)
+			rail.mesh = rail_box
+			rail.position = Vector3(bx, by + 0.45, bz + face_sign * 0.57)
+			rail.set_surface_override_material(0, rail_mat)
+			root.add_child(rail)
+
+func _add_corner_turret(root: MeshInstance3D, size: Vector3,
+	facade_color: Color, rng: RandomNumberGenerator) -> void:
+	var turret_r := rng.randf_range(1.5, min(2.5, size.x * 0.25))
+	var turret_h := size.y * rng.randf_range(0.6, 1.0)
+	var turret := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = turret_r * 0.9
+	cyl.bottom_radius = turret_r
+	cyl.height = turret_h
+	cyl.radial_segments = 10
+	turret.mesh = cyl
+	# Pick a corner
+	var cx := (size.x * 0.5) * (1.0 if rng.randf() < 0.5 else -1.0)
+	var cz := (size.z * 0.5) * (1.0 if rng.randf() < 0.5 else -1.0)
+	turret.position = Vector3(cx, (turret_h - size.y) * 0.5, cz)
+	turret.set_surface_override_material(0, _make_ps1_material(facade_color * 0.9))
+	root.add_child(turret)
+	# Collision
+	var sb := StaticBody3D.new()
+	var col := CollisionShape3D.new()
+	var cs := BoxShape3D.new()
+	cs.size = Vector3(turret_r * 1.6, turret_h, turret_r * 1.6)
+	col.shape = cs
+	sb.add_child(col)
+	turret.add_child(sb)
+	# Cylinder windows
+	_add_cylinder_windows(turret, turret_h, turret_r, cyl.radial_segments, rng)
+
+func _pick_window_color(rng: RandomNumberGenerator) -> Color:
+	var color_roll := rng.randf()
+	if color_roll < 0.45:
+		return Color(1.0, 0.85, 0.5)   # warm apartment yellow
+	elif color_roll < 0.70:
+		return Color(0.95, 0.9, 0.75)  # soft warm white
+	elif color_roll < 0.88:
+		return Color(0.85, 0.95, 1.0)  # cool office fluorescent
+	else:
+		return Color(0.7, 0.8, 0.6)    # dim greenish (TV glow)
+
+func _pick_facade_color(rng: RandomNumberGenerator) -> Color:
+	var darkness := rng.randf_range(0.5, 0.75)
+	var tint_roll := rng.randf()
+	if tint_roll < 0.4:
+		return Color(darkness, darkness, darkness + 0.05, 1.0)
+	elif tint_roll < 0.6:
+		return Color(darkness * 0.8, darkness * 0.85, darkness * 1.2, 1.0)
+	elif tint_roll < 0.75:
+		return Color(darkness * 1.1, darkness * 0.9, darkness * 0.7, 1.0)
+	elif tint_roll < 0.9:
+		return Color(darkness * 0.8, darkness * 1.0, darkness * 1.1, 1.0)
+	else:
+		return Color(darkness * 0.95, darkness * 0.85, darkness * 1.0, 1.0)
+
+func _create_cylindrical_building(pos: Vector3, height: float, radius: float, rng: RandomNumberGenerator, rot_y: float) -> void:
+	var segments := rng.randi_range(8, 12)
+	var mesh_instance := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = radius
+	cyl.bottom_radius = radius
+	cyl.height = height
+	cyl.radial_segments = segments
+	cyl.rings = 1
+	mesh_instance.mesh = cyl
+	mesh_instance.position = pos
+	mesh_instance.rotation.y = rot_y
+
+	var facade_color := _pick_facade_color(rng)
+	mesh_instance.set_surface_override_material(0, _make_ps1_material(facade_color))
+
+	# Box collision approximation (good enough for PS1 aesthetic)
+	var static_body := StaticBody3D.new()
+	var collision := CollisionShape3D.new()
+	var col_shape := BoxShape3D.new()
+	col_shape.size = Vector3(radius * 1.6, height, radius * 1.6)
+	collision.shape = col_shape
+	static_body.add_child(collision)
+	mesh_instance.add_child(static_body)
+
+	add_child(mesh_instance)
+
+	# Windows around circumference
+	_add_cylinder_windows(mesh_instance, height, radius, segments, rng)
+	# Neon ring accents
+	_add_cylinder_ring_accents(mesh_instance, height, radius, rng)
+
+func _add_cylinder_windows(building: MeshInstance3D, height: float, radius: float, segments: int, rng: RandomNumberGenerator) -> void:
+	var floor_h := 3.5
+	var num_rows := int(height / floor_h)
+	var num_cols := segments  # one window per segment around circumference
+	for row in range(num_rows):
+		for col in range(num_cols):
+			if rng.randf() > 0.5:
+				continue
+			var angle := (float(col) / float(num_cols)) * TAU
+			var wy := -height * 0.5 + (row + 0.5) * floor_h
+			var wx := cos(angle) * (radius + 0.02)
+			var wz := sin(angle) * (radius + 0.02)
+			var win := MeshInstance3D.new()
+			var quad := QuadMesh.new()
+			quad.size = Vector2(1.0, 1.4)
+			win.mesh = quad
+			win.position = Vector3(wx, wy, wz)
+			win.rotation.y = -angle + PI * 0.5
+			var wc := _pick_window_color(rng)
+			win.set_surface_override_material(0,
+				_make_ps1_material(wc * 0.3, true, wc, rng.randf_range(2.5, 5.0)))
+			building.add_child(win)
+
+func _add_cylinder_ring_accents(building: MeshInstance3D, height: float, radius: float, rng: RandomNumberGenerator) -> void:
+	var num_rings := rng.randi_range(1, 3)
+	for _i in range(num_rings):
+		var ring_y := rng.randf_range(-height * 0.3, height * 0.4)
+		var ring_col := neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
+		# Create ring from small segments
+		var ring_segments := 12
+		for seg in range(ring_segments):
+			var angle := (float(seg) / float(ring_segments)) * TAU
+			var next_angle := (float(seg + 1) / float(ring_segments)) * TAU
+			var mid_angle := (angle + next_angle) * 0.5
+			var seg_len := radius * TAU / float(ring_segments)
+			var strip := MeshInstance3D.new()
+			var strip_mesh := BoxMesh.new()
+			strip_mesh.size = Vector3(seg_len, 0.12, 0.08)
+			strip.mesh = strip_mesh
+			strip.position = Vector3(
+				cos(mid_angle) * (radius + 0.04),
+				ring_y,
+				sin(mid_angle) * (radius + 0.04)
+			)
+			strip.rotation.y = -mid_angle + PI * 0.5
+			strip.set_surface_override_material(0,
+				_make_ps1_material(ring_col * 0.5, true, ring_col, 3.0))
+			strip.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			building.add_child(strip)
+
+func _create_l_shaped_building(pos: Vector3, size: Vector3, rng: RandomNumberGenerator, rot_y: float) -> void:
+	# Primary body is a regular building (BoxMesh) - all downstream functions will find it
+	_create_building(pos, size, rng, rot_y)
+
+	# Add perpendicular wing as child of the city generator (same parent)
+	var wing_width := size.x * rng.randf_range(0.4, 0.7)
+	var wing_depth := size.z * rng.randf_range(0.5, 0.9)
+	var wing_height := size.y * rng.randf_range(0.5, 0.85)
+	var wing_size := Vector3(wing_width, wing_height, wing_depth)
+
+	# Pick which corner the wing attaches to
+	var corner_x := (rng.randf() < 0.5)
+	var corner_z := (rng.randf() < 0.5)
+	var attach_x := (size.x * 0.5 - wing_width * 0.5) * (1.0 if corner_x else -1.0)
+	var attach_z := (size.z * 0.5 + wing_depth * 0.5 - 0.5) * (1.0 if corner_z else -1.0)
+
+	# Apply parent rotation to offset
+	var cos_r := cos(rot_y)
+	var sin_r := sin(rot_y)
+	var rotated_x := attach_x * cos_r - attach_z * sin_r
+	var rotated_z := attach_x * sin_r + attach_z * cos_r
+
+	var wing_pos := Vector3(
+		pos.x + rotated_x,
+		wing_height * 0.5,
+		pos.z + rotated_z
+	)
+	_create_building(wing_pos, wing_size, rng, rot_y)
 
 func _generate_city() -> void:
 	var rng := RandomNumberGenerator.new()
@@ -226,7 +741,7 @@ func _generate_city() -> void:
 			var cell_z := gz * (block_size + street_width)
 
 			# 1-4 buildings per block (more variety)
-			var num_buildings := rng.randi_range(1, 4)
+			var num_buildings := rng.randi_range(1, 2)
 			for b in range(num_buildings):
 				var bw := rng.randf_range(min_width, max_width)
 				var bd := rng.randf_range(min_width, max_width)
@@ -236,10 +751,37 @@ func _generate_city() -> void:
 				var offset_x := rng.randf_range(-block_size * 0.45, block_size * 0.45)
 				var offset_z := rng.randf_range(-block_size * 0.45, block_size * 0.45)
 
+				# Keep buildings within block (0.5m clearance from street edge)
+				var max_off_x := block_size * 0.5 - bw * 0.5 - 0.5
+				var max_off_z := block_size * 0.5 - bd * 0.5 - 0.5
+				offset_x = clampf(offset_x, -max_off_x, max_off_x)
+				offset_z = clampf(offset_z, -max_off_z, max_off_z)
+
 				var pos := Vector3(cell_x + offset_x, bh * 0.5, cell_z + offset_z)
 				# Random Y rotation breaks axis-aligned box feel
 				var rot_y := rng.randf_range(-0.2, 0.2)  # ±~12 degrees
-				_create_building(pos, Vector3(bw, bh, bd), rng, rot_y)
+
+				# 35% of buildings are enterable (hollow ground floor + solid upper)
+				var is_enterable := rng.randf() < 0.35
+				if is_enterable and bh > 8.0 and bw > 6.0 and bd > 6.0:
+					_create_enterable_building(pos, Vector3(bw, bh, bd), rng, rot_y)
+					continue
+
+				# Shape variety: modular, cylindrical, L-shaped, or regular box
+				var shape_roll := rng.randf()
+				if shape_roll < 0.45:
+					# Modular building (~45% — interesting silhouettes from box pieces)
+					_create_modular_building(pos, Vector3(bw, bh, bd), rng, rot_y)
+				elif bh > 20.0 and shape_roll < 0.55:
+					# Cylindrical tower (~10%)
+					var radius: float = min(bw, bd) * 0.45
+					_create_cylindrical_building(pos, bh, radius, rng, rot_y)
+				elif bw > 9.0 and bd > 9.0 and shape_roll < 0.65:
+					# L-shaped building (~10% of wide buildings)
+					_create_l_shaped_building(pos, Vector3(bw, bh, bd), rng, rot_y)
+				else:
+					# Regular box building
+					_create_building(pos, Vector3(bw, bh, bd), rng, rot_y)
 
 func _create_building(pos: Vector3, size: Vector3, rng: RandomNumberGenerator, rot_y: float = 0.0) -> void:
 	# Check if this building qualifies as an enterable storefront
@@ -256,8 +798,8 @@ func _create_building(pos: Vector3, size: Vector3, rng: RandomNumberGenerator, r
 	mesh_instance.position = pos
 	mesh_instance.rotation.y = rot_y
 
-	# Dark concrete material with PS1 shader - per-building color tint for facade variety
-	var darkness := rng.randf_range(0.4, 0.65)
+	# Concrete material with PS1 shader - per-building color tint for facade variety
+	var darkness := rng.randf_range(0.5, 0.75)
 	var tint_roll := rng.randf()
 	var facade_color: Color
 	if tint_roll < 0.4:
@@ -291,15 +833,9 @@ func _create_building(pos: Vector3, size: Vector3, rng: RandomNumberGenerator, r
 	# Emissive windows - scattered quads on building faces
 	_add_windows(mesh_instance, size, rng)
 
-	# Add 2-4 neon signs per building
-	var num_signs := rng.randi_range(2, 4)
-	for _s in range(num_signs):
-		if rng.randf() < 0.8:
-			_add_neon_sign(mesh_instance, size, rng)
-
-	# Tall buildings (>25) get a large vertical sign (Blade Runner style)
-	if size.y > 25.0 and neon_font and rng.randf() < 0.5:
-		_add_vertical_neon_sign(mesh_instance, size, rng)
+	# Add 0-1 neon signs per building (stripped down to see architecture)
+	if rng.randf() < 0.2:
+		_add_neon_sign(mesh_instance, size, rng)
 
 	# Facade accents: horizontal neon strips + concrete floor ledges
 	_add_facade_accents(mesh_instance, size, facade_color, rng)
@@ -323,6 +859,220 @@ func _create_building(pos: Vector3, size: Vector3, rng: RandomNumberGenerator, r
 		_add_windows(tower, Vector3(tower_w, tower_h, tower_d), rng)
 		# Neon strips on tower too
 		_add_facade_accents(tower, Vector3(tower_w, tower_h, tower_d), facade_color, rng)
+
+func _create_enterable_building(pos: Vector3, size: Vector3, rng: RandomNumberGenerator, rot_y: float = 0.0) -> void:
+	# Hollow ground floor + solid upper stories
+	var building := Node3D.new()
+	building.position = pos
+	building.rotation.y = rot_y
+
+	var w := size.x
+	var h := size.y
+	var d := size.z
+	var half_w := w * 0.5
+	var half_h := h * 0.5
+	var half_d := d * 0.5
+	var wall_thickness := 0.3
+	var ground_h := 5.0
+	var door_width := 2.0
+	var door_height := 3.2
+
+	# Facade color (same palette as regular buildings)
+	var darkness := rng.randf_range(0.4, 0.65)
+	var tint_roll := rng.randf()
+	var wall_color: Color
+	if tint_roll < 0.4:
+		wall_color = Color(darkness, darkness, darkness + 0.05, 1.0)
+	elif tint_roll < 0.6:
+		wall_color = Color(darkness * 0.8, darkness * 0.85, darkness * 1.2, 1.0)
+	elif tint_roll < 0.75:
+		wall_color = Color(darkness * 1.1, darkness * 0.9, darkness * 0.7, 1.0)
+	elif tint_roll < 0.9:
+		wall_color = Color(darkness * 0.8, darkness * 1.0, darkness * 1.1, 1.0)
+	else:
+		wall_color = Color(darkness * 0.95, darkness * 0.85, darkness * 1.0, 1.0)
+	var wall_mat := _make_ps1_material(wall_color)
+	var floor_mat := _make_ps1_material(Color(0.2, 0.18, 0.15))
+
+	# --- Ground floor (hollow, 3.5m tall) ---
+	# Back wall (full, -Z side)
+	_add_wall(building, Vector3(0, -half_h + ground_h * 0.5, -half_d + wall_thickness * 0.5),
+		Vector3(w, ground_h, wall_thickness), wall_mat)
+
+	# Left wall (full, -X side)
+	_add_wall(building, Vector3(-half_w + wall_thickness * 0.5, -half_h + ground_h * 0.5, 0),
+		Vector3(wall_thickness, ground_h, d), wall_mat)
+
+	# Right wall (full, +X side)
+	_add_wall(building, Vector3(half_w - wall_thickness * 0.5, -half_h + ground_h * 0.5, 0),
+		Vector3(wall_thickness, ground_h, d), wall_mat)
+
+	# Front wall with door opening (+Z side)
+	var left_front_w := (w - door_width) * 0.5
+	_add_wall(building, Vector3(-half_w + left_front_w * 0.5, -half_h + ground_h * 0.5, half_d - wall_thickness * 0.5),
+		Vector3(left_front_w, ground_h, wall_thickness), wall_mat)
+	_add_wall(building, Vector3(half_w - left_front_w * 0.5, -half_h + ground_h * 0.5, half_d - wall_thickness * 0.5),
+		Vector3(left_front_w, ground_h, wall_thickness), wall_mat)
+	# Transom above door
+	var transom_h := ground_h - door_height
+	if transom_h > 0.1:
+		_add_wall(building, Vector3(0, -half_h + door_height + transom_h * 0.5, half_d - wall_thickness * 0.5),
+			Vector3(door_width, transom_h, wall_thickness), wall_mat)
+
+	# Ceiling (separates ground from upper)
+	_add_wall(building, Vector3(0, -half_h + ground_h - wall_thickness * 0.5, 0),
+		Vector3(w, wall_thickness, d), wall_mat)
+
+	# Interior floor
+	_add_wall(building, Vector3(0, -half_h + 0.05, 0),
+		Vector3(w - wall_thickness * 2, 0.1, d - wall_thickness * 2), floor_mat)
+
+	# Interior warm light
+	var interior_light := OmniLight3D.new()
+	interior_light.light_color = Color(1.0, 0.85, 0.6)
+	interior_light.light_energy = 1.5
+	interior_light.omni_range = maxf(w, d) * 0.7
+	interior_light.omni_attenuation = 1.5
+	interior_light.shadow_enabled = false
+	interior_light.position = Vector3(0, -half_h + ground_h - 1.0, 0)
+	building.add_child(interior_light)
+
+	# Door spill light (warm, outward-facing)
+	var spill_light := OmniLight3D.new()
+	spill_light.light_color = Color(1.0, 0.85, 0.6)
+	spill_light.light_energy = 5.0
+	spill_light.omni_range = 14.0
+	spill_light.omni_attenuation = 1.5
+	spill_light.shadow_enabled = false
+	spill_light.position = Vector3(0, -half_h + door_height * 0.5, half_d + 1.0)
+	building.add_child(spill_light)
+
+	# Emissive neon awning above door
+	var awning_col := neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
+	var awning := MeshInstance3D.new()
+	var awning_mesh := BoxMesh.new()
+	awning_mesh.size = Vector3(door_width + 1.0, 0.12, 0.8)
+	awning.mesh = awning_mesh
+	awning.position = Vector3(0, -half_h + door_height + 0.15, half_d + 0.3)
+	awning.set_surface_override_material(0,
+		_make_ps1_material(awning_col * 0.5, true, awning_col, 4.0))
+	building.add_child(awning)
+
+	# Interior furniture
+	# Counter along back wall (70%)
+	if rng.randf() < 0.7:
+		var counter_w := w * 0.6
+		var counter_mat := _make_ps1_material(Color(0.3, 0.2, 0.12))
+		_add_wall(building, Vector3(0, -half_h + 0.5, -half_d + 1.2),
+			Vector3(counter_w, 1.0, 0.6), counter_mat)
+
+	# Table (50%)
+	if rng.randf() < 0.5:
+		var table_mat := _make_ps1_material(Color(0.25, 0.18, 0.1))
+		var table_x := rng.randf_range(-half_w * 0.4, half_w * 0.4)
+		var table_z := rng.randf_range(-half_d * 0.2, half_d * 0.3)
+		_add_wall(building, Vector3(table_x, -half_h + 0.4, table_z),
+			Vector3(1.2, 0.05, 0.8), table_mat)
+		for lx in [-0.5, 0.5]:
+			for lz in [-0.3, 0.3]:
+				_add_wall(building, Vector3(table_x + lx, -half_h + 0.2, table_z + lz),
+					Vector3(0.08, 0.4, 0.08), table_mat)
+
+	# Shelves on side walls (60% each side)
+	var shelf_mat := _make_ps1_material(Color(0.25, 0.2, 0.15))
+	for shelf_side in [-1.0, 1.0]:
+		if rng.randf() < 0.6:
+			for shelf_row in range(rng.randi_range(1, 3)):
+				var shelf_y := -half_h + 1.2 + shelf_row * 0.8
+				_add_wall(building, Vector3(shelf_side * (half_w - 0.6), shelf_y, -half_d * 0.3),
+					Vector3(0.4, 0.05, d * 0.4), shelf_mat)
+				for _item in range(rng.randi_range(2, 4)):
+					var bottle := MeshInstance3D.new()
+					var bottle_mesh := BoxMesh.new()
+					bottle_mesh.size = Vector3(0.06, rng.randf_range(0.08, 0.15), 0.06)
+					bottle.mesh = bottle_mesh
+					bottle.position = Vector3(
+						shelf_side * (half_w - 0.6) + rng.randf_range(-0.12, 0.12),
+						shelf_y + 0.06,
+						-half_d * 0.3 + rng.randf_range(-d * 0.15, d * 0.15))
+					var item_col := Color(rng.randf_range(0.3, 0.8), rng.randf_range(0.2, 0.6), rng.randf_range(0.1, 0.5))
+					bottle.set_surface_override_material(0, _make_ps1_material(item_col))
+					building.add_child(bottle)
+
+	add_child(building)
+
+	# --- Upper stories (solid box with windows) ---
+	var upper_h := h - ground_h
+	if upper_h > 1.0:
+		var upper := MeshInstance3D.new()
+		var upper_box := BoxMesh.new()
+		upper_box.size = Vector3(w, upper_h, d)
+		upper.mesh = upper_box
+		upper.position = Vector3(0, -half_h + ground_h + upper_h * 0.5, 0)
+		upper.set_surface_override_material(0, _make_ps1_material(wall_color))
+		# Collision for upper stories
+		var sb := StaticBody3D.new()
+		var col := CollisionShape3D.new()
+		var cs := BoxShape3D.new()
+		cs.size = Vector3(w, upper_h, d)
+		col.shape = cs
+		sb.add_child(col)
+		upper.add_child(sb)
+		building.add_child(upper)
+		# Windows on upper stories
+		_add_windows(upper, Vector3(w, upper_h, d), rng)
+		# Facade accents
+		_add_facade_accents(upper, Vector3(w, upper_h, d), wall_color, rng)
+		# Stepped roof for tall buildings
+		if h > 18.0 and rng.randf() < 0.55:
+			var tower_w := w * rng.randf_range(0.45, 0.8)
+			var tower_d := d * rng.randf_range(0.45, 0.8)
+			var tower_h := upper_h * rng.randf_range(0.2, 0.45)
+			var tower := MeshInstance3D.new()
+			var tower_box := BoxMesh.new()
+			tower_box.size = Vector3(tower_w, tower_h, tower_d)
+			tower.mesh = tower_box
+			tower.position = Vector3(0, upper_h * 0.5 + tower_h * 0.5, 0)
+			tower.set_surface_override_material(0, _make_ps1_material(wall_color * 0.95))
+			upper.add_child(tower)
+			_add_windows(tower, Vector3(tower_w, tower_h, tower_d), rng)
+
+	# Ground floor windows — small frosted windows on side walls above eye level
+	for gf_side in [1.0, -1.0]:
+		if rng.randf() < 0.6:
+			var gf_win := MeshInstance3D.new()
+			var gf_quad := QuadMesh.new()
+			gf_quad.size = Vector2(0.8, 0.6)
+			gf_win.mesh = gf_quad
+			gf_win.position = Vector3(gf_side * half_w * 1.01, -half_h + ground_h * 0.75, rng.randf_range(-half_d * 0.3, half_d * 0.3))
+			gf_win.rotation.y = PI * 0.5 if gf_side > 0 else -PI * 0.5
+			var gf_wc := Color(0.6, 0.55, 0.4)
+			gf_win.set_surface_override_material(0,
+				_make_ps1_material(gf_wc * 0.3, true, gf_wc, 1.5))
+			building.add_child(gf_win)
+
+	# Neon sign above door
+	if rng.randf() < 0.8 and neon_font:
+		var neon_col := neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
+		var label := Label3D.new()
+		label.text = NEON_TEXTS[rng.randi_range(0, NEON_TEXTS.size() - 1)]
+		label.font = neon_font
+		label.font_size = rng.randi_range(48, 72)
+		label.pixel_size = 0.01
+		label.modulate = neon_col
+		label.outline_modulate = neon_col * 0.6
+		label.outline_size = 8
+		label.position = Vector3(0, -half_h + door_height + 0.8, half_d + 0.08)
+		label.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+		building.add_child(label)
+		var sign_light := OmniLight3D.new()
+		sign_light.light_color = neon_col
+		sign_light.light_energy = 4.0
+		sign_light.omni_range = 10.0
+		sign_light.omni_attenuation = 1.5
+		sign_light.shadow_enabled = false
+		sign_light.position = Vector3(0, 0, 0.5)
+		label.add_child(sign_light)
 
 func _add_facade_accents(building: Node3D, size: Vector3, facade_color: Color, rng: RandomNumberGenerator) -> void:
 	var floor_h := 3.5
@@ -627,10 +1377,6 @@ func _add_wall(parent: Node3D, pos: Vector3, wall_size: Vector3, mat: ShaderMate
 
 func _add_storefront_windows(building: Node3D, size: Vector3, rng: RandomNumberGenerator) -> void:
 	# Windows on side walls (-X and +X faces) and back wall
-	var window_color := Color(1.0, 0.2, 0.6)
-	var cold_color := Color(0.0, 0.9, 0.9)
-	var warm_color := Color(1.0, 0.85, 0.5)
-	var cool_white := Color(0.8, 0.9, 1.0)
 	var half_h := size.y * 0.5
 
 	# Side walls (X axis)
@@ -649,26 +1395,12 @@ func _add_storefront_windows(building: Node3D, size: Vector3, rng: RandomNumberG
 				var wy := -half_h + (row + 0.5) * (size.y / float(num_rows))
 				win.position = Vector3(face * size.x * 0.51, wy, wz)
 				win.rotation.y = PI * 0.5 if face > 0 else -PI * 0.5
-				var cr := rng.randf()
-				var wc: Color
-				if cr < 0.30:
-					wc = window_color
-				elif cr < 0.60:
-					wc = cold_color
-				elif cr < 0.85:
-					wc = warm_color
-				else:
-					wc = cool_white
+				var wc := _pick_window_color(rng)
 				win.set_surface_override_material(0,
 					_make_ps1_material(wc * 0.3, true, wc, rng.randf_range(2.5, 5.0)))
 				building.add_child(win)
 
 func _add_windows(building: MeshInstance3D, size: Vector3, rng: RandomNumberGenerator) -> void:
-	var window_color := Color(1.0, 0.2, 0.6)   # hot pink / magenta
-	var cold_color := Color(0.0, 0.9, 0.9)     # cyan / teal
-	var warm_color := Color(1.0, 0.85, 0.5)    # warm apartment yellow
-	var cool_white := Color(0.8, 0.9, 1.0)     # cool office fluorescent
-
 	# Window grid on front and back faces (Z axis)
 	for face in [1.0, -1.0]:
 		var num_cols := int(size.x / 2.5)
@@ -688,17 +1420,7 @@ func _add_windows(building: MeshInstance3D, size: Vector3, rng: RandomNumberGene
 				if face < 0:
 					win.rotation.y = PI
 
-				# Window color variety: 30% magenta, 30% cyan, 25% warm apartment, 15% cool office
-				var color_roll := rng.randf()
-				var wc: Color
-				if color_roll < 0.30:
-					wc = window_color
-				elif color_roll < 0.60:
-					wc = cold_color
-				elif color_roll < 0.85:
-					wc = warm_color
-				else:
-					wc = cool_white
+				var wc := _pick_window_color(rng)
 				win.set_surface_override_material(0,
 					_make_ps1_material(wc * 0.3, true, wc, rng.randf_range(2.5, 5.0)))
 				building.add_child(win)
@@ -789,16 +1511,7 @@ func _add_windows(building: MeshInstance3D, size: Vector3, rng: RandomNumberGene
 				if face < 0:
 					win.rotation.y = -PI * 0.5
 
-				var color_roll2 := rng.randf()
-				var wc: Color
-				if color_roll2 < 0.30:
-					wc = window_color
-				elif color_roll2 < 0.60:
-					wc = cold_color
-				elif color_roll2 < 0.85:
-					wc = warm_color
-				else:
-					wc = cool_white
+				var wc := _pick_window_color(rng)
 				win.set_surface_override_material(0,
 					_make_ps1_material(wc * 0.3, true, wc, rng.randf_range(2.5, 5.0)))
 				building.add_child(win)
@@ -980,7 +1693,7 @@ func _add_neon_sign(building: MeshInstance3D, size: Vector3, rng: RandomNumberGe
 		building.add_child(sign_mesh)
 
 func _add_vertical_neon_sign(building: MeshInstance3D, size: Vector3,
-		rng: RandomNumberGenerator) -> void:
+	rng: RandomNumberGenerator) -> void:
 	var neon_col := neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
 
 	# Pick 2-5 kanji characters for vertical text
@@ -1072,7 +1785,7 @@ func _generate_cars() -> void:
 					_create_car(Vector3(car_x, 0, car_z), PI * 0.5, car_colors, rng)
 
 func _create_car(pos: Vector3, rot_y: float, colors: Array[Color],
-		rng: RandomNumberGenerator) -> void:
+	rng: RandomNumberGenerator) -> void:
 	var car := Node3D.new()
 	car.position = pos
 	car.rotation.y = rot_y
@@ -1184,7 +1897,7 @@ func _generate_street_lights() -> void:
 				_create_street_light(Vector3(lx, 0, street_z_north), pole_mat, lamp_mat, lamp_color, rng)
 
 func _create_street_light(pos: Vector3, pole_mat: ShaderMaterial,
-		lamp_mat: ShaderMaterial, lamp_color: Color, rng: RandomNumberGenerator = null) -> void:
+	lamp_mat: ShaderMaterial, lamp_color: Color, rng: RandomNumberGenerator = null) -> void:
 	var lamp := Node3D.new()
 	lamp.position = pos
 
@@ -1527,7 +2240,7 @@ func _generate_sidewalks() -> void:
 				Vector3(block_size, curb_height, sidewalk_width), sidewalk_mat, curb_mat, curb_height, "x")
 
 func _add_sidewalk_strip(pos: Vector3, size: Vector3, sidewalk_mat: ShaderMaterial,
-		curb_mat: ShaderMaterial, curb_height: float, _street_axis: String) -> void:
+	curb_mat: ShaderMaterial, curb_height: float, _street_axis: String) -> void:
 	# Raised sidewalk platform
 	var sidewalk := MeshInstance3D.new()
 	var sidewalk_mesh := BoxMesh.new()
@@ -1554,8 +2267,6 @@ func _generate_road_markings() -> void:
 	var cell_stride := block_size + street_width
 	var marking_mat := _make_ps1_material(Color(0.6, 0.6, 0.4) * 0.3, true,
 		Color(0.6, 0.6, 0.4), 0.5)
-	var crosswalk_mat := _make_ps1_material(Color(0.8, 0.8, 0.8) * 0.3, true,
-		Color(0.8, 0.8, 0.8), 0.4)
 
 	for gx in range(-grid_size, grid_size):
 		for gz in range(-grid_size, grid_size):
@@ -1590,30 +2301,7 @@ func _generate_road_markings() -> void:
 				dash.set_surface_override_material(0, marking_mat)
 				add_child(dash)
 
-			# Crosswalk at intersection (corner of block)
-			var ix := cell_x + block_size * 0.5 + street_width * 0.5
-			var iz := cell_z + block_size * 0.5 + street_width * 0.5
-			# Crosswalk across Z-street (parallel to X)
-			var num_stripes := 5
-			for s in range(num_stripes):
-				var stripe := MeshInstance3D.new()
-				var stripe_mesh := QuadMesh.new()
-				stripe_mesh.size = Vector2(street_width * 0.7, 0.4)
-				stripe.mesh = stripe_mesh
-				stripe.position = Vector3(ix, 0.015, iz - 2.0 + s * 1.0)
-				stripe.rotation.x = -PI * 0.5
-				stripe.set_surface_override_material(0, crosswalk_mat)
-				add_child(stripe)
-			# Crosswalk across X-street (parallel to Z)
-			for s in range(num_stripes):
-				var stripe := MeshInstance3D.new()
-				var stripe_mesh := QuadMesh.new()
-				stripe_mesh.size = Vector2(0.4, street_width * 0.7)
-				stripe.mesh = stripe_mesh
-				stripe.position = Vector3(ix - 2.0 + s * 1.0, 0.015, iz)
-				stripe.rotation.x = -PI * 0.5
-				stripe.set_surface_override_material(0, crosswalk_mat)
-				add_child(stripe)
+
 
 func _generate_vending_machines() -> void:
 	var rng := RandomNumberGenerator.new()
@@ -2580,6 +3268,58 @@ func _generate_holographic_signs() -> void:
 		var float_height := rng.randf_range(3.0, 6.0)
 		label.position = Vector3(0, roof_y + float_height, 0)
 		mi.add_child(label)
+
+		# Projector device on rooftop — makes the hologram look grounded
+		var proj := Node3D.new()
+		proj.position = Vector3(0, roof_y, 0)
+
+		# Base unit (dark metal box)
+		var base := MeshInstance3D.new()
+		var base_mesh := BoxMesh.new()
+		base_mesh.size = Vector3(0.5, 0.25, 0.5)
+		base.mesh = base_mesh
+		base.position = Vector3(0, 0.125, 0)
+		base.set_surface_override_material(0, _make_ps1_material(Color(0.1, 0.1, 0.12)))
+		base.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		proj.add_child(base)
+
+		# Emitter lens (cylinder pointing up, glowing)
+		var lens := MeshInstance3D.new()
+		var lens_mesh := CylinderMesh.new()
+		lens_mesh.top_radius = 0.08
+		lens_mesh.bottom_radius = 0.12
+		lens_mesh.height = 0.15
+		lens.mesh = lens_mesh
+		lens.position = Vector3(0, 0.325, 0)
+		lens.set_surface_override_material(0,
+			_make_ps1_material(neon_col * 0.3, true, neon_col, 3.0))
+		lens.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		proj.add_child(lens)
+
+		# Small accent ring around base
+		var ring := MeshInstance3D.new()
+		var ring_mesh := CylinderMesh.new()
+		ring_mesh.top_radius = 0.3
+		ring_mesh.bottom_radius = 0.3
+		ring_mesh.height = 0.04
+		ring.mesh = ring_mesh
+		ring.position = Vector3(0, 0.27, 0)
+		ring.set_surface_override_material(0,
+			_make_ps1_material(neon_col * 0.15, true, neon_col, 1.5))
+		ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		proj.add_child(ring)
+
+		# Upward glow light from projector
+		var proj_light := OmniLight3D.new()
+		proj_light.light_color = neon_col
+		proj_light.light_energy = 2.0
+		proj_light.omni_range = 5.0
+		proj_light.omni_attenuation = 1.5
+		proj_light.shadow_enabled = false
+		proj_light.position = Vector3(0, 0.5, 0)
+		proj.add_child(proj_light)
+
+		mi.add_child(proj)
 
 		holo_signs.append({
 			"node": label,
@@ -4353,7 +5093,7 @@ func _generate_surveillance_drone() -> void:
 	# Rotor arms (4 arms extending outward)
 	var arm_mat := _make_ps1_material(Color(0.1, 0.1, 0.12))
 	for corner in [Vector3(0.5, 0, 0.35), Vector3(-0.5, 0, 0.35),
-			Vector3(0.5, 0, -0.35), Vector3(-0.5, 0, -0.35)]:
+		Vector3(0.5, 0, -0.35), Vector3(-0.5, 0, -0.35)]:
 		var arm := MeshInstance3D.new()
 		var arm_mesh := BoxMesh.new()
 		arm_mesh.size = Vector3(0.4, 0.06, 0.06)
@@ -4543,7 +5283,7 @@ func _generate_police_car() -> void:
 	# Wheels
 	var wheel_mat := _make_ps1_material(Color(0.05, 0.05, 0.05))
 	for wp in [Vector3(1.1, 0.3, 0.85), Vector3(1.1, 0.3, -0.85),
-			Vector3(-1.1, 0.3, 0.85), Vector3(-1.1, 0.3, -0.85)]:
+		Vector3(-1.1, 0.3, 0.85), Vector3(-1.1, 0.3, -0.85)]:
 		var wheel := MeshInstance3D.new()
 		var wheel_mesh := CylinderMesh.new()
 		wheel_mesh.top_radius = 0.3
@@ -4797,18 +5537,35 @@ func _generate_crosswalks() -> void:
 				continue
 			var cell_x := gx * cell_stride_local
 			var cell_z := gz * cell_stride_local
-			# Crosswalk across X-street (north-south crossing)
-			var cross_x := cell_x + block_size * 0.5 + street_width * 0.5
-			var cross_z := cell_z + block_size * 0.5
+			# Alternate direction per intersection to avoid waffle overlap
+			var cross_dir := (gx + gz) % 2
 			var num_stripes := 5
-			for s in range(num_stripes):
-				var stripe := MeshInstance3D.new()
-				var stripe_mesh := BoxMesh.new()
-				stripe_mesh.size = Vector3(street_width * 0.7, 0.02, 0.4)
-				stripe.mesh = stripe_mesh
-				stripe.position = Vector3(cross_x, 0.015, cross_z + (s - 2) * 0.8)
-				stripe.set_surface_override_material(0, stripe_mat)
-				add_child(stripe)
+			var cross_x := 0.0
+			var cross_z := 0.0
+			if cross_dir == 0:
+				# Crosswalk across X-street (stripes run along X)
+				cross_x = cell_x + block_size * 0.5 + street_width * 0.5
+				cross_z = cell_z + block_size * 0.5
+				for s in range(num_stripes):
+					var stripe := MeshInstance3D.new()
+					var stripe_mesh := BoxMesh.new()
+					stripe_mesh.size = Vector3(street_width * 0.7, 0.02, 0.4)
+					stripe.mesh = stripe_mesh
+					stripe.position = Vector3(cross_x, 0.015, cross_z + (s - 2) * 0.8)
+					stripe.set_surface_override_material(0, stripe_mat)
+					add_child(stripe)
+			else:
+				# Crosswalk across Z-street (stripes run along Z)
+				cross_x = cell_x + block_size * 0.5
+				cross_z = cell_z + block_size * 0.5 + street_width * 0.5
+				for s in range(num_stripes):
+					var stripe := MeshInstance3D.new()
+					var stripe_mesh := BoxMesh.new()
+					stripe_mesh.size = Vector3(0.4, 0.02, street_width * 0.7)
+					stripe.mesh = stripe_mesh
+					stripe.position = Vector3(cross_x + (s - 2) * 0.8, 0.015, cross_z)
+					stripe.set_surface_override_material(0, stripe_mat)
+					add_child(stripe)
 			# Crosswalk signal pole at corner
 			if rng.randf() < 0.5:
 				var sig_node := Node3D.new()
@@ -5927,21 +6684,48 @@ func _generate_stray_cats() -> void:
 
 func _generate_building_entrances() -> void:
 	# Add lobby entrance features (recessed door, overhead light, number plate)
-	# to regular (non-storefront) buildings at ground level
+	# to regular buildings at ground level. Skips enterable buildings (Node3D with interior).
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7300
 	var children_snapshot := get_children()
 	for raw_child in children_snapshot:
-		if not raw_child is MeshInstance3D:
+		var bsize := Vector3.ZERO
+		var child: Node3D = null
+		if raw_child is MeshInstance3D:
+			var mi := raw_child as MeshInstance3D
+			if mi.mesh is BoxMesh:
+				bsize = (mi.mesh as BoxMesh).size
+				child = mi
+		elif raw_child is Node3D:
+			# Modular buildings — estimate size from child pieces, skip enterable (they have doors)
+			var n3d := raw_child as Node3D
+			# Enterable buildings have OmniLight3D children (interior light) — skip them
+			var has_interior_light := false
+			for gc in n3d.get_children():
+				if gc is OmniLight3D:
+					has_interior_light = true
+					break
+			if has_interior_light:
+				continue
+			# Estimate building size from child MeshInstance3D bounding
+			var max_extent := Vector3.ZERO
+			for gc in n3d.get_children():
+				if gc is MeshInstance3D and (gc as MeshInstance3D).mesh is BoxMesh:
+					var piece := gc as MeshInstance3D
+					var ps: Vector3 = (piece.mesh as BoxMesh).size
+					var top := piece.position.y + ps.y * 0.5
+					var right := absf(piece.position.x) + ps.x * 0.5
+					var front := absf(piece.position.z) + ps.z * 0.5
+					max_extent.y = maxf(max_extent.y, top)
+					max_extent.x = maxf(max_extent.x, right * 2.0)
+					max_extent.z = maxf(max_extent.z, front * 2.0)
+			if max_extent.y > 0:
+				bsize = max_extent
+				child = n3d
+		if child == null:
 			continue
-		var child := raw_child as MeshInstance3D
-		if not child.mesh is BoxMesh:
-			continue
-		var bsize: Vector3 = (child.mesh as BoxMesh).size
-		# Only buildings tall enough to have a lobby, not too small
-		if bsize.y < 12.0 or bsize.x < 7.0:
-			continue
-		if rng.randf() > 0.45:
+		# Filter: only buildings tall enough and wide enough
+		if bsize.y < 5.0 or bsize.x < 4.0:
 			continue
 		var half_w := bsize.x * 0.5
 		var half_h := bsize.y * 0.5
@@ -7449,3 +8233,1249 @@ func _generate_overhead_intersection_lights() -> void:
 			ol.shadow_enabled = false
 			ol.position = Vector3(ix, 5.2, iz)
 			add_child(ol)
+
+func _create_walkway_segment(data: Dictionary) -> void:
+	## Creates a single walkway platform segment with floor, railings, columns, underglow.
+	var pos: Vector3 = data["position"]
+	var level: int = data["level"]
+	var seg_axis: String = data["axis"]  # "x" or "z" — direction the walkway runs along
+	var seg_length: float = data.get("length", 20.0)
+	var seg_width: float = 2.5
+	var height: float = pos.y
+
+	var platform_mat := _make_ps1_material(Color(0.18, 0.17, 0.2))
+	var railing_mat := _make_ps1_material(Color(0.25, 0.25, 0.28))
+	var column_mat := _make_ps1_material(Color(0.15, 0.15, 0.18))
+
+	var seg_node := Node3D.new()
+	seg_node.position = pos
+
+	# Platform floor
+	var floor_mi := MeshInstance3D.new()
+	var floor_bm := BoxMesh.new()
+	if seg_axis == "z":
+		floor_bm.size = Vector3(seg_width, 0.2, seg_length)
+	else:
+		floor_bm.size = Vector3(seg_length, 0.2, seg_width)
+	floor_mi.mesh = floor_bm
+	floor_mi.set_surface_override_material(0, platform_mat)
+	seg_node.add_child(floor_mi)
+
+	# Floor collision
+	var floor_sb := StaticBody3D.new()
+	var floor_cs := CollisionShape3D.new()
+	var floor_sh := BoxShape3D.new()
+	floor_sh.size = floor_bm.size
+	floor_cs.shape = floor_sh
+	floor_sb.add_child(floor_cs)
+	seg_node.add_child(floor_sb)
+
+	# Railings (both sides)
+	for side in [-1.0, 1.0]:
+		var rail_mi := MeshInstance3D.new()
+		var rail_bm := BoxMesh.new()
+		if seg_axis == "z":
+			rail_bm.size = Vector3(0.06, 1.1, seg_length)
+			rail_mi.position = Vector3(side * seg_width * 0.5, 0.65, 0)
+		else:
+			rail_bm.size = Vector3(seg_length, 1.1, 0.06)
+			rail_mi.position = Vector3(0, 0.65, side * seg_width * 0.5)
+		rail_mi.mesh = rail_bm
+		rail_mi.set_surface_override_material(0, railing_mat)
+		seg_node.add_child(rail_mi)
+
+	# Support columns (every 5m along walkway length)
+	var num_cols := int(seg_length / 5.0) + 1
+	for ci in range(num_cols):
+		var t := (float(ci) / float(max(num_cols - 1, 1))) - 0.5
+		var col_offset := t * seg_length
+
+		var col_mi := MeshInstance3D.new()
+		var col_bm := BoxMesh.new()
+		col_bm.size = Vector3(0.4, height, 0.4)
+		col_mi.mesh = col_bm
+		if seg_axis == "z":
+			col_mi.position = Vector3(0, -height * 0.5 + 0.1, col_offset)
+		else:
+			col_mi.position = Vector3(col_offset, -height * 0.5 + 0.1, 0)
+		col_mi.set_surface_override_material(0, column_mat)
+		seg_node.add_child(col_mi)
+
+		# Column collision
+		var col_sb := StaticBody3D.new()
+		var col_cs := CollisionShape3D.new()
+		var col_sh := BoxShape3D.new()
+		col_sh.size = Vector3(0.4, height, 0.4)
+		col_cs.shape = col_sh
+		col_sb.add_child(col_cs)
+		col_mi.add_child(col_sb)
+
+		# Neon accent at column base
+		var accent_mi := MeshInstance3D.new()
+		var accent_bm := BoxMesh.new()
+		accent_bm.size = Vector3(0.5, 0.1, 0.5)
+		accent_mi.mesh = accent_bm
+		accent_mi.position = col_mi.position + Vector3(0, -height * 0.5 + 0.05, 0)
+		var accent_col := neon_colors[data.get("color_idx", 0) % neon_colors.size()]
+		accent_mi.set_surface_override_material(0, _make_ps1_material(accent_col * 0.3, true, accent_col, 3.0))
+		accent_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		seg_node.add_child(accent_mi)
+
+	# Neon underglow strip
+	var ug_col := neon_colors[data.get("color_idx", 0) % neon_colors.size()]
+	var ug_mi := MeshInstance3D.new()
+	var ug_bm := BoxMesh.new()
+	if seg_axis == "z":
+		ug_bm.size = Vector3(0.06, 0.06, seg_length * 0.9)
+	else:
+		ug_bm.size = Vector3(seg_length * 0.9, 0.06, 0.06)
+	ug_mi.mesh = ug_bm
+	ug_mi.position = Vector3(0, -0.15, 0)
+	ug_mi.set_surface_override_material(0, _make_ps1_material(ug_col * 0.4, true, ug_col, 4.0))
+	ug_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	seg_node.add_child(ug_mi)
+
+	# Neon top strips along railing tops (both sides)
+	var top_col2 := neon_colors[(data.get("color_idx", 0) + 3) % neon_colors.size()]
+	for side in [-1.0, 1.0]:
+		var top_mi := MeshInstance3D.new()
+		var top_bm := BoxMesh.new()
+		if seg_axis == "z":
+			top_bm.size = Vector3(0.08, 0.04, seg_length * 0.95)
+			top_mi.position = Vector3(side * seg_width * 0.5, 1.22, 0)
+		else:
+			top_bm.size = Vector3(seg_length * 0.95, 0.04, 0.08)
+			top_mi.position = Vector3(0, 1.22, side * seg_width * 0.5)
+		top_mi.mesh = top_bm
+		top_mi.set_surface_override_material(0, _make_ps1_material(top_col2 * 0.3, true, top_col2, 3.0))
+		top_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		seg_node.add_child(top_mi)
+
+	# Underglow OmniLight
+	var ug_light := OmniLight3D.new()
+	ug_light.light_color = ug_col
+	ug_light.light_energy = 1.5
+	ug_light.omni_range = 5.0
+	ug_light.omni_attenuation = 1.5
+	ug_light.shadow_enabled = false
+	ug_light.position = Vector3(0, -0.3, 0)
+	seg_node.add_child(ug_light)
+
+	add_child(seg_node)
+
+func _generate_elevated_walkways() -> void:
+	## Places elevated walkway platforms along street edges.
+	## Level 1 at y=8, Level 2 at y=18. Populates walkway_map for ramps/NPCs.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 9100
+	walkway_map.clear()
+	var cs := block_size + street_width  # 28.0
+
+	# Iterate all street segments — each block has a +X edge street and a +Z edge street
+	for gx in range(-grid_size, grid_size):
+		for gz in range(-grid_size, grid_size):
+			# +Z running street (east side of block gx)
+			# Walkway sits 2m into the 8m street, hugging the building face
+			var street_z_x := float(gx) * cs + block_size * 0.5 + 2.0
+			var street_z_center_z := float(gz) * cs
+			var key_z := "%d,%d,z,1" % [gx, gz]
+			if rng.randf() < 0.45:
+				var wpos := Vector3(street_z_x, 8.0, street_z_center_z)
+				var col_idx := rng.randi_range(0, neon_colors.size() - 1)
+				walkway_map[key_z] = {
+					"position": wpos,
+					"axis": "z",
+					"level": 1,
+					"gx": gx, "gz": gz,
+					"color_idx": col_idx,
+					"length": block_size,
+				}
+				_create_walkway_segment(walkway_map[key_z])
+
+			# +X running street (south side of block gz)
+			var street_x_z := float(gz) * cs + block_size * 0.5 + 2.0
+			var street_x_center_x := float(gx) * cs
+			var key_x := "%d,%d,x,1" % [gx, gz]
+			if rng.randf() < 0.45:
+				var wpos := Vector3(street_x_center_x, 8.0, street_x_z)
+				var col_idx := rng.randi_range(0, neon_colors.size() - 1)
+				walkway_map[key_x] = {
+					"position": wpos,
+					"axis": "x",
+					"level": 1,
+					"gx": gx, "gz": gz,
+					"color_idx": col_idx,
+					"length": block_size,
+				}
+				_create_walkway_segment(walkway_map[key_x])
+
+	# Level 2: 25% of existing Level 1 segments get a Level 2 at y=18
+	var l1_keys := walkway_map.keys().duplicate()
+	for key in l1_keys:
+		if rng.randf() < 0.25:
+			var l1: Dictionary = walkway_map[key]
+			var key2: String = key.replace(",1", ",2")
+			var l1_pos: Vector3 = l1["position"]
+			var wpos2 := Vector3(l1_pos.x + 3.0, 18.0, l1_pos.z)
+			# Offset L2 slightly so columns don't overlap
+			if l1["axis"] == "z":
+				wpos2.x = l1_pos.x + 3.0
+			else:
+				wpos2.z = l1_pos.z + 3.0
+			var col_idx2 := rng.randi_range(0, neon_colors.size() - 1)
+			walkway_map[key2] = {
+				"position": wpos2,
+				"axis": l1["axis"],
+				"level": 2,
+				"gx": l1["gx"], "gz": l1["gz"],
+				"color_idx": col_idx2,
+				"length": block_size,
+			}
+			_create_walkway_segment(walkway_map[key2])
+
+	print("CityGenerator: elevated walkways placed, segments=", walkway_map.size())
+
+func _generate_walkway_ramps() -> void:
+	## Places ramps connecting walkway levels to ground (and L1→L2).
+	## Ramps look like stairs (visual treads) but have smooth collision for move_and_slide.
+	## Corner platforms bridge perpendicular walkway connections.
+	## All geometry overlaps slightly for seamless transitions.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 9101
+	var stair_mat := _make_ps1_material(Color(0.22, 0.22, 0.25))
+	var rail_mat := _make_ps1_material(Color(0.3, 0.3, 0.35))
+	var platform_mat := _make_ps1_material(Color(0.18, 0.17, 0.2))
+	var ramp_count := 0
+	var corner_count := 0
+	var seg_width := 2.5
+
+	# Collect all ramp landing zones to prevent overlaps
+	var ramp_zones: Array[Vector3] = []
+
+	# Collect building footprints for collision avoidance
+	var building_rects: Array[Dictionary] = []
+	for child in get_children():
+		if child is MeshInstance3D and (child as MeshInstance3D).mesh is BoxMesh:
+			var bs: Vector3 = ((child as MeshInstance3D).mesh as BoxMesh).size
+			if bs.y > 8.0:
+				building_rects.append({
+					"xmin": child.position.x - bs.x * 0.5 - 0.5,
+					"xmax": child.position.x + bs.x * 0.5 + 0.5,
+					"zmin": child.position.z - bs.z * 0.5 - 0.5,
+					"zmax": child.position.z + bs.z * 0.5 + 0.5,
+				})
+
+	for key in walkway_map:
+		var seg: Dictionary = walkway_map[key]
+		var seg_pos: Vector3 = seg["position"]
+		var seg_axis: String = seg["axis"]
+		var seg_level: int = seg["level"]
+		var seg_length: float = seg.get("length", block_size)
+
+		for end_sign in [-1.0, 1.0]:
+			# Endpoint of this walkway segment
+			var ep: Vector3
+			if seg_axis == "z":
+				ep = seg_pos + Vector3(0, 0, end_sign * seg_length * 0.5)
+			else:
+				ep = seg_pos + Vector3(end_sign * seg_length * 0.5, 0, 0)
+
+			# Find the nearest perpendicular walkway at this endpoint
+			var best_perp_key := ""
+			var best_perp_dist := 999.0
+			for other_key in walkway_map:
+				if other_key == key:
+					continue
+				var other: Dictionary = walkway_map[other_key]
+				if other["level"] != seg_level or other["axis"] == seg_axis:
+					continue
+				var other_pos: Vector3 = other["position"]
+				var d := Vector3(ep.x, 0, ep.z).distance_to(Vector3(other_pos.x, 0, other_pos.z))
+				if d < best_perp_dist and d < 18.0:
+					best_perp_dist = d
+					best_perp_key = other_key
+
+			# Check if a same-axis walkway continues (adjacent cell)
+			var has_continuation := false
+			for other_key in walkway_map:
+				if other_key == key:
+					continue
+				var other: Dictionary = walkway_map[other_key]
+				if other["level"] != seg_level or other["axis"] != seg_axis:
+					continue
+				var other_pos: Vector3 = other["position"]
+				if seg_axis == "z":
+					if absf(other_pos.x - seg_pos.x) < 3.0 and absf(other_pos.z - ep.z) < seg_length * 0.6:
+						has_continuation = true
+						break
+				else:
+					if absf(other_pos.z - seg_pos.z) < 3.0 and absf(other_pos.x - ep.x) < seg_length * 0.6:
+						has_continuation = true
+						break
+
+			if best_perp_key != "":
+				# Place a corner platform connecting this endpoint to the perpendicular walkway.
+				# Size it to fill the gap between the two walkway endpoints.
+				var perp: Dictionary = walkway_map[best_perp_key]
+				var perp_pos: Vector3 = perp["position"]
+
+				# Corner center is at the intersection of the two walkway lines
+				var corner_pos := Vector3(0, ep.y, 0)
+				if seg_axis == "z":
+					corner_pos.x = (ep.x + perp_pos.x) * 0.5
+					corner_pos.z = ep.z
+				else:
+					corner_pos.x = ep.x
+					corner_pos.z = (ep.z + perp_pos.z) * 0.5
+
+				# Size to bridge the gap + overlap both walkways by 0.5m
+				var gap_x := absf(ep.x - perp_pos.x)
+				var gap_z := absf(ep.z - perp_pos.z)
+				var corn_sx := maxf(seg_width + 0.5, gap_x + 1.0)
+				var corn_sz := maxf(seg_width + 0.5, gap_z + 1.0)
+				# Cap to reasonable size
+				corn_sx = minf(corn_sx, 8.0)
+				corn_sz = minf(corn_sz, 8.0)
+
+				var corner := Node3D.new()
+				corner.position = corner_pos
+
+				var corn_mi := MeshInstance3D.new()
+				var corn_bm := BoxMesh.new()
+				corn_bm.size = Vector3(corn_sx, 0.2, corn_sz)
+				corn_mi.mesh = corn_bm
+				corn_mi.set_surface_override_material(0, platform_mat)
+				corner.add_child(corn_mi)
+
+				var corn_sb := StaticBody3D.new()
+				var corn_cs := CollisionShape3D.new()
+				var corn_sh := BoxShape3D.new()
+				corn_sh.size = Vector3(corn_sx, 0.2, corn_sz)
+				corn_cs.shape = corn_sh
+				corn_sb.add_child(corn_cs)
+				corner.add_child(corn_sb)
+
+				# Corner neon accent
+				var corn_col := neon_colors[seg.get("color_idx", 0) % neon_colors.size()]
+				var corn_neon := MeshInstance3D.new()
+				var corn_neon_bm := BoxMesh.new()
+				corn_neon_bm.size = Vector3(corn_sx * 0.8, 0.04, corn_sz * 0.8)
+				corn_neon.mesh = corn_neon_bm
+				corn_neon.position = Vector3(0, -0.15, 0)
+				corn_neon.set_surface_override_material(0, _make_ps1_material(corn_col * 0.3, true, corn_col, 3.0))
+				corn_neon.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				corner.add_child(corn_neon)
+
+				add_child(corner)
+				corner_count += 1
+				continue
+
+			if has_continuation:
+				# Walkway continues to next cell — add a small bridge pad for seamless connection
+				var bridge_pad := Node3D.new()
+				bridge_pad.position = ep
+				var pad_mi := MeshInstance3D.new()
+				var pad_bm := BoxMesh.new()
+				# Pad extends 4m in the walkway direction to bridge the intersection gap
+				if seg_axis == "z":
+					pad_bm.size = Vector3(seg_width, 0.2, 8.0)
+					bridge_pad.position.z += end_sign * 4.0
+				else:
+					pad_bm.size = Vector3(8.0, 0.2, seg_width)
+					bridge_pad.position.x += end_sign * 4.0
+				pad_mi.mesh = pad_bm
+				pad_mi.set_surface_override_material(0, platform_mat)
+				bridge_pad.add_child(pad_mi)
+
+				var pad_sb := StaticBody3D.new()
+				var pad_cs := CollisionShape3D.new()
+				var pad_sh := BoxShape3D.new()
+				pad_sh.size = pad_bm.size
+				pad_cs.shape = pad_sh
+				pad_sb.add_child(pad_cs)
+				bridge_pad.add_child(pad_sb)
+
+				# Continuation railings
+				for side in [-1.0, 1.0]:
+					var r_mi := MeshInstance3D.new()
+					var r_bm := BoxMesh.new()
+					if seg_axis == "z":
+						r_bm.size = Vector3(0.06, 1.1, 8.0)
+						r_mi.position = Vector3(side * seg_width * 0.5, 0.65, 0)
+					else:
+						r_bm.size = Vector3(8.0, 1.1, 0.06)
+						r_mi.position = Vector3(0, 0.65, side * seg_width * 0.5)
+					r_mi.mesh = r_bm
+					r_mi.set_surface_override_material(0, _make_ps1_material(Color(0.25, 0.25, 0.28)))
+					bridge_pad.add_child(r_mi)
+
+				add_child(bridge_pad)
+				continue
+
+			# === RAMP to ground or lower level ===
+			var ramp_rise: float = 8.0 if seg_level == 1 else 10.0
+			var ramp_run: float = ramp_rise * 2.0
+
+			# Ramp starts 0.5m back INTO the walkway (overlap) for seamless join
+			var ramp_start: Vector3
+			if seg_axis == "z":
+				ramp_start = ep + Vector3(0, 0, -end_sign * 0.5)
+			else:
+				ramp_start = ep + Vector3(-end_sign * 0.5, 0, 0)
+
+			var ramp_end_pos: Vector3
+			if seg_axis == "z":
+				ramp_end_pos = ep + Vector3(0, -ramp_rise, end_sign * ramp_run)
+			else:
+				ramp_end_pos = ep + Vector3(end_sign * ramp_run, -ramp_rise, 0)
+			var ramp_center := (ramp_start + ramp_end_pos) * 0.5
+
+			# Check building collision — skip if ramp would land inside a building
+			var hits_building := false
+			for br in building_rects:
+				if ramp_end_pos.x > br["xmin"] and ramp_end_pos.x < br["xmax"] \
+				   and ramp_end_pos.z > br["zmin"] and ramp_end_pos.z < br["zmax"]:
+					hits_building = true
+					break
+			if hits_building:
+				continue
+
+			# Check ramp overlap with existing ramps
+			var too_close := false
+			for existing in ramp_zones:
+				if ramp_center.distance_to(existing) < 10.0:
+					too_close = true
+					break
+			if too_close:
+				continue
+
+			var ramp_actual_len := ramp_start.distance_to(ramp_end_pos)
+			var ramp_angle := atan2(ramp_rise, ramp_run + 0.5)
+
+			var ramp_node := Node3D.new()
+			ramp_node.position = ramp_center
+
+			# Invisible ramp collision (smooth surface)
+			var ramp_body := StaticBody3D.new()
+			var ramp_col := CollisionShape3D.new()
+			var ramp_shape := BoxShape3D.new()
+			if seg_axis == "z":
+				ramp_shape.size = Vector3(seg_width, 0.15, ramp_actual_len)
+				ramp_body.rotation.x = end_sign * ramp_angle
+			else:
+				ramp_shape.size = Vector3(ramp_actual_len, 0.15, seg_width)
+				ramp_body.rotation.z = -end_sign * ramp_angle
+			ramp_col.shape = ramp_shape
+			ramp_body.add_child(ramp_col)
+			ramp_node.add_child(ramp_body)
+
+			# Visual ramp surface
+			var ramp_mi := MeshInstance3D.new()
+			var ramp_bm := BoxMesh.new()
+			ramp_bm.size = ramp_shape.size
+			ramp_mi.mesh = ramp_bm
+			ramp_mi.set_surface_override_material(0, stair_mat)
+			ramp_mi.rotation = ramp_body.rotation
+			ramp_node.add_child(ramp_mi)
+
+			# Decorative stair treads (every ~0.8m)
+			var num_treads := int(ramp_actual_len / 0.8)
+			for ti in range(num_treads):
+				var t := (float(ti) + 0.5) / float(num_treads)
+				var tread_pos := ramp_start.lerp(ramp_end_pos, t) - ramp_center
+				var tread_mi := MeshInstance3D.new()
+				var tread_bm := BoxMesh.new()
+				if seg_axis == "z":
+					tread_bm.size = Vector3(seg_width, 0.03, 0.05)
+				else:
+					tread_bm.size = Vector3(0.05, 0.03, seg_width)
+				tread_mi.mesh = tread_bm
+				tread_mi.position = tread_pos + Vector3(0, 0.12, 0)
+				tread_mi.set_surface_override_material(0, rail_mat)
+				tread_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				ramp_node.add_child(tread_mi)
+
+			# Side railings
+			for side in [-1.0, 1.0]:
+				var rail_mi := MeshInstance3D.new()
+				var rail_bm := BoxMesh.new()
+				if seg_axis == "z":
+					rail_bm.size = Vector3(0.06, 1.0, ramp_actual_len)
+					rail_mi.position = Vector3(side * seg_width * 0.5, 0.6, 0)
+					rail_mi.rotation.x = end_sign * ramp_angle
+				else:
+					rail_bm.size = Vector3(ramp_actual_len, 1.0, 0.06)
+					rail_mi.position = Vector3(0, 0.6, side * seg_width * 0.5)
+					rail_mi.rotation.z = -end_sign * ramp_angle
+				rail_mi.mesh = rail_bm
+				rail_mi.set_surface_override_material(0, rail_mat)
+				rail_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				ramp_node.add_child(rail_mi)
+
+			# Neon edge strip along ramp underside
+			var neon_col := neon_colors[seg.get("color_idx", 0) % neon_colors.size()]
+			var neon_mi := MeshInstance3D.new()
+			var neon_bm := BoxMesh.new()
+			if seg_axis == "z":
+				neon_bm.size = Vector3(seg_width * 0.8, 0.04, ramp_actual_len * 0.6)
+				neon_mi.rotation.x = end_sign * ramp_angle
+			else:
+				neon_bm.size = Vector3(ramp_actual_len * 0.6, 0.04, seg_width * 0.8)
+				neon_mi.rotation.z = -end_sign * ramp_angle
+			neon_mi.mesh = neon_bm
+			neon_mi.position = Vector3(0, -0.1, 0)
+			neon_mi.set_surface_override_material(0, _make_ps1_material(neon_col * 0.4, true, neon_col, 3.0))
+			neon_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			ramp_node.add_child(neon_mi)
+
+			# Landing platform at bottom — larger for smooth ground transition
+			var landing := MeshInstance3D.new()
+			var landing_bm := BoxMesh.new()
+			landing_bm.size = Vector3(3.0, 0.2, 3.0)
+			landing.mesh = landing_bm
+			landing.position = ramp_end_pos - ramp_center
+			landing.set_surface_override_material(0, platform_mat)
+			ramp_node.add_child(landing)
+
+			var land_sb := StaticBody3D.new()
+			var land_cs := CollisionShape3D.new()
+			var land_sh := BoxShape3D.new()
+			land_sh.size = Vector3(3.0, 0.2, 3.0)
+			land_cs.shape = land_sh
+			land_sb.add_child(land_cs)
+			landing.add_child(land_sb)
+
+			add_child(ramp_node)
+			ramp_zones.append(ramp_center)
+			ramp_count += 1
+
+	print("CityGenerator: walkway ramps=", ramp_count, " corners=", corner_count)
+
+func _generate_walkway_bridges() -> void:
+	## For street segments with walkways on BOTH sides, 30% chance of a cross-street bridge.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 9102
+	var bridge_count := 0
+
+	# Find pairs: walkways on opposite sides of the same street at the same level
+	for key in walkway_map:
+		var seg: Dictionary = walkway_map[key]
+		var seg_axis: String = seg["axis"]
+		var level: int = seg["level"]
+		var gx: int = seg["gx"]
+		var gz: int = seg["gz"]
+
+		# Only check one direction to avoid duplicate bridges
+		# For Z-axis walkways, check if there's one on the opposite side (gx-1 or gx+1)
+		var seg_p: Vector3 = seg["position"]
+		if seg_axis == "z":
+			var opp_key := "%d,%d,z,%d" % [gx - 1, gz, level]
+			if walkway_map.has(opp_key) and rng.randf() < 0.30:
+				var opp: Dictionary = walkway_map[opp_key]
+				var opp_p: Vector3 = opp["position"]
+				var bridge_x: float = (seg_p.x + opp_p.x) * 0.5
+				var bridge_z: float = seg_p.z
+				var bridge_span: float = absf(seg_p.x - opp_p.x)
+				_create_bridge(Vector3(bridge_x, seg_p.y, bridge_z), bridge_span, "x", rng)
+				bridge_count += 1
+		elif seg_axis == "x":
+			var opp_key := "%d,%d,x,%d" % [gx, gz - 1, level]
+			if walkway_map.has(opp_key) and rng.randf() < 0.30:
+				var opp: Dictionary = walkway_map[opp_key]
+				var opp_p: Vector3 = opp["position"]
+				var bridge_z: float = (seg_p.z + opp_p.z) * 0.5
+				var bridge_x: float = seg_p.x
+				var bridge_span: float = absf(seg_p.z - opp_p.z)
+				_create_bridge(Vector3(bridge_x, seg_p.y, bridge_z), bridge_span, "z", rng)
+				bridge_count += 1
+
+	print("CityGenerator: walkway bridges placed=", bridge_count)
+
+func _create_bridge(pos: Vector3, span: float, span_axis: String, rng: RandomNumberGenerator) -> void:
+	## Creates a cross-street bridge connecting two walkways.
+	var bridge := Node3D.new()
+	bridge.position = pos
+	var bridge_width := 2.0
+
+	# Floor
+	var floor_mi := MeshInstance3D.new()
+	var floor_bm := BoxMesh.new()
+	if span_axis == "x":
+		floor_bm.size = Vector3(span, 0.2, bridge_width)
+	else:
+		floor_bm.size = Vector3(bridge_width, 0.2, span)
+	floor_mi.mesh = floor_bm
+	floor_mi.set_surface_override_material(0, _make_ps1_material(Color(0.2, 0.19, 0.22)))
+	bridge.add_child(floor_mi)
+
+	var floor_sb := StaticBody3D.new()
+	var floor_cs := CollisionShape3D.new()
+	var floor_sh := BoxShape3D.new()
+	floor_sh.size = floor_bm.size
+	floor_cs.shape = floor_sh
+	floor_sb.add_child(floor_cs)
+	bridge.add_child(floor_sb)
+
+	# Side railings
+	for side in [-1.0, 1.0]:
+		var rail_mi := MeshInstance3D.new()
+		var rail_bm := BoxMesh.new()
+		if span_axis == "x":
+			rail_bm.size = Vector3(span, 1.1, 0.06)
+			rail_mi.position = Vector3(0, 0.65, side * bridge_width * 0.5)
+		else:
+			rail_bm.size = Vector3(0.06, 1.1, span)
+			rail_mi.position = Vector3(side * bridge_width * 0.5, 0.65, 0)
+		rail_mi.mesh = rail_bm
+		rail_mi.set_surface_override_material(0, _make_ps1_material(Color(0.25, 0.25, 0.28)))
+		bridge.add_child(rail_mi)
+
+		# Translucent glass panel
+		var glass_mi := MeshInstance3D.new()
+		var glass_qm := QuadMesh.new()
+		if span_axis == "x":
+			glass_qm.size = Vector2(span, 0.8)
+			glass_mi.position = Vector3(0, 0.5, side * (bridge_width * 0.5 + 0.01))
+			glass_mi.rotation.y = 0.0 if side > 0 else PI
+		else:
+			glass_qm.size = Vector2(span, 0.8)
+			glass_mi.position = Vector3(side * (bridge_width * 0.5 + 0.01), 0.5, 0)
+			glass_mi.rotation.y = PI * 0.5 if side > 0 else -PI * 0.5
+		glass_mi.mesh = glass_qm
+		var gc := Color(0.1, 0.3, 0.5)
+		glass_mi.set_surface_override_material(0, _make_ps1_material(gc * 0.3, true, gc, 0.8))
+		glass_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		bridge.add_child(glass_mi)
+
+	# Underglow
+	var ug_col := neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
+	var ug_mi := MeshInstance3D.new()
+	var ug_bm := BoxMesh.new()
+	if span_axis == "x":
+		ug_bm.size = Vector3(span * 0.8, 0.06, 0.06)
+	else:
+		ug_bm.size = Vector3(0.06, 0.06, span * 0.8)
+	ug_mi.mesh = ug_bm
+	ug_mi.position = Vector3(0, -0.15, 0)
+	ug_mi.set_surface_override_material(0, _make_ps1_material(ug_col * 0.4, true, ug_col, 4.0))
+	ug_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	bridge.add_child(ug_mi)
+
+	var ug_light := OmniLight3D.new()
+	ug_light.light_color = ug_col
+	ug_light.light_energy = 1.5
+	ug_light.omni_range = 5.0
+	ug_light.omni_attenuation = 1.5
+	ug_light.shadow_enabled = false
+	ug_light.position = Vector3(0, -0.3, 0)
+	bridge.add_child(ug_light)
+
+	add_child(bridge)
+
+func _generate_walkway_building_doors() -> void:
+	## Adds doors at walkway height (y=8) on buildings adjacent to Level 1 walkways.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 9103
+	var door_count := 0
+
+	for key in walkway_map:
+		var seg: Dictionary = walkway_map[key]
+		if seg["level"] != 1:
+			continue
+		if rng.randf() > 0.40:
+			continue
+
+		var seg_pos: Vector3 = seg["position"]
+		var seg_axis: String = seg["axis"]
+
+		# Find the nearest building on the building side of the walkway
+		var best_building: Node3D = null
+		var best_dist := 999.0
+		var children_snapshot := get_children()
+		for raw_child in children_snapshot:
+			if not (raw_child is MeshInstance3D or raw_child is Node3D):
+				continue
+			var child := raw_child as Node3D
+			var bsize := Vector3.ZERO
+			if child is MeshInstance3D and (child as MeshInstance3D).mesh is BoxMesh:
+				bsize = ((child as MeshInstance3D).mesh as BoxMesh).size
+			else:
+				# Check first MeshInstance3D child for modular buildings
+				for gc in child.get_children():
+					if gc is MeshInstance3D and (gc as MeshInstance3D).mesh is BoxMesh:
+						var ps: Vector3 = ((gc as MeshInstance3D).mesh as BoxMesh).size
+						bsize.y = maxf(bsize.y, ps.y)
+						bsize.x = maxf(bsize.x, ps.x)
+						bsize.z = maxf(bsize.z, ps.z)
+			if bsize.y < 12.0:  # building not tall enough
+				continue
+			var d := child.position.distance_to(seg_pos)
+			if d < best_dist and d < 20.0:
+				best_dist = d
+				best_building = child
+
+		if best_building == null:
+			continue
+
+		# Place door on the face closest to the walkway
+		var door_node := Node3D.new()
+		var door_y := 8.0
+		if seg_axis == "z":
+			door_node.position = Vector3(seg_pos.x - 1.25, door_y, seg_pos.z)
+		else:
+			door_node.position = Vector3(seg_pos.x, door_y, seg_pos.z - 1.25)
+
+		# Dark recessed door frame
+		var frame_mi := MeshInstance3D.new()
+		var frame_bm := BoxMesh.new()
+		frame_bm.size = Vector3(1.8, 3.0, 0.15)
+		frame_mi.mesh = frame_bm
+		frame_mi.set_surface_override_material(0, _make_ps1_material(Color(0.08, 0.07, 0.06)))
+		if seg_axis == "x":
+			frame_mi.rotation.y = PI * 0.5
+		door_node.add_child(frame_mi)
+
+		# Connecting platform (bridge from walkway to building face)
+		var plat_mi := MeshInstance3D.new()
+		var plat_bm := BoxMesh.new()
+		if seg_axis == "z":
+			plat_bm.size = Vector3(1.0, 0.2, 2.0)
+			plat_mi.position = Vector3(-0.5, 0, 0)
+		else:
+			plat_bm.size = Vector3(2.0, 0.2, 1.0)
+			plat_mi.position = Vector3(0, 0, -0.5)
+		plat_mi.mesh = plat_bm
+		plat_mi.set_surface_override_material(0, _make_ps1_material(Color(0.18, 0.17, 0.2)))
+		door_node.add_child(plat_mi)
+
+		var plat_sb := StaticBody3D.new()
+		var plat_cs := CollisionShape3D.new()
+		var plat_sh := BoxShape3D.new()
+		plat_sh.size = plat_bm.size
+		plat_cs.shape = plat_sh
+		plat_sb.add_child(plat_cs)
+		plat_mi.add_child(plat_sb)
+
+		# Warm overhead light
+		var door_light := OmniLight3D.new()
+		door_light.light_color = Color(1.0, 0.8, 0.5)
+		door_light.light_energy = 3.0
+		door_light.omni_range = 5.0
+		door_light.omni_attenuation = 1.5
+		door_light.shadow_enabled = false
+		door_light.position = Vector3(0, 1.8, 0)
+		door_node.add_child(door_light)
+
+		add_child(door_node)
+		door_count += 1
+
+	print("CityGenerator: walkway building doors placed=", door_count)
+
+func _generate_walkway_passthroughs() -> void:
+	## Detects where walkway segments pass near buildings and creates covered atrium
+	## passthrough sections — ceiling, side walls, interior lights, exit signs.
+	## This gives the feeling of walkways threading through buildings.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 9104
+	var passthrough_count := 0
+	var seg_width := 2.5
+
+	# Collect building positions and sizes for intersection testing
+	var buildings: Array[Dictionary] = []
+	for child in get_children():
+		var bsize := Vector3.ZERO
+		var bpos := Vector3.ZERO
+		if child is MeshInstance3D:
+			var mi := child as MeshInstance3D
+			if mi.mesh is BoxMesh:
+				bsize = (mi.mesh as BoxMesh).size
+				bpos = mi.position
+		elif child is Node3D and child.get_child_count() > 2:
+			# Modular building — estimate from children
+			var has_mesh := false
+			for gc in child.get_children():
+				if gc is MeshInstance3D and (gc as MeshInstance3D).mesh is BoxMesh:
+					has_mesh = true
+					var piece := gc as MeshInstance3D
+					var ps: Vector3 = (piece.mesh as BoxMesh).size
+					var top: float = piece.position.y + ps.y * 0.5
+					bsize.y = maxf(bsize.y, top)
+					bsize.x = maxf(bsize.x, absf(piece.position.x) * 2.0 + ps.x)
+					bsize.z = maxf(bsize.z, absf(piece.position.z) * 2.0 + ps.z)
+			if has_mesh:
+				bpos = child.position
+		if bsize.y > 10.0 and bsize.x > 4.0:
+			buildings.append({"pos": bpos, "size": bsize})
+
+	for key in walkway_map:
+		var seg: Dictionary = walkway_map[key]
+		if seg["level"] != 1:
+			continue  # Only L1 passthroughs for now
+		var seg_pos: Vector3 = seg["position"]
+		var seg_axis: String = seg["axis"]
+		var seg_length: float = seg.get("length", block_size)
+		var walkway_y: float = seg_pos.y
+
+		# Check each building for intersection with this walkway segment
+		for bdata in buildings:
+			var bp: Vector3 = bdata["pos"]
+			var bs: Vector3 = bdata["size"]
+			var bh: float = bp.y + bs.y * 0.5  # building top
+			var b_bottom: float = bp.y - bs.y * 0.5
+
+			# Building must be tall enough to enclose the walkway (top > walkway + 3m)
+			if bh < walkway_y + 3.0:
+				continue
+			# Building ground floor must be below walkway
+			if b_bottom > walkway_y - 1.0:
+				continue
+
+			# Check lateral overlap
+			var overlap := false
+			var passthrough_center := Vector3.ZERO
+			var passthrough_len := 0.0
+
+			if seg_axis == "z":
+				# Walkway runs along Z, check X proximity
+				var bx_min := bp.x - bs.x * 0.5
+				var bx_max := bp.x + bs.x * 0.5
+				# Walkway X position
+				var wx := seg_pos.x
+				if wx > bx_min - 1.0 and wx < bx_max + 1.0:
+					# Check Z overlap
+					var wz_min := seg_pos.z - seg_length * 0.5
+					var wz_max := seg_pos.z + seg_length * 0.5
+					var bz_min := bp.z - bs.z * 0.5
+					var bz_max := bp.z + bs.z * 0.5
+					var oz_min := maxf(wz_min, bz_min)
+					var oz_max := minf(wz_max, bz_max)
+					if oz_max - oz_min > 3.0:  # At least 3m overlap
+						overlap = true
+						passthrough_len = oz_max - oz_min
+						passthrough_center = Vector3(wx, walkway_y, (oz_min + oz_max) * 0.5)
+			else:
+				# Walkway runs along X, check Z proximity
+				var bz_min := bp.z - bs.z * 0.5
+				var bz_max := bp.z + bs.z * 0.5
+				var wz := seg_pos.z
+				if wz > bz_min - 1.0 and wz < bz_max + 1.0:
+					var wx_min := seg_pos.x - seg_length * 0.5
+					var wx_max := seg_pos.x + seg_length * 0.5
+					var bx_min := bp.x - bs.x * 0.5
+					var bx_max := bp.x + bs.x * 0.5
+					var ox_min := maxf(wx_min, bx_min)
+					var ox_max := minf(wx_max, bx_max)
+					if ox_max - ox_min > 3.0:
+						overlap = true
+						passthrough_len = ox_max - ox_min
+						passthrough_center = Vector3((ox_min + ox_max) * 0.5, walkway_y, wz)
+
+			if not overlap:
+				continue
+
+			# Create the passthrough atrium
+			var pt := Node3D.new()
+			pt.position = passthrough_center
+
+			# Ceiling
+			var ceil_mi := MeshInstance3D.new()
+			var ceil_bm := BoxMesh.new()
+			if seg_axis == "z":
+				ceil_bm.size = Vector3(seg_width + 0.4, 0.15, passthrough_len)
+			else:
+				ceil_bm.size = Vector3(passthrough_len, 0.15, seg_width + 0.4)
+			ceil_mi.mesh = ceil_bm
+			ceil_mi.position = Vector3(0, 3.0, 0)
+			ceil_mi.set_surface_override_material(0, _make_ps1_material(Color(0.12, 0.11, 0.14)))
+			pt.add_child(ceil_mi)
+
+			# Ceiling collision
+			var ceil_sb := StaticBody3D.new()
+			var ceil_cs := CollisionShape3D.new()
+			var ceil_sh := BoxShape3D.new()
+			ceil_sh.size = ceil_bm.size
+			ceil_sb.add_child(ceil_cs)
+			ceil_cs.shape = ceil_sh
+			pt.add_child(ceil_sb)
+			ceil_sb.position = Vector3(0, 3.0, 0)
+
+			# Side walls (replace railings in this section with solid walls)
+			for side in [-1.0, 1.0]:
+				var wall_mi := MeshInstance3D.new()
+				var wall_bm := BoxMesh.new()
+				if seg_axis == "z":
+					wall_bm.size = Vector3(0.15, 3.0, passthrough_len)
+					wall_mi.position = Vector3(side * (seg_width * 0.5 + 0.1), 1.5, 0)
+				else:
+					wall_bm.size = Vector3(passthrough_len, 3.0, 0.15)
+					wall_mi.position = Vector3(0, 1.5, side * (seg_width * 0.5 + 0.1))
+				wall_mi.mesh = wall_bm
+				wall_mi.set_surface_override_material(0, _make_ps1_material(Color(0.14, 0.13, 0.16)))
+				pt.add_child(wall_mi)
+
+			# Interior fluorescent lights (warm or cool)
+			var num_lights := int(passthrough_len / 4.0) + 1
+			for li in range(num_lights):
+				var t := (float(li) + 0.5) / float(num_lights) - 0.5
+				var light_offset := t * passthrough_len
+				var int_light := OmniLight3D.new()
+				var is_warm := rng.randf() < 0.4
+				int_light.light_color = Color(1.0, 0.85, 0.6) if is_warm else Color(0.7, 0.85, 1.0)
+				int_light.light_energy = 2.5
+				int_light.omni_range = 5.0
+				int_light.omni_attenuation = 1.3
+				int_light.shadow_enabled = false
+				if seg_axis == "z":
+					int_light.position = Vector3(0, 2.7, light_offset)
+				else:
+					int_light.position = Vector3(light_offset, 2.7, 0)
+				pt.add_child(int_light)
+
+				# Light fixture mesh (small flat box)
+				var fix_mi := MeshInstance3D.new()
+				var fix_bm := BoxMesh.new()
+				fix_bm.size = Vector3(0.6, 0.05, 0.15) if seg_axis == "z" else Vector3(0.15, 0.05, 0.6)
+				fix_mi.mesh = fix_bm
+				fix_mi.position = int_light.position + Vector3(0, 0.15, 0)
+				var fix_col := Color(0.9, 0.9, 0.95) if is_warm else Color(0.7, 0.85, 1.0)
+				fix_mi.set_surface_override_material(0, _make_ps1_material(fix_col * 0.5, true, fix_col, 2.0))
+				fix_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				pt.add_child(fix_mi)
+
+			# Neon entrance strip at both ends of the passthrough
+			var neon_col := neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
+			for end_s in [-1.0, 1.0]:
+				var strip_mi := MeshInstance3D.new()
+				var strip_bm := BoxMesh.new()
+				if seg_axis == "z":
+					strip_bm.size = Vector3(seg_width + 0.6, 0.06, 0.06)
+					strip_mi.position = Vector3(0, 3.05, end_s * passthrough_len * 0.5)
+				else:
+					strip_bm.size = Vector3(0.06, 0.06, seg_width + 0.6)
+					strip_mi.position = Vector3(end_s * passthrough_len * 0.5, 3.05, 0)
+				strip_mi.mesh = strip_bm
+				strip_mi.set_surface_override_material(0, _make_ps1_material(neon_col * 0.4, true, neon_col, 4.0))
+				strip_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				pt.add_child(strip_mi)
+
+			add_child(pt)
+			passthrough_count += 1
+
+	print("CityGenerator: walkway passthroughs=", passthrough_count)
+
+func _generate_walkway_elevated_details() -> void:
+	## Adds neon signs, kanji labels, small lights, and decorative elements
+	## on walkway columns and undersides — making the elevated level feel alive.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 9105
+	var detail_count := 0
+
+	var sign_texts: Array[String] = [
+		"出口", "通路", "2F", "3F", "歩道橋", "注意",
+		"↑", "→", "←", "LEVEL 2", "SKY WALK",
+		"展望", "空中", "連絡", "渡り廊下",
+	]
+
+	for key in walkway_map:
+		var seg: Dictionary = walkway_map[key]
+		var seg_pos: Vector3 = seg["position"]
+		var seg_axis: String = seg["axis"]
+		var seg_length: float = seg.get("length", block_size)
+		var seg_level: int = seg["level"]
+		var col_idx: int = seg.get("color_idx", 0)
+
+		# Hanging sign under walkway (40% chance)
+		if rng.randf() < 0.40:
+			var sign_col := neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
+			var sign_offset := rng.randf_range(-seg_length * 0.3, seg_length * 0.3)
+
+			# Sign backing plate
+			var sign_node := Node3D.new()
+			if seg_axis == "z":
+				sign_node.position = seg_pos + Vector3(0, -0.5, sign_offset)
+			else:
+				sign_node.position = seg_pos + Vector3(sign_offset, -0.5, 0)
+
+			var backing_mi := MeshInstance3D.new()
+			var backing_bm := BoxMesh.new()
+			backing_bm.size = Vector3(1.2, 0.6, 0.05)
+			backing_mi.mesh = backing_bm
+			if seg_axis == "x":
+				backing_mi.rotation.y = PI * 0.5
+			backing_mi.set_surface_override_material(0, _make_ps1_material(sign_col * 0.2, true, sign_col, 2.0))
+			backing_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			sign_node.add_child(backing_mi)
+
+			# Kanji text label if font available
+			if neon_font:
+				var label := Label3D.new()
+				label.text = sign_texts[rng.randi_range(0, sign_texts.size() - 1)]
+				label.font = neon_font
+				label.font_size = 42
+				label.modulate = sign_col * 1.5
+				label.no_depth_test = true
+				label.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+				if seg_axis == "x":
+					label.rotation.y = PI * 0.5
+				label.position = Vector3(0, 0, 0.03) if seg_axis == "z" else Vector3(0.03, 0, 0)
+				sign_node.add_child(label)
+
+			add_child(sign_node)
+			detail_count += 1
+
+		# Column-mounted neon accent signs (30% per segment)
+		if rng.randf() < 0.30:
+			var accent_col := neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
+			# Pick a column position (roughly at the midpoint)
+			var col_z_offset := rng.randf_range(-seg_length * 0.2, seg_length * 0.2)
+			var sign_h := rng.randf_range(3.0, seg_pos.y - 1.0)
+
+			var csign := MeshInstance3D.new()
+			var csign_bm := BoxMesh.new()
+			csign_bm.size = Vector3(0.8, 0.4, 0.04)
+			csign.mesh = csign_bm
+			if seg_axis == "z":
+				csign.position = seg_pos + Vector3(0.3, -seg_pos.y + sign_h, col_z_offset)
+			else:
+				csign.position = seg_pos + Vector3(col_z_offset, -seg_pos.y + sign_h, 0.3)
+				csign.rotation.y = PI * 0.5
+			csign.set_surface_override_material(0, _make_ps1_material(accent_col * 0.3, true, accent_col, 3.0))
+			csign.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			add_child(csign)
+			detail_count += 1
+
+		# Protruding neon sign from walkway edge (25% chance, like HK signs but at elevation)
+		if rng.randf() < 0.25 and neon_font:
+			var proto_col := neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
+			var proto_offset := rng.randf_range(-seg_length * 0.3, seg_length * 0.3)
+
+			var proto_node := Node3D.new()
+			if seg_axis == "z":
+				proto_node.position = seg_pos + Vector3(1.5, 0.8, proto_offset)
+			else:
+				proto_node.position = seg_pos + Vector3(proto_offset, 0.8, 1.5)
+
+			# Vertical sign plate
+			var plate_mi := MeshInstance3D.new()
+			var plate_bm := BoxMesh.new()
+			plate_bm.size = Vector3(0.08, 1.5, 0.6)
+			plate_mi.mesh = plate_bm
+			if seg_axis == "x":
+				plate_mi.rotation.y = PI * 0.5
+			plate_mi.set_surface_override_material(0, _make_ps1_material(proto_col * 0.15, true, proto_col, 2.5))
+			plate_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			proto_node.add_child(plate_mi)
+
+			# Text
+			var proto_label := Label3D.new()
+			proto_label.text = sign_texts[rng.randi_range(0, sign_texts.size() - 1)]
+			proto_label.font = neon_font
+			proto_label.font_size = 36
+			proto_label.modulate = proto_col * 1.5
+			proto_label.no_depth_test = true
+			if seg_axis == "z":
+				proto_label.position = Vector3(0.05, 0, 0)
+				proto_label.rotation.z = PI * 0.5
+			else:
+				proto_label.position = Vector3(0, 0, 0.05)
+				proto_label.rotation.y = PI * 0.5
+				proto_label.rotation.z = PI * 0.5
+			proto_node.add_child(proto_label)
+
+			# Small light
+			var proto_light := OmniLight3D.new()
+			proto_light.light_color = proto_col
+			proto_light.light_energy = 1.5
+			proto_light.omni_range = 4.0
+			proto_light.omni_attenuation = 1.5
+			proto_light.shadow_enabled = false
+			proto_node.add_child(proto_light)
+
+			add_child(proto_node)
+			detail_count += 1
+
+		# Underside pipe/conduit detail (20% chance)
+		if rng.randf() < 0.20:
+			var pipe_offset := rng.randf_range(-seg_length * 0.35, seg_length * 0.35)
+			var pipe_mi := MeshInstance3D.new()
+			var pipe_bm := BoxMesh.new()
+			var pipe_len := rng.randf_range(3.0, 8.0)
+			if seg_axis == "z":
+				pipe_bm.size = Vector3(0.08, 0.08, pipe_len)
+				pipe_mi.position = seg_pos + Vector3(rng.randf_range(-0.8, 0.8), -0.3, pipe_offset)
+			else:
+				pipe_bm.size = Vector3(pipe_len, 0.08, 0.08)
+				pipe_mi.position = seg_pos + Vector3(pipe_offset, -0.3, rng.randf_range(-0.8, 0.8))
+			pipe_mi.mesh = pipe_bm
+			pipe_mi.set_surface_override_material(0, _make_ps1_material(Color(0.2, 0.2, 0.22)))
+			pipe_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			add_child(pipe_mi)
+			detail_count += 1
+
+	print("CityGenerator: walkway elevated details=", detail_count)
+
+func _generate_hk_neon_signs() -> void:
+	## HK-style protruding neon signs distributed across city buildings.
+	## Each sign protrudes perpendicular from the building face like a flag,
+	## with border frame, colored backing, glowing kanji/English text, and light.
+	if not neon_font:
+		return
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 9500
+
+	var min_height := 4.5  # minimum 1.5 stories above ground
+
+	for child in get_children():
+		if not child is MeshInstance3D:
+			continue
+		var mi := child as MeshInstance3D
+		if not mi.mesh is BoxMesh:
+			continue
+		var bsize: Vector3 = (mi.mesh as BoxMesh).size
+		if bsize.y < 8.0:  # skip short buildings
+			continue
+		if rng.randf() > 0.5:  # 50% of buildings get signs
+			continue
+
+		var gy := -bsize.y * 0.5  # ground in local coords
+		var num_signs := rng.randi_range(1, 3)
+
+		for _si in range(num_signs):
+			var s_text: String = HK_SIGN_TEXTS[rng.randi_range(0, HK_SIGN_TEXTS.size() - 1)]
+			var s_col: Color = neon_colors[rng.randi_range(0, neon_colors.size() - 1)]
+			var face := rng.randi_range(0, 3)  # 0=front, 1=back, 2=right, 3=left
+
+			# Height: between 1.5 stories and 80% of building height
+			var max_h := bsize.y * 0.8
+			var sign_y := gy + rng.randf_range(min_height, max(min_height + 1.0, max_h))
+
+			# Lateral offset along the face
+			var face_width: float = bsize.x if face < 2 else bsize.z
+			var lateral := rng.randf_range(-face_width * 0.35, face_width * 0.35)
+
+			# Sign dimensions — capped at 3.5m to avoid protruding into the street
+			var char_count := s_text.length()
+			var is_english := s_text[0].unicode_at(0) < 128
+			var char_w := 0.55 if is_english else 1.1
+			var sign_w: float = min(char_count * char_w + 0.5, 3.5)
+			var sign_h := 1.6
+
+			# Anchor on building wall
+			var anchor := Node3D.new()
+			match face:
+				0:  # front (+Z)
+					anchor.position = Vector3(lateral, sign_y, bsize.z * 0.5)
+					anchor.rotation.y = 0.0
+				1:  # back (-Z)
+					anchor.position = Vector3(lateral, sign_y, -bsize.z * 0.5)
+					anchor.rotation.y = PI
+				2:  # right (+X)
+					anchor.position = Vector3(bsize.x * 0.5, sign_y, lateral)
+					anchor.rotation.y = -PI * 0.5
+				3:  # left (-X)
+					anchor.position = Vector3(-bsize.x * 0.5, sign_y, lateral)
+					anchor.rotation.y = PI * 0.5
+
+			# Sign protrudes perpendicular from wall
+			var sign_root := Node3D.new()
+			sign_root.rotation.y = PI * 0.5
+			sign_root.position = Vector3(0, 0, sign_w * 0.5 + 0.2)
+			anchor.add_child(sign_root)
+
+			# Border frame (dark)
+			var border := MeshInstance3D.new()
+			var border_mesh := BoxMesh.new()
+			border_mesh.size = Vector3(sign_w + 0.25, sign_h + 0.25, 0.14)
+			border.mesh = border_mesh
+			border.set_surface_override_material(0, _make_ps1_material(Color(0.06, 0.06, 0.08)))
+			border.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			sign_root.add_child(border)
+
+			# Backing panel (dim sign color)
+			var backing := MeshInstance3D.new()
+			var backing_mesh := BoxMesh.new()
+			backing_mesh.size = Vector3(sign_w, sign_h, 0.15)
+			backing.mesh = backing_mesh
+			backing.set_surface_override_material(0,
+				_make_ps1_material(s_col * 0.1, true, s_col * 0.25, 1.0))
+			backing.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			sign_root.add_child(backing)
+
+			# Bloom/glow layer — large soft outline behind the main text
+			var glow := Label3D.new()
+			glow.text = s_text
+			glow.font = neon_font
+			glow.font_size = 96
+			glow.pixel_size = 0.01
+			glow.modulate = Color(s_col.r, s_col.g, s_col.b, 0.4)
+			glow.outline_modulate = Color(s_col.r, s_col.g, s_col.b, 0.25)
+			glow.outline_size = 32  # very large = soft glow halo
+			glow.position = Vector3(0, 0, 0.07)
+			glow.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+			glow.render_priority = 0
+			sign_root.add_child(glow)
+
+			# Main text — bright, sharp
+			var label := Label3D.new()
+			label.text = s_text
+			label.font = neon_font
+			label.font_size = 96
+			label.pixel_size = 0.01
+			label.modulate = Color(min(s_col.r + 0.3, 1.0), min(s_col.g + 0.3, 1.0), min(s_col.b + 0.3, 1.0))
+			label.outline_modulate = s_col
+			label.outline_size = 12
+			label.position = Vector3(0, 0, 0.09)
+			label.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+			label.render_priority = 1
+			sign_root.add_child(label)
+
+			# Back side text
+			var glow_b := Label3D.new()
+			glow_b.text = s_text
+			glow_b.font = neon_font
+			glow_b.font_size = 96
+			glow_b.pixel_size = 0.01
+			glow_b.modulate = Color(s_col.r, s_col.g, s_col.b, 0.4)
+			glow_b.outline_modulate = Color(s_col.r, s_col.g, s_col.b, 0.25)
+			glow_b.outline_size = 32
+			glow_b.position = Vector3(0, 0, -0.07)
+			glow_b.rotation.y = PI
+			glow_b.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+			sign_root.add_child(glow_b)
+
+			var label_b := Label3D.new()
+			label_b.text = s_text
+			label_b.font = neon_font
+			label_b.font_size = 96
+			label_b.pixel_size = 0.01
+			label_b.modulate = Color(min(s_col.r + 0.3, 1.0), min(s_col.g + 0.3, 1.0), min(s_col.b + 0.3, 1.0))
+			label_b.outline_modulate = s_col
+			label_b.outline_size = 12
+			label_b.position = Vector3(0, 0, -0.09)
+			label_b.rotation.y = PI
+			label_b.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+			sign_root.add_child(label_b)
+
+			# OmniLight
+			var light := OmniLight3D.new()
+			light.light_color = s_col
+			light.light_energy = 5.0
+			light.omni_range = 12.0
+			light.omni_attenuation = 1.5
+			light.shadow_enabled = false
+			light.position = Vector3(0, -0.5, 0.5)
+			sign_root.add_child(light)
+
+			# 25% chance of flicker
+			if rng.randf() < 0.25:
+				flickering_lights.append({
+					"node": light,
+					"base_energy": light.light_energy,
+					"phase": rng.randf() * 20.0,
+					"speed": rng.randf_range(0.8, 1.5),
+					"style": "pop_on",
+					"mesh": null,
+					"label": label,
+				})
+
+			mi.add_child(anchor)

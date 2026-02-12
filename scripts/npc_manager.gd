@@ -2,8 +2,8 @@ extends Node3D
 
 ## Spawns NPC pedestrians that walk along streets.
 
-@export var num_npcs: int = 50
-@export var grid_size: int = 6
+@export var num_npcs: int = 20
+@export var grid_size: int = 3
 @export var block_size: float = 20.0
 @export var street_width: float = 8.0
 
@@ -12,6 +12,8 @@ var npcs: Array[Dictionary] = []
 var cell_stride: float
 var grid_extent: float
 var stop_rng := RandomNumberGenerator.new()
+var character_scenes: Array[PackedScene] = []
+var walkway_data: Dictionary = {}  # read from CityGenerator.walkway_map
 
 # Umbrella rain patter audio pool
 const UMBRELLA_AUDIO_POOL_SIZE: int = 2
@@ -77,8 +79,14 @@ var skin_colors: Array[Color] = [
 
 func _ready() -> void:
 	ps1_shader = load("res://shaders/ps1.gdshader")
+	_load_character_models()
 	cell_stride = block_size + street_width
 	grid_extent = grid_size * cell_stride
+
+	# Read walkway map from CityGenerator for elevated NPC spawning
+	var city_gen := get_node_or_null("../CityGenerator")
+	if city_gen and "walkway_map" in city_gen:
+		walkway_data = city_gen.walkway_map
 
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 555
@@ -132,7 +140,7 @@ func _process(delta: float) -> void:
 		var speed: float = npc_data["speed"]
 		var axis: String = npc_data["axis"]
 		var direction: float = npc_data["direction"]
-		var anim: HumanoidAnimation = npc_data["anim"]
+		var walk_cycle: float = npc_data.get("walk_cycle", 0.0)
 		var head_node := node.get_node_or_null("Model/Head")
 
 		# Stop-and-look behavior
@@ -156,6 +164,10 @@ func _process(delta: float) -> void:
 			weather_mult = 1.15  # hurrying through rain
 		var current_speed := 0.0 if is_stopped else speed * weather_mult
 
+		# Elevated NPC height maintenance
+		var npc_level: int = npc_data.get("npc_level", 0)
+		var npc_height: float = npc_data.get("npc_height", 0.0)
+
 		# Always move (even if culled, to keep positions consistent)
 		if not is_stopped:
 			if axis == "x":
@@ -171,6 +183,10 @@ func _process(delta: float) -> void:
 				elif node.position.z < -grid_extent:
 					node.position.z = grid_extent
 
+			# Keep elevated NPCs at correct height
+			if npc_level > 0:
+				node.position.y = npc_height
+
 			# Intersection direction change: turn 90° at grid crossings
 			var cx := int(floor(node.position.x / cell_stride))
 			var cz := int(floor(node.position.z / cell_stride))
@@ -179,13 +195,57 @@ func _process(delta: float) -> void:
 			if cx != lcx or cz != lcz:
 				npc_data["last_cell_x"] = cx
 				npc_data["last_cell_z"] = cz
-				if stop_rng.randf() < 0.3:
+				var wants_turn := stop_rng.randf() < 0.3
+
+				# Elevated NPCs: only turn if destination street has a walkway at their level
+				if wants_turn and npc_level > 0:
+					var new_axis := "z" if axis == "x" else "x"
+					var has_walkway := false
+					for wkey in walkway_data:
+						var wseg: Dictionary = walkway_data[wkey]
+						if wseg["axis"] != new_axis:
+							continue
+						if wseg["level"] != npc_level:
+							continue
+						var wpos: Vector3 = wseg["position"]
+						if absf(wpos.x - node.position.x) < 15.0 and absf(wpos.z - node.position.z) < 15.0:
+							has_walkway = true
+							break
+					if not has_walkway:
+						wants_turn = false
+
+				if wants_turn:
 					# Swap axis and pick new lane offset
 					var new_axis := "z" if axis == "x" else "x"
 					npc_data["axis"] = new_axis
 					axis = new_axis
 					npc_data["direction"] = 1.0 if stop_rng.randf() < 0.5 else -1.0
 					direction = npc_data["direction"]
+
+					if npc_level > 0:
+						# Elevated NPC: snap to walkway center
+						for wkey in walkway_data:
+							var wseg: Dictionary = walkway_data[wkey]
+							if wseg["axis"] != new_axis or wseg["level"] != npc_level:
+								continue
+							var wpos: Vector3 = wseg["position"]
+							if absf(wpos.x - node.position.x) < 15.0 and absf(wpos.z - node.position.z) < 15.0:
+								if new_axis == "x":
+									node.position.z = wpos.z
+								else:
+									node.position.x = wpos.x
+								npc_height = wpos.y
+								npc_data["npc_height"] = npc_height
+								break
+					else:
+						# Ground NPC: snap cross-axis to nearest street lane
+						var lane_offset := block_size * 0.5 + street_width * 0.3
+						if new_axis == "x":
+							node.position.z = roundf((node.position.z - lane_offset) / cell_stride) * cell_stride + lane_offset
+							node.position.z += stop_rng.randf_range(-1.5, 1.5)
+						else:
+							node.position.x = roundf((node.position.x - lane_offset) / cell_stride) * cell_stride + lane_offset
+							node.position.x += stop_rng.randf_range(-1.5, 1.5)
 					# Face new direction
 					if new_axis == "x":
 						node.rotation.y = 0.0 if direction > 0 else PI
@@ -201,7 +261,21 @@ func _process(delta: float) -> void:
 			node.visible = true
 
 		# Update walk animation (only for visible NPCs)
-		anim.update(delta, current_speed)
+		var speed_ratio := clampf(current_speed / 8.0, 0.0, 1.0)
+		if speed_ratio > 0.05:
+			npc_data["walk_cycle"] = npc_data.get("walk_cycle", 0.0) + delta * 8.0 * speed_ratio
+			walk_cycle = npc_data["walk_cycle"]
+		var anim_player: AnimationPlayer = npc_data.get("anim_player")
+		if anim_player and is_instance_valid(anim_player):
+			if current_speed > 0.5:
+				var target_anim := "CharacterArmature|Run" if current_speed > 5.0 else "CharacterArmature|Walk"
+				if anim_player.current_animation != target_anim:
+					anim_player.play(target_anim)
+				anim_player.speed_scale = clampf(current_speed / 3.0, 0.5, 2.0)
+			else:
+				if anim_player.current_animation != "CharacterArmature|Idle":
+					anim_player.play("CharacterArmature|Idle")
+				anim_player.speed_scale = 1.0
 
 		# Idle weight shifting (subtle lateral sway when stopped)
 		if is_stopped:
@@ -252,7 +326,7 @@ func _process(delta: float) -> void:
 			# Bob up/down on the bad leg
 			var mdl := node.get_node_or_null("Model")
 			if mdl:
-				var limp_bob := sin(anim.walk_cycle) * 0.04
+				var limp_bob := sin(walk_cycle) * 0.04
 				mdl.position.y = lerpf(mdl.position.y, limp_bob, 10.0 * delta)
 
 		# Jogger forward lean
@@ -271,7 +345,7 @@ func _process(delta: float) -> void:
 			if mdl_lean:
 				if not is_stopped:
 					var fwd_lean := clampf(current_speed * 0.012, 0.02, 0.08)
-					var side_sway := sin(anim.walk_cycle) * 0.025
+					var side_sway := sin(walk_cycle) * 0.025
 					mdl_lean.rotation.x = lerpf(mdl_lean.rotation.x, fwd_lean, 6.0 * delta)
 					mdl_lean.rotation.z = lerpf(mdl_lean.rotation.z, side_sway, 8.0 * delta)
 				elif not npc_data.get("has_limp", false):
@@ -291,7 +365,7 @@ func _process(delta: float) -> void:
 
 		# Track footstep triggers via walk cycle zero-crossing
 		if current_speed > 0.5:
-			var cur_sign := signf(sin(anim.walk_cycle))
+			var cur_sign := signf(sin(walk_cycle))
 			var prev_sign: float = npc_data.get("step_sign", 1.0)
 			if cur_sign != prev_sign and cur_sign != 0.0:
 				npc_data["step_triggered"] = true
@@ -584,21 +658,21 @@ func _process(delta: float) -> void:
 				bag_node = node.get_node_or_null("Model/Backpack")
 				bag_base_y = 1.05  # backpack base y
 			if bag_node:
-				var bag_swing := sin(anim.walk_cycle * 2.0) * 0.06
+				var bag_swing := sin(walk_cycle * 2.0) * 0.06
 				var bag_rain := get_node_or_null("../Rain")
 				var bag_wind: float = 0.0
 				if bag_rain and "wind_x" in bag_rain:
 					bag_wind = bag_rain.wind_x
 				bag_node.rotation.x = lerpf(bag_node.rotation.x, bag_swing, 6.0 * delta)
 				bag_node.rotation.z = lerpf(bag_node.rotation.z, bag_wind * 0.04, 3.0 * delta)
-				bag_node.position.y = lerpf(bag_node.position.y, bag_base_y + sin(anim.walk_cycle) * 0.02, 4.0 * delta)
+				bag_node.position.y = lerpf(bag_node.position.y, bag_base_y + sin(walk_cycle) * 0.02, 4.0 * delta)
 
 		# Coat tail flap (sways while walking, wind-responsive)
 		var coat_tail := node.get_node_or_null("Model/CoatTail")
 		if coat_tail:
 			var target_rot := 0.0
 			if not is_stopped:
-				target_rot = sin(anim.walk_cycle * 2.0) * 0.15 + 0.05
+				target_rot = sin(walk_cycle * 2.0) * 0.15 + 0.05
 			else:
 				npc_data["coat_wind_t"] = npc_data.get("coat_wind_t", 0.0) + delta
 				target_rot = sin(npc_data["coat_wind_t"] * 1.3) * 0.04
@@ -781,7 +855,7 @@ func _process(delta: float) -> void:
 			var lk := node.get_node_or_null("Model/LeftHip/LeftKnee")
 			var rk := node.get_node_or_null("Model/RightHip/RightKnee")
 			if lk and rk and is_instance_valid(lk) and is_instance_valid(rk):
-				var walk_phase: float = anim.walk_cycle if anim else 0.0
+				var walk_phase: float = walk_cycle
 				var left_ground := sin(walk_phase) > 0.3  # left foot planted
 				var right_ground := sin(walk_phase) < -0.3  # right foot planted
 				if left_ground:
@@ -842,7 +916,7 @@ func _process(delta: float) -> void:
 
 		# Umbrella tilt in wind (umbrella-carrying NPCs tilt toward wind direction)
 		if npc_data.get("has_umbrella", false):
-			var umbrella_node := node.get_node_or_null("Model/Umbrella")
+			var umbrella_node := node.get_node_or_null("Umbrella")
 			if umbrella_node and is_instance_valid(umbrella_node):
 				var rain_node := get_node_or_null("../Rain")
 				var wind_val: float = 0.0
@@ -1398,6 +1472,45 @@ func _update_sigh_audio(cam_pos: Vector3) -> void:
 			playback.push_frame(Vector2(sample, sample))
 		slot["filter"] = filt
 
+
+func _load_character_models() -> void:
+	var paths: Array[String] = [
+		"res://assets/characters/Punk.fbx",
+		"res://assets/characters/Swat.fbx",
+		"res://assets/characters/Suit.fbx",
+		"res://assets/characters/Casual_Hoodie.fbx",
+		"res://assets/characters/Worker.fbx",
+		"res://assets/characters/Casual_2.fbx",
+	]
+	for p in paths:
+		var scene: PackedScene = load(p)
+		if scene:
+			character_scenes.append(scene)
+
+func _apply_ps1_to_character(node: Node) -> void:
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		for s in range(mi.mesh.get_surface_count()):
+			var orig_mat := mi.mesh.surface_get_material(s)
+			var albedo := Color(0.3, 0.3, 0.3)
+			if orig_mat is StandardMaterial3D:
+				albedo = (orig_mat as StandardMaterial3D).albedo_color
+			albedo = albedo * 0.7
+			var mat := ShaderMaterial.new()
+			mat.shader = ps1_shader
+			mat.set_shader_parameter("albedo_color", albedo)
+			mat.set_shader_parameter("color_depth", 12.0)
+			mat.set_shader_parameter("fog_color", Color(0.05, 0.03, 0.1, 1.0))
+			mat.set_shader_parameter("fog_distance", 100.0)
+			mat.set_shader_parameter("fog_density", 0.3)
+			# Subtle self-illumination so NPCs are visible in dark scene
+			mat.set_shader_parameter("emissive", true)
+			mat.set_shader_parameter("emission_color", albedo)
+			mat.set_shader_parameter("emission_strength", 0.8)
+			mi.set_surface_override_material(s, mat)
+	for child in node.get_children():
+		_apply_ps1_to_character(child)
+
 func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 	var npc := Node3D.new()
 
@@ -1421,70 +1534,55 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		npc.position = Vector3(lane_pos + sidewalk_offset, 0, along_pos)
 		npc.rotation.y = PI * 0.5 if direction > 0 else -PI * 0.5
 
-	# Build humanoid model with height/build variety
-	var model := Node3D.new()
-	model.name = "Model"
+	# Elevated walkway spawning: 35% of NPCs attempt elevated spawn
+	var npc_level := 0
+	var npc_height := 0.0
+	if not walkway_data.is_empty() and rng.randf() < 0.35:
+		# Find a walkway segment that matches this NPC's current axis
+		var best_key := ""
+		var best_dist := 999.0
+		for wkey in walkway_data:
+			var wseg: Dictionary = walkway_data[wkey]
+			if wseg["axis"] != axis:
+				continue
+			if wseg["level"] > 1 and rng.randf() > 0.3:
+				continue  # fewer NPCs on Level 2
+			var wpos: Vector3 = wseg["position"]
+			var d := npc.position.distance_to(Vector3(wpos.x, 0, wpos.z))
+			if d < best_dist:
+				best_dist = d
+				best_key = wkey
+		if best_key != "" and best_dist < 30.0:
+			var wseg: Dictionary = walkway_data[best_key]
+			var wpos: Vector3 = wseg["position"]
+			npc_level = wseg["level"]
+			npc_height = wpos.y
+			npc.position.y = npc_height
+			# Snap cross-axis to walkway center
+			if axis == "x":
+				npc.position.z = wpos.z
+			else:
+				npc.position.x = wpos.x
+
+	# Instantiate character model
+	var model: Node3D
+	var anim_player: AnimationPlayer = null
+	if not character_scenes.is_empty():
+		var scene_idx := rng.randi_range(0, character_scenes.size() - 1)
+		model = character_scenes[scene_idx].instantiate()
+		model.name = "Model"
+		model.rotation.y = PI  # face forward (-Z)
+		_apply_ps1_to_character(model)
+		anim_player = model.find_child("AnimationPlayer", true, false) as AnimationPlayer
+		if anim_player:
+			anim_player.play("CharacterArmature|Walk")
+			anim_player.speed_scale = rng.randf_range(0.9, 1.1)
+	else:
+		model = Node3D.new()
+		model.name = "Model"
 	var height_scale := rng.randf_range(0.85, 1.15)
-	model.scale = Vector3(height_scale, height_scale, height_scale)
+	model.scale *= Vector3(height_scale, height_scale, height_scale)
 	npc.add_child(model)
-
-	var skin_color := skin_colors[rng.randi_range(0, skin_colors.size() - 1)]
-	var jacket_color := jacket_colors[rng.randi_range(0, jacket_colors.size() - 1)]
-	var pants_color := Color(jacket_color.r * 0.8, jacket_color.g * 0.8, jacket_color.b * 0.8)
-	var accent := accent_colors[rng.randi_range(0, accent_colors.size() - 1)]
-
-	# Head
-	_add_body_part(model, "Head", SphereMesh.new(), Vector3(0, 1.55, 0), skin_color)
-	(model.get_node("Head").mesh as SphereMesh).radius = 0.18
-	(model.get_node("Head").mesh as SphereMesh).height = 0.36
-
-	# Torso
-	_add_body_part(model, "Torso", BoxMesh.new(), Vector3(0, 1.1, 0), jacket_color,
-		Vector3(0.5, 0.55, 0.28))
-
-	# Accent stripe
-	_add_body_part(model, "AccentStripe", BoxMesh.new(), Vector3(0, 1.05, 0.141), accent,
-		Vector3(0.3, 0.06, 0.01), true, accent, 2.0)
-
-	# Hips
-	_add_body_part(model, "Hips", BoxMesh.new(), Vector3(0, 0.75, 0), pants_color,
-		Vector3(0.45, 0.2, 0.25))
-
-	# Left arm (pivot-based)
-	var left_shoulder := _add_pivot(model, "LeftShoulder", Vector3(-0.32, 1.3, 0))
-	_add_body_part(left_shoulder, "LeftUpperArm", BoxMesh.new(), Vector3(0, -0.15, 0),
-		jacket_color, Vector3(0.13, 0.3, 0.13))
-	var left_elbow := _add_pivot(left_shoulder, "LeftElbow", Vector3(0, -0.3, 0))
-	_add_body_part(left_elbow, "LeftLowerArm", BoxMesh.new(), Vector3(0, -0.15, 0),
-		skin_color, Vector3(0.12, 0.3, 0.12))
-
-	# Right arm
-	var right_shoulder := _add_pivot(model, "RightShoulder", Vector3(0.32, 1.3, 0))
-	_add_body_part(right_shoulder, "RightUpperArm", BoxMesh.new(), Vector3(0, -0.15, 0),
-		jacket_color, Vector3(0.13, 0.3, 0.13))
-	var right_elbow := _add_pivot(right_shoulder, "RightElbow", Vector3(0, -0.3, 0))
-	_add_body_part(right_elbow, "RightLowerArm", BoxMesh.new(), Vector3(0, -0.15, 0),
-		skin_color, Vector3(0.12, 0.3, 0.12))
-
-	# Left leg
-	var left_hip := _add_pivot(model, "LeftHip", Vector3(-0.12, 0.65, 0))
-	_add_body_part(left_hip, "LeftUpperLeg", BoxMesh.new(), Vector3(0, -0.17, 0),
-		pants_color, Vector3(0.15, 0.33, 0.15))
-	var left_knee := _add_pivot(left_hip, "LeftKnee", Vector3(0, -0.33, 0))
-	_add_body_part(left_knee, "LeftLowerLeg", BoxMesh.new(), Vector3(0, -0.17, 0),
-		pants_color, Vector3(0.14, 0.33, 0.14))
-
-	# Right leg
-	var right_hip := _add_pivot(model, "RightHip", Vector3(0.12, 0.65, 0))
-	_add_body_part(right_hip, "RightUpperLeg", BoxMesh.new(), Vector3(0, -0.17, 0),
-		pants_color, Vector3(0.15, 0.33, 0.15))
-	var right_knee := _add_pivot(right_hip, "RightKnee", Vector3(0, -0.33, 0))
-	_add_body_part(right_knee, "RightLowerLeg", BoxMesh.new(), Vector3(0, -0.17, 0),
-		pants_color, Vector3(0.14, 0.33, 0.14))
-
-	# Setup animation
-	var anim := HumanoidAnimation.new()
-	anim.setup(model)
 
 	# Umbrella (25% of NPCs carry one)
 	var has_umbrella := false
@@ -1493,7 +1591,6 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		var umbrella := Node3D.new()
 		umbrella.name = "Umbrella"
 		umbrella.position = Vector3(0.15, 1.85, 0)
-		# Handle (thin cylinder)
 		var handle := MeshInstance3D.new()
 		var handle_mesh := CylinderMesh.new()
 		handle_mesh.top_radius = 0.02
@@ -1501,10 +1598,9 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		handle_mesh.height = 0.5
 		handle.mesh = handle_mesh
 		handle.position = Vector3(0, -0.15, 0)
-		var handle_color := Color(0.15, 0.1, 0.08)
 		var handle_mat := ShaderMaterial.new()
 		handle_mat.shader = ps1_shader
-		handle_mat.set_shader_parameter("albedo_color", handle_color)
+		handle_mat.set_shader_parameter("albedo_color", Color(0.15, 0.1, 0.08))
 		handle_mat.set_shader_parameter("vertex_snap_intensity", 1.0)
 		handle_mat.set_shader_parameter("color_depth", 12.0)
 		handle_mat.set_shader_parameter("fog_color", Color(0.05, 0.03, 0.1, 1.0))
@@ -1512,7 +1608,6 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		handle_mat.set_shader_parameter("fog_density", 0.3)
 		handle.set_surface_override_material(0, handle_mat)
 		umbrella.add_child(handle)
-		# Canopy (flattened cone)
 		var canopy := MeshInstance3D.new()
 		var canopy_mesh := CylinderMesh.new()
 		canopy_mesh.top_radius = 0.0
@@ -1520,10 +1615,10 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		canopy_mesh.height = 0.12
 		canopy.mesh = canopy_mesh
 		canopy.position = Vector3(0, 0.1, 0)
-		var canopy_tint := jacket_color * 1.2
+		var canopy_color := jacket_colors[rng.randi_range(0, jacket_colors.size() - 1)]
 		var canopy_mat := ShaderMaterial.new()
 		canopy_mat.shader = ps1_shader
-		canopy_mat.set_shader_parameter("albedo_color", canopy_tint)
+		canopy_mat.set_shader_parameter("albedo_color", canopy_color * 1.2)
 		canopy_mat.set_shader_parameter("vertex_snap_intensity", 1.0)
 		canopy_mat.set_shader_parameter("color_depth", 12.0)
 		canopy_mat.set_shader_parameter("fog_color", Color(0.05, 0.03, 0.1, 1.0))
@@ -1531,71 +1626,11 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		canopy_mat.set_shader_parameter("fog_density", 0.3)
 		canopy.set_surface_override_material(0, canopy_mat)
 		umbrella.add_child(canopy)
-		model.add_child(umbrella)
+		npc.add_child(umbrella)
 
-	# Phone (20% of non-umbrella NPCs hold a glowing phone)
-	var has_phone := false
-	var phone_light: OmniLight3D = null
-	if not has_umbrella and rng.randf() < 0.20:
-		has_phone = true
-		# Small emissive rectangle in right hand area
-		var phone := MeshInstance3D.new()
-		var phone_mesh := BoxMesh.new()
-		phone_mesh.size = Vector3(0.06, 0.1, 0.02)
-		phone.mesh = phone_mesh
-		phone.position = Vector3(0.18, 0.95, 0.15)
-		var phone_color := Color(0.6, 0.7, 1.0)
-		var phone_mat := ShaderMaterial.new()
-		phone_mat.shader = ps1_shader
-		phone_mat.set_shader_parameter("albedo_color", phone_color * 0.3)
-		phone_mat.set_shader_parameter("vertex_snap_intensity", 1.0)
-		phone_mat.set_shader_parameter("color_depth", 12.0)
-		phone_mat.set_shader_parameter("fog_color", Color(0.05, 0.03, 0.1, 1.0))
-		phone_mat.set_shader_parameter("fog_distance", 100.0)
-		phone_mat.set_shader_parameter("fog_density", 0.3)
-		phone_mat.set_shader_parameter("emissive", true)
-		phone_mat.set_shader_parameter("emission_color", phone_color)
-		phone_mat.set_shader_parameter("emission_strength", 3.0)
-		phone.set_surface_override_material(0, phone_mat)
-		phone.name = "Phone"
-		model.add_child(phone)
-		# Face glow light
-		phone_light = OmniLight3D.new()
-		phone_light.light_color = Color(0.5, 0.6, 1.0)
-		phone_light.light_energy = 0.8
-		phone_light.omni_range = 1.5
-		phone_light.omni_attenuation = 1.5
-		phone_light.shadow_enabled = false
-		phone_light.position = Vector3(0.18, 0.95, 0.15)
-		phone_light.name = "PhoneLight"
-		model.add_child(phone_light)
-
-	# Newspaper (8% of NPCs without phone/umbrella - read when stopped)
-	var has_newspaper := false
-	if not has_umbrella and not has_phone and rng.randf() < 0.08:
-		has_newspaper = true
-		var paper := MeshInstance3D.new()
-		var paper_mesh := QuadMesh.new()
-		paper_mesh.size = Vector2(0.3, 0.4)
-		paper.mesh = paper_mesh
-		paper.name = "Newspaper"
-		paper.position = Vector3(0, 1.2, 0.35)
-		var paper_mat := ShaderMaterial.new()
-		paper_mat.shader = ps1_shader
-		paper_mat.set_shader_parameter("albedo_color", Color(0.85, 0.82, 0.75))
-		paper_mat.set_shader_parameter("vertex_snap_intensity", 1.0)
-		paper_mat.set_shader_parameter("color_depth", 12.0)
-		paper_mat.set_shader_parameter("fog_color", Color(0.05, 0.03, 0.1, 1.0))
-		paper_mat.set_shader_parameter("fog_distance", 100.0)
-		paper_mat.set_shader_parameter("fog_density", 0.3)
-		paper.set_surface_override_material(0, paper_mat)
-		paper.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		paper.visible = false  # only visible when stopped
-		model.add_child(paper)
-
-	# Cigarette smoke (30% of NPCs are smokers, but not umbrella holders or phone users)
+	# Cigarette smoke (20% of non-umbrella NPCs)
 	var smoke_particles: GPUParticles3D = null
-	if not has_umbrella and not has_phone and not has_newspaper and rng.randf() < 0.30:
+	if not has_umbrella and rng.randf() < 0.20:
 		smoke_particles = GPUParticles3D.new()
 		smoke_particles.position = Vector3(0.1, 1.6, 0.15)
 		smoke_particles.amount = 8
@@ -1618,146 +1653,7 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		smoke_mesh.radius = 0.04
 		smoke_mesh.height = 0.08
 		smoke_particles.draw_pass_1 = smoke_mesh
-		model.add_child(smoke_particles)
-
-	# Hat/beanie (15% of NPCs)
-	if rng.randf() < 0.15:
-		var hat_type := rng.randi_range(0, 1)
-		if hat_type == 0:
-			# Beanie - slightly wider than head, sits on top
-			_add_body_part(model, "Hat", BoxMesh.new(), Vector3(0, 1.72, 0),
-				jacket_color * 1.3, Vector3(0.34, 0.12, 0.34))
-		else:
-			# Flat cap - wider brim, flatter
-			_add_body_part(model, "Hat", BoxMesh.new(), Vector3(0, 1.7, 0.05),
-				jacket_color * 0.8, Vector3(0.38, 0.06, 0.4))
-
-	# Backpack/messenger bag (10% of non-umbrella NPCs)
-	if not has_umbrella and rng.randf() < 0.10:
-		var bag_type := rng.randi_range(0, 1)
-		var bag_color: Color
-		if bag_type == 0:
-			# Backpack on back
-			bag_color = Color(jacket_color.r * 0.7, jacket_color.g * 0.7, jacket_color.b * 0.7)
-			_add_body_part(model, "Backpack", BoxMesh.new(), Vector3(0, 1.05, -0.22),
-				bag_color, Vector3(0.3, 0.35, 0.15))
-			# Backpack straps across chest
-			_add_body_part(model, "StrapL", BoxMesh.new(), Vector3(-0.1, 1.15, 0.05),
-				bag_color * 0.9, Vector3(0.04, 0.35, 0.04))
-			_add_body_part(model, "StrapR", BoxMesh.new(), Vector3(0.1, 1.15, 0.05),
-				bag_color * 0.9, Vector3(0.04, 0.35, 0.04))
-		else:
-			# Messenger bag on side
-			bag_color = Color(0.15, 0.12, 0.08)
-			_add_body_part(model, "Bag", BoxMesh.new(), Vector3(-0.28, 0.85, 0.05),
-				bag_color, Vector3(0.08, 0.25, 0.2))
-			# Diagonal strap across chest (shoulder to opposite hip)
-			_add_body_part(model, "Strap", BoxMesh.new(), Vector3(0.05, 1.1, 0.1),
-				bag_color * 0.8, Vector3(0.04, 0.5, 0.03))
-
-	# Glowing wristwatch (8% of NPCs)
-	if rng.randf() < 0.08:
-		var watch_col_idx := rng.randi_range(0, 1)
-		var watch_col := Color(0.0, 0.8, 0.4) if watch_col_idx == 0 else Color(0.3, 0.6, 1.0)
-		var left_lower := left_elbow.get_node_or_null("LeftLowerArm")
-		if left_lower:
-			_add_body_part(left_lower, "Watch", BoxMesh.new(), Vector3(0.05, -0.08, 0.06),
-				watch_col * 0.3, Vector3(0.04, 0.03, 0.06), true, watch_col, 2.0)
-
-	# Coat tail (30% of NPCs without backpacks - flaps when moving)
-	var has_backpack := model.get_node_or_null("Backpack") != null
-	if not has_backpack and rng.randf() < 0.30:
-		_add_body_part(model, "CoatTail", BoxMesh.new(), Vector3(0, 0.78, -0.12),
-			jacket_color * 0.9, Vector3(0.44, 0.15, 0.04))
-
-	# Boots (20% of NPCs, adds ground-level detail)
-	if rng.randf() < 0.20:
-		var boot_color := Color(0.08, 0.06, 0.05)
-		for boot_side in [-0.08, 0.08]:
-			_add_body_part(model, "Boot", BoxMesh.new(),
-				Vector3(boot_side, 0.04, 0.02), boot_color, Vector3(0.14, 0.08, 0.2))
-
-	# Scarf/neck wrap (12% of NPCs, adds color pop)
-	if rng.randf() < 0.12:
-		_add_body_part(model, "Scarf", BoxMesh.new(), Vector3(0, 1.38, 0.08),
-			accent, Vector3(0.42, 0.06, 0.18), true, accent, 1.5)
-
-	# Popped collar (8% of NPCs without scarf)
-	var has_scarf := model.get_node_or_null("Scarf") != null
-	if not has_scarf and rng.randf() < 0.08:
-		# Left collar flap
-		_add_body_part(model, "CollarL", BoxMesh.new(), Vector3(-0.18, 1.4, -0.08),
-			jacket_color * 1.1, Vector3(0.16, 0.12, 0.04))
-		# Right collar flap
-		_add_body_part(model, "CollarR", BoxMesh.new(), Vector3(0.18, 1.4, -0.08),
-			jacket_color * 1.1, Vector3(0.16, 0.12, 0.04))
-
-	# Hoodie (8% of NPCs without hats)
-	var has_hat := model.get_node_or_null("Hat") != null
-	if not has_hat and rng.randf() < 0.08:
-		if rng.randf() < 0.5:
-			# Hood UP - pulled over head, shadowing face
-			_add_body_part(model, "Hood", BoxMesh.new(), Vector3(0, 1.68, 0.0),
-				jacket_color * 0.9, Vector3(0.42, 0.2, 0.35))
-			# Front brim overhang
-			_add_body_part(model, "HoodBrim", BoxMesh.new(), Vector3(0, 1.62, 0.14),
-				jacket_color * 0.85, Vector3(0.36, 0.06, 0.1))
-		else:
-			# Hood draped behind/over head (down)
-			_add_body_part(model, "Hood", BoxMesh.new(), Vector3(0, 1.6, -0.12),
-				jacket_color * 1.1, Vector3(0.4, 0.25, 0.22))
-
-	# Cybernetic glowing eyes (3% of NPCs)
-	if rng.randf() < 0.03:
-		var eye_col := Color(0.0, 0.9, 1.0) if rng.randf() < 0.6 else Color(1.0, 0.1, 0.1)
-		_add_body_part(model, "EyeL", BoxMesh.new(), Vector3(-0.07, 1.58, 0.13),
-			eye_col * 0.3, Vector3(0.03, 0.03, 0.03), true, eye_col, 3.0)
-		_add_body_part(model, "EyeR", BoxMesh.new(), Vector3(0.07, 1.58, 0.13),
-			eye_col * 0.3, Vector3(0.03, 0.03, 0.03), true, eye_col, 3.0)
-
-	# Face mask (10% of NPCs - covers lower face)
-	if rng.randf() < 0.10:
-		var mask_col := Color(0.85, 0.85, 0.85) if rng.randf() < 0.6 else Color(0.1, 0.1, 0.1)
-		_add_body_part(model, "Mask", BoxMesh.new(), Vector3(0, 1.48, 0.12),
-			mask_col, Vector3(0.28, 0.1, 0.08))
-
-	# Earbuds (5% of NPCs - tiny white dots on ears)
-	if rng.randf() < 0.05:
-		var bud_col := Color(0.9, 0.9, 0.95)
-		_add_body_part(model, "EarbudL", BoxMesh.new(), Vector3(-0.18, 1.55, 0),
-			bud_col * 0.5, Vector3(0.04, 0.04, 0.04), true, bud_col, 1.5)
-		_add_body_part(model, "EarbudR", BoxMesh.new(), Vector3(0.18, 1.55, 0),
-			bud_col * 0.5, Vector3(0.04, 0.04, 0.04), true, bud_col, 1.5)
-
-	# Cigarette glow (6% of NPCs - orange dot near mouth)
-	if rng.randf() < 0.06:
-		var cig_col := Color(1.0, 0.5, 0.1)
-		var right_lower := right_elbow.get_node_or_null("RightLowerArm")
-		if right_lower:
-			_add_body_part(right_lower, "Cigarette", BoxMesh.new(), Vector3(-0.04, -0.12, 0.08),
-				cig_col * 0.3, Vector3(0.02, 0.02, 0.06), true, cig_col, 2.5)
-
-	# LED shoelaces (3% of NPCs - glowing strips at ankle level)
-	if rng.randf() < 0.03:
-		var led_cols: Array[Color] = [Color(0.0, 0.9, 1.0), Color(1.0, 0.05, 0.8), Color(0.0, 1.0, 0.4)]
-		var led_col: Color = led_cols[rng.randi_range(0, 2)]
-		_add_body_part(model, "LedL", BoxMesh.new(), Vector3(-0.08, 0.02, 0.04),
-			led_col * 0.3, Vector3(0.12, 0.015, 0.06), true, led_col, 3.0)
-		_add_body_part(model, "LedR", BoxMesh.new(), Vector3(0.08, 0.02, 0.04),
-			led_col * 0.3, Vector3(0.12, 0.015, 0.06), true, led_col, 3.0)
-
-	# Wrist tattoo (2% of NPCs - emissive circuit line on forearm)
-	if rng.randf() < 0.02:
-		var tattoo_cols: Array[Color] = [Color(0.0, 0.8, 1.0), Color(1.0, 0.0, 0.6), Color(0.4, 1.0, 0.2)]
-		var tattoo_col: Color = tattoo_cols[rng.randi_range(0, 2)]
-		var tattoo_arm := left_elbow.get_node_or_null("LeftLowerArm") if rng.randf() < 0.5 else right_elbow.get_node_or_null("RightLowerArm")
-		if tattoo_arm:
-			# Main line along forearm
-			_add_body_part(tattoo_arm, "Tattoo", BoxMesh.new(), Vector3(0.05, -0.1, 0.05),
-				tattoo_col * 0.3, Vector3(0.01, 0.18, 0.01), true, tattoo_col, 2.5)
-			# Short perpendicular branch
-			_add_body_part(tattoo_arm, "TattooBranch", BoxMesh.new(), Vector3(0.07, -0.06, 0.05),
-				tattoo_col * 0.3, Vector3(0.04, 0.01, 0.01), true, tattoo_col, 2.5)
+		npc.add_child(smoke_particles)
 
 	# Rain drip particles (non-umbrella NPCs - water dripping off clothes)
 	var rain_drip: GPUParticles3D = null
@@ -1784,7 +1680,7 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		rd_mesh.height = 0.03
 		rain_drip.draw_pass_1 = rd_mesh
 		rain_drip.position = Vector3(0, 1.1, 0)
-		model.add_child(rain_drip)
+		npc.add_child(rain_drip)
 
 	# Foot splash particles (wet ground)
 	var npc_splash := GPUParticles3D.new()
@@ -1819,59 +1715,62 @@ func _spawn_npc(rng: RandomNumberGenerator, _index: int) -> void:
 		"base_speed": speed,
 		"axis": axis,
 		"direction": direction,
-		"anim": anim,
+		"anim_player": anim_player,
+		"walk_cycle": 0.0,
 		"stop_timer": rng.randf_range(8.0, 25.0),
 		"stop_duration": 0.0,
 		"is_stopped": false,
 		"smoke": smoke_particles,
 		"has_umbrella": has_umbrella,
-		"has_phone": has_phone,
-		"phone_light": phone_light,
+		"has_phone": false,
+		"phone_light": null,
 		"splash": npc_splash,
-		"pocket_hand": not has_umbrella and rng.randf() < 0.30,
-		"has_limp": rng.randf() < 0.05,
+		"pocket_hand": false,
+		"has_limp": false,
 		"is_jogger": is_jogger,
-		"has_newspaper": has_newspaper,
-		"does_shrug": rng.randf() < 0.15,
-		"does_scratch": rng.randf() < 0.10,
-		"arms_crossed": rng.randf() < 0.12,
+		"has_newspaper": false,
+		"does_shrug": false,
+		"does_scratch": false,
+		"arms_crossed": false,
 		"looks_at_rain": rng.randf() < 0.05,
 		"can_stumble": rng.randf() < 0.03,
-		"does_yawn": rng.randf() < 0.05,
+		"does_yawn": false,
 		"does_greet": rng.randf() < 0.10,
-		"does_hand_rub": not has_umbrella and not has_phone and not has_newspaper and rng.randf() < 0.15,
-		"does_stretch": not has_umbrella and not has_phone and not has_newspaper and rng.randf() < 0.08,
-		"does_toe_tap": not is_jogger and rng.randf() < 0.08,
-		"swing_mult": rng.randf_range(0.7, 1.3),
+		"does_hand_rub": false,
+		"does_stretch": false,
+		"does_toe_tap": false,
+		"swing_mult": 1.0,
 		"does_sigh": rng.randf() < 0.10,
-		"does_sleeve_fidget": not has_umbrella and not has_phone and not has_newspaper and rng.randf() < 0.08,
-		"does_head_tilt": not has_phone and not has_newspaper and rng.randf() < 0.10,
-		"does_shoulder_roll": rng.randf() < 0.06,
-		"does_collar_pull": not has_umbrella and rng.randf() < 0.08,
-		"does_glance_back": rng.randf() < 0.05,
-		"does_ground_scuff": not has_umbrella and rng.randf() < 0.04,
-		"does_chin_rest": not has_phone and not has_newspaper and not has_umbrella and rng.randf() < 0.07,
-		"does_pocket_pat": not has_umbrella and rng.randf() < 0.05,
-		"does_window_shop": rng.randf() < 0.15,
-		"does_hand_clench": rng.randf() < 0.05,
+		"does_sleeve_fidget": false,
+		"does_head_tilt": false,
+		"does_shoulder_roll": false,
+		"does_collar_pull": false,
+		"does_glance_back": false,
+		"does_ground_scuff": false,
+		"does_chin_rest": false,
+		"does_pocket_pat": false,
+		"does_window_shop": false,
+		"does_hand_clench": false,
 		"does_cig_flick": smoke_particles != null and rng.randf() < 0.40,
-		"does_wall_lean": rng.randf() < 0.08,
-		"does_shuffle": rng.randf() < 0.10,
-		"does_hand_behind": not has_umbrella and not has_phone and not has_newspaper and rng.randf() < 0.06,
-		"does_cross_scratch": not has_umbrella and rng.randf() < 0.05,
-		"does_ankle_roll": rng.randf() < 0.04,
-		"does_shiver": not has_umbrella and rng.randf() < 0.05,
-		"does_collar_adj": not has_umbrella and not has_phone and rng.randf() < 0.07,
-		"does_watch_check": not has_phone and not has_umbrella and rng.randf() < 0.06,
-		"does_face_wipe": not has_umbrella and not has_phone and rng.randf() < 0.04,
-		"does_step_over": rng.randf() < 0.03,
+		"does_wall_lean": false,
+		"does_shuffle": false,
+		"does_hand_behind": false,
+		"does_cross_scratch": false,
+		"does_ankle_roll": false,
+		"does_shiver": false,
+		"does_collar_adj": false,
+		"does_watch_check": false,
+		"does_face_wipe": false,
+		"does_step_over": false,
 		"step_over_timer": rng.randf_range(20.0, 40.0),
-		"does_neck_roll": rng.randf() < 0.03,
-		"does_corner_peek": rng.randf() < 0.03,
+		"does_neck_roll": false,
+		"does_corner_peek": false,
 		"horn_flinch": 0.0,
 		"nod_cooldown": 0.0,
 		"last_cell_x": -999,
 		"last_cell_z": -999,
+		"npc_level": npc_level,
+		"npc_height": npc_height,
 	})
 
 func _add_pivot(parent: Node3D, pivot_name: String, pos: Vector3) -> Node3D:
@@ -1932,54 +1831,23 @@ func _spawn_conversation_groups(_rng: RandomNumberGenerator) -> void:
 			npc.position = npc_pos
 			npc.rotation.y = face_angle
 
-			var model := Node3D.new()
-			model.name = "Model"
+			var model: Node3D
+			var conv_anim_player: AnimationPlayer = null
+			if not character_scenes.is_empty():
+				var scene_idx := group_rng.randi_range(0, character_scenes.size() - 1)
+				model = character_scenes[scene_idx].instantiate()
+				model.name = "Model"
+				model.rotation.y = PI  # face forward (-Z)
+				_apply_ps1_to_character(model)
+				conv_anim_player = model.find_child("AnimationPlayer", true, false) as AnimationPlayer
+				if conv_anim_player:
+					conv_anim_player.play("CharacterArmature|Idle")
+			else:
+				model = Node3D.new()
+				model.name = "Model"
 			var height_scale := group_rng.randf_range(0.9, 1.1)
-			model.scale = Vector3(height_scale, height_scale, height_scale)
+			model.scale *= Vector3(height_scale, height_scale, height_scale)
 			npc.add_child(model)
-
-			var skin_color := skin_colors[group_rng.randi_range(0, skin_colors.size() - 1)]
-			var jacket_color := jacket_colors[group_rng.randi_range(0, jacket_colors.size() - 1)]
-			var pants_color := Color(jacket_color.r * 0.8, jacket_color.g * 0.8, jacket_color.b * 0.8)
-			var accent := accent_colors[group_rng.randi_range(0, accent_colors.size() - 1)]
-
-			_add_body_part(model, "Head", SphereMesh.new(), Vector3(0, 1.55, 0), skin_color)
-			(model.get_node("Head").mesh as SphereMesh).radius = 0.18
-			(model.get_node("Head").mesh as SphereMesh).height = 0.36
-			_add_body_part(model, "Torso", BoxMesh.new(), Vector3(0, 1.1, 0), jacket_color,
-				Vector3(0.5, 0.55, 0.28))
-			_add_body_part(model, "AccentStripe", BoxMesh.new(), Vector3(0, 1.05, 0.141), accent,
-				Vector3(0.3, 0.06, 0.01), true, accent, 2.0)
-			_add_body_part(model, "Hips", BoxMesh.new(), Vector3(0, 0.75, 0), pants_color,
-				Vector3(0.45, 0.2, 0.25))
-
-			var ls := _add_pivot(model, "LeftShoulder", Vector3(-0.32, 1.3, 0))
-			_add_body_part(ls, "LeftUpperArm", BoxMesh.new(), Vector3(0, -0.15, 0),
-				jacket_color, Vector3(0.13, 0.3, 0.13))
-			var le := _add_pivot(ls, "LeftElbow", Vector3(0, -0.3, 0))
-			_add_body_part(le, "LeftLowerArm", BoxMesh.new(), Vector3(0, -0.15, 0),
-				skin_color, Vector3(0.12, 0.3, 0.12))
-			var rs := _add_pivot(model, "RightShoulder", Vector3(0.32, 1.3, 0))
-			_add_body_part(rs, "RightUpperArm", BoxMesh.new(), Vector3(0, -0.15, 0),
-				jacket_color, Vector3(0.13, 0.3, 0.13))
-			var re := _add_pivot(rs, "RightElbow", Vector3(0, -0.3, 0))
-			_add_body_part(re, "RightLowerArm", BoxMesh.new(), Vector3(0, -0.15, 0),
-				skin_color, Vector3(0.12, 0.3, 0.12))
-			var lh := _add_pivot(model, "LeftHip", Vector3(-0.12, 0.65, 0))
-			_add_body_part(lh, "LeftUpperLeg", BoxMesh.new(), Vector3(0, -0.17, 0),
-				pants_color, Vector3(0.15, 0.33, 0.15))
-			var lk := _add_pivot(lh, "LeftKnee", Vector3(0, -0.33, 0))
-			_add_body_part(lk, "LeftLowerLeg", BoxMesh.new(), Vector3(0, -0.17, 0),
-				pants_color, Vector3(0.14, 0.33, 0.14))
-			var rh := _add_pivot(model, "RightHip", Vector3(0.12, 0.65, 0))
-			_add_body_part(rh, "RightUpperLeg", BoxMesh.new(), Vector3(0, -0.17, 0),
-				pants_color, Vector3(0.15, 0.33, 0.15))
-			var rk := _add_pivot(rh, "RightKnee", Vector3(0, -0.33, 0))
-			_add_body_part(rk, "RightLowerLeg", BoxMesh.new(), Vector3(0, -0.17, 0),
-				pants_color, Vector3(0.14, 0.33, 0.14))
-
-			var anim := HumanoidAnimation.new()
-			anim.setup(model)
 			add_child(npc)
 
 			# Add to npcs array as permanently stopped
@@ -1989,7 +1857,8 @@ func _spawn_conversation_groups(_rng: RandomNumberGenerator) -> void:
 				"base_speed": 0.0,
 				"axis": "x",
 				"direction": 0.0,
-				"anim": anim,
+				"anim_player": conv_anim_player,
+				"walk_cycle": 0.0,
 				"stop_timer": 99999.0,
 				"stop_duration": 99999.0,
 				"is_stopped": true,

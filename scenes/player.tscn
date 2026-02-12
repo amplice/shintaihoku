@@ -35,5 +35,5 @@ surface_material_override/0 = SubResource("ShaderMaterial_player")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 0)
 
 [node name="Camera3D" type="Camera3D" parent="CameraPivot"]
-transform = Transform3D(1, 0, 0, 0, 0.955336, 0.295520, 0, -0.295520, 0.955336, 0, 1.0, 4.0)
+transform = Transform3D(1, 0, 0, 0, 0.955336, 0.295520, 0, -0.295520, 0.955336, 0, 0.6, 2.5)
 fov = 65.0

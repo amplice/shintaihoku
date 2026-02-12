@@ -5,8 +5,8 @@
 [ext_resource type="Script" uid="uid://b2jb01f0e028f" path="res://scripts/traffic_manager.gd" id="4_jyhfs"]
 [ext_resource type="Script" uid="uid://di30rr43ftdre" path="res://scripts/rain.gd" id="4_rain"]
 [ext_resource type="Script" uid="uid://bvb3k74h4djre" path="res://scripts/day_night_cycle.gd" id="5_tbgi4"]
-[ext_resource type="Script" path="res://scripts/npc_manager.gd" id="6_tefeu"]
-[ext_resource type="Script" path="res://scripts/ambient_audio.gd" id="7_o6xl0"]
+[ext_resource type="Script" uid="uid://bdmhdlpvj2x3e" path="res://scripts/npc_manager.gd" id="6_tefeu"]
+[ext_resource type="Script" uid="uid://eu54wiujwfan" path="res://scripts/ambient_audio.gd" id="7_o6xl0"]
 
 [sub_resource type="Environment" id="Environment_1"]
 background_mode = 1
@@ -20,15 +20,14 @@ glow_enabled = true
 glow_intensity = 0.5
 glow_strength = 0.8
 glow_bloom = 0.08
-glow_hdr_threshold = 0.9
 glow_blend_mode = 0
+glow_hdr_threshold = 0.9
 fog_enabled = true
 fog_light_color = Color(0.03, 0.02, 0.06, 1)
 fog_light_energy = 0.0
 fog_density = 0.008
 fog_height = 200.0
 fog_height_density = 0.002
-volumetric_fog_enabled = false
 volumetric_fog_density = 0.004
 volumetric_fog_albedo = Color(0.06, 0.03, 0.1, 1)
 volumetric_fog_emission = Color(0.02, 0.01, 0.04, 1)

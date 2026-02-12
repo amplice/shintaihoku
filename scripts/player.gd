@@ -22,7 +22,7 @@ const STAND_HEIGHT = 1.0
 
 var camera_rotation_x: float = -0.3  # slight downward angle
 var ps1_shader: Shader
-var anim: HumanoidAnimation
+var anim_player: AnimationPlayer = null
 var bob_timer: float = 0.0
 var camera_base_y: float = 0.0
 var step_player: AudioStreamPlayer
@@ -202,20 +202,16 @@ func _physics_process(delta: float) -> void:
 
 	# Drive walk animation
 	var horiz_speed := Vector2(velocity.x, velocity.z).length()
-	if anim:
-		anim.update(delta, horiz_speed)
-
-	# Head follows camera pitch + lean direction
-	if head_node:
-		head_node.rotation.x = lerpf(head_node.rotation.x, camera_rotation_x * 0.3, 8.0 * delta)
-		head_node.rotation.z = lerpf(head_node.rotation.z, lean_amount * 0.15, 6.0 * delta)
-
-	# Coat tail sway based on speed
-	if coat_tail:
-		var tail_target := 0.0
+	if anim_player and is_instance_valid(anim_player):
 		if horiz_speed > 0.5:
-			tail_target = horiz_speed * 0.04 + sin(bob_timer * 2.0) * 0.05
-		coat_tail.rotation.x = lerpf(coat_tail.rotation.x, tail_target, 6.0 * delta)
+			var target_anim := "CharacterArmature|Run" if horiz_speed > 5.0 else "CharacterArmature|Walk"
+			if anim_player.current_animation != target_anim:
+				anim_player.play(target_anim)
+			anim_player.speed_scale = clampf(horiz_speed / 3.0, 0.5, 2.0)
+		else:
+			if anim_player.current_animation != "CharacterArmature|Idle":
+				anim_player.play("CharacterArmature|Idle")
+			anim_player.speed_scale = 1.0
 
 	# Flashlight pendulum sway (counter-bob during movement)
 	if flashlight and flashlight.visible:
@@ -577,99 +573,52 @@ func _physics_process(delta: float) -> void:
 			echo_pending = false
 			_play_echo_step()
 
+	# Camera collision: reset camera to default distance, then pull forward if clipping
+	camera.position.z = 2.5
+	var space_state := get_world_3d().direct_space_state
+	if space_state:
+		var pivot_global := camera_pivot.global_position
+		var cam_global := camera.global_position
+		var query := PhysicsRayQueryParameters3D.create(pivot_global, cam_global)
+		query.exclude = [get_rid()]
+		query.collision_mask = 1
+		var result := space_state.intersect_ray(query)
+		if result:
+			# Pull camera to just in front of the hit point
+			var hit_pos: Vector3 = result["position"]
+			var hit_normal: Vector3 = result["normal"]
+			var safe_pos: Vector3 = hit_pos + hit_normal * 0.3
+			camera.global_position = safe_pos
+
 func _build_humanoid_model() -> void:
 	# Remove the old capsule mesh from the scene
 	var old_mesh := get_node_or_null("MeshInstance3D")
 	if old_mesh:
 		old_mesh.queue_free()
 
-	var model := Node3D.new()
+	var scene: PackedScene = load("res://assets/characters/Punk.fbx")
+	if not scene:
+		return
+
+	var model := scene.instantiate() as Node3D
 	model.name = "Model"
 	add_child(model)
 	model_node = model
 	model.position.y = -0.9  # offset down to match collision capsule center
+	model.rotation.y = PI  # face forward (-Z)
 
-	var skin_color := Color(0.85, 0.72, 0.6)
-	var jacket_color := Color(0.12, 0.12, 0.15)
-	var pants_color := Color(0.1, 0.1, 0.12)
-	var accent_cyan := Color(0.0, 0.9, 1.0)
+	# Apply PS1 shader preserving original albedo colors
+	_apply_ps1_to_player(model)
 
-	# Head
-	_add_body_part(model, "Head", SphereMesh.new(), Vector3(0, 1.55, 0), skin_color)
-	(model.get_node("Head").mesh as SphereMesh).radius = 0.18
-	(model.get_node("Head").mesh as SphereMesh).height = 0.36
-	head_node = model.get_node_or_null("Head")
+	# Find AnimationPlayer (nested inside CharacterArmature)
+	anim_player = model.find_child("AnimationPlayer", true, false) as AnimationPlayer
+	if anim_player:
+		anim_player.play("CharacterArmature|Idle")
 
-	# Torso
-	_add_body_part(model, "Torso", BoxMesh.new(), Vector3(0, 1.1, 0), jacket_color,
-		Vector3(0.5, 0.55, 0.28))
-
-	# Accent stripe on chest (thin emissive cyan strip)
-	_add_body_part(model, "AccentStripe", BoxMesh.new(), Vector3(0, 1.05, 0.141), accent_cyan,
-		Vector3(0.3, 0.06, 0.01), true, accent_cyan, 3.0)
-	var stripe_node := model.get_node_or_null("AccentStripe")
-	if stripe_node:
-		accent_stripe_mat = stripe_node.get_surface_override_material(0) as ShaderMaterial
-
-	# Collar (turned-up jacket collar at back of neck)
-	_add_body_part(model, "Collar", BoxMesh.new(), Vector3(0, 1.42, -0.12),
-		jacket_color * 1.1, Vector3(0.35, 0.1, 0.08))
-
-	# Hips
-	_add_body_part(model, "Hips", BoxMesh.new(), Vector3(0, 0.75, 0), pants_color,
-		Vector3(0.45, 0.2, 0.25))
-
-	# === PIVOT-BASED ARMS ===
-	# Left arm
-	var left_shoulder := _add_pivot(model, "LeftShoulder", Vector3(-0.32, 1.3, 0))
-	_add_body_part(left_shoulder, "LeftUpperArm", BoxMesh.new(), Vector3(0, -0.15, 0),
-		jacket_color, Vector3(0.13, 0.3, 0.13))
-	var left_elbow := _add_pivot(left_shoulder, "LeftElbow", Vector3(0, -0.3, 0))
-	_add_body_part(left_elbow, "LeftLowerArm", BoxMesh.new(), Vector3(0, -0.15, 0),
-		skin_color, Vector3(0.12, 0.3, 0.12))
-
-	# Right arm
-	var right_shoulder := _add_pivot(model, "RightShoulder", Vector3(0.32, 1.3, 0))
-	_add_body_part(right_shoulder, "RightUpperArm", BoxMesh.new(), Vector3(0, -0.15, 0),
-		jacket_color, Vector3(0.13, 0.3, 0.13))
-	var right_elbow := _add_pivot(right_shoulder, "RightElbow", Vector3(0, -0.3, 0))
-	_add_body_part(right_elbow, "RightLowerArm", BoxMesh.new(), Vector3(0, -0.15, 0),
-		skin_color, Vector3(0.12, 0.3, 0.12))
-
-	# === PIVOT-BASED LEGS ===
-	# Left leg
-	var left_hip := _add_pivot(model, "LeftHip", Vector3(-0.12, 0.65, 0))
-	_add_body_part(left_hip, "LeftUpperLeg", BoxMesh.new(), Vector3(0, -0.17, 0),
-		pants_color, Vector3(0.15, 0.33, 0.15))
-	var left_knee := _add_pivot(left_hip, "LeftKnee", Vector3(0, -0.33, 0))
-	_add_body_part(left_knee, "LeftLowerLeg", BoxMesh.new(), Vector3(0, -0.17, 0),
-		pants_color, Vector3(0.14, 0.33, 0.14))
-
-	# Right leg
-	var right_hip := _add_pivot(model, "RightHip", Vector3(0.12, 0.65, 0))
-	_add_body_part(right_hip, "RightUpperLeg", BoxMesh.new(), Vector3(0, -0.17, 0),
-		pants_color, Vector3(0.15, 0.33, 0.15))
-	var right_knee := _add_pivot(right_hip, "RightKnee", Vector3(0, -0.33, 0))
-	_add_body_part(right_knee, "RightLowerLeg", BoxMesh.new(), Vector3(0, -0.17, 0),
-		pants_color, Vector3(0.14, 0.33, 0.14))
-
-	# Coat tail flap (back of jacket)
-	coat_tail = MeshInstance3D.new()
-	var tail_mesh := BoxMesh.new()
-	tail_mesh.size = Vector3(0.35, 0.25, 0.04)
-	coat_tail.mesh = tail_mesh
-	coat_tail.position = Vector3(0, 0.85, -0.16)
-	var tail_mat := ShaderMaterial.new()
-	tail_mat.shader = ps1_shader
-	tail_mat.set_shader_parameter("albedo_color", jacket_color)
-	tail_mat.set_shader_parameter("vertex_snap_intensity", 1.0)
-	tail_mat.set_shader_parameter("color_depth", 12.0)
-	tail_mat.set_shader_parameter("fog_color", Color(0.05, 0.03, 0.1, 1.0))
-	tail_mat.set_shader_parameter("fog_distance", 100.0)
-	tail_mat.set_shader_parameter("fog_density", 0.3)
-	coat_tail.set_surface_override_material(0, tail_mat)
-	coat_tail.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	model.add_child(coat_tail)
+	# No box-model parts for FBX character
+	coat_tail = null
+	head_node = null
+	accent_stripe_mat = null
 
 	# Breath vapor (cold air puffs from face)
 	var breath := GPUParticles3D.new()
@@ -694,43 +643,28 @@ func _build_humanoid_model() -> void:
 	breath.position = Vector3(0, 1.6, 0.15)
 	model.add_child(breath)
 
-	# Setup animation controller
-	anim = HumanoidAnimation.new()
-	anim.setup(model)
-
-func _add_pivot(parent: Node3D, pivot_name: String, pos: Vector3) -> Node3D:
-	var pivot := Node3D.new()
-	pivot.name = pivot_name
-	pivot.position = pos
-	parent.add_child(pivot)
-	return pivot
-
-func _add_body_part(parent: Node3D, part_name: String, mesh: Mesh, pos: Vector3,
-		color: Color, box_size: Vector3 = Vector3.ZERO, is_emissive: bool = false,
-		emit_color: Color = Color.BLACK, emit_strength: float = 0.0) -> void:
-	var mi := MeshInstance3D.new()
-	mi.name = part_name
-	mi.mesh = mesh
-	mi.position = pos
-
-	if mesh is BoxMesh and box_size != Vector3.ZERO:
-		(mesh as BoxMesh).size = box_size
-
-	var mat := ShaderMaterial.new()
-	mat.shader = ps1_shader
-	mat.set_shader_parameter("albedo_color", color)
-	mat.set_shader_parameter("vertex_snap_intensity", 1.0)
-	mat.set_shader_parameter("color_depth", 12.0)
-	mat.set_shader_parameter("fog_color", Color(0.05, 0.03, 0.1, 1.0))
-	mat.set_shader_parameter("fog_distance", 100.0)
-	mat.set_shader_parameter("fog_density", 0.3)
-	if is_emissive:
-		mat.set_shader_parameter("emissive", true)
-		mat.set_shader_parameter("emission_color", emit_color)
-		mat.set_shader_parameter("emission_strength", emit_strength)
-	mi.set_surface_override_material(0, mat)
-
-	parent.add_child(mi)
+func _apply_ps1_to_player(node: Node) -> void:
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		for s in range(mi.mesh.get_surface_count()):
+			var orig_mat := mi.mesh.surface_get_material(s)
+			var albedo := Color(0.3, 0.3, 0.3)
+			if orig_mat is StandardMaterial3D:
+				albedo = (orig_mat as StandardMaterial3D).albedo_color
+			albedo = albedo * 0.7
+			var mat := ShaderMaterial.new()
+			mat.shader = ps1_shader
+			mat.set_shader_parameter("albedo_color", albedo)
+			mat.set_shader_parameter("color_depth", 12.0)
+			mat.set_shader_parameter("fog_color", Color(0.05, 0.03, 0.1, 1.0))
+			mat.set_shader_parameter("fog_distance", 100.0)
+			mat.set_shader_parameter("fog_density", 0.3)
+			mat.set_shader_parameter("emissive", true)
+			mat.set_shader_parameter("emission_color", albedo)
+			mat.set_shader_parameter("emission_strength", 0.8)
+			mi.set_surface_override_material(s, mat)
+	for child in node.get_children():
+		_apply_ps1_to_player(child)
 
 func _setup_footstep_audio() -> void:
 	step_rng.seed = 7777
