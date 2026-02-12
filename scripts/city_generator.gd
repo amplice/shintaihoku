@@ -127,6 +127,7 @@ func _ready() -> void:
 	_generate_walkway_drip_puddles()
 	_generate_walkway_rain_drips()
 	_generate_walkway_ad_panels()
+	_generate_walkway_cables()
 	_generate_road_markings()
 	_generate_vending_machines()
 	_generate_traffic_lights()
@@ -10185,6 +10186,91 @@ func _generate_walkway_ad_panels() -> void:
 			panel_count += 1
 
 	print("CityGenerator: walkway ad panels=", panel_count)
+
+func _generate_walkway_cables() -> void:
+	## Cables strung between walkway support columns, creating tangled wire networks.
+	## Some cables have small junction boxes or string lights.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 9112
+	var cable_count := 0
+	var wire_mat := _make_ps1_material(Color(0.06, 0.06, 0.08))
+
+	var keys := walkway_map.keys()
+	for i in range(keys.size()):
+		var key: String = keys[i]
+		var seg: Dictionary = walkway_map[key]
+		var seg_pos: Vector3 = seg["position"]
+		var _seg_axis: String = seg["axis"]
+		var seg_level: int = seg["level"]
+
+		# Try to find a nearby walkway segment to string cables to
+		for j in range(i + 1, mini(i + 12, keys.size())):
+			var other_key: String = keys[j]
+			var other: Dictionary = walkway_map[other_key]
+			var other_pos: Vector3 = other["position"]
+
+			# Must be at same level and within cable distance
+			if other["level"] != seg_level:
+				continue
+			var dist := seg_pos.distance_to(other_pos)
+			if dist < 5.0 or dist > 35.0:
+				continue
+			if rng.randf() > 0.30:
+				continue
+
+			# Cable from this segment to the other
+			var mid := (seg_pos + other_pos) * 0.5
+			var sag := rng.randf_range(0.5, 2.0)
+			mid.y -= sag  # cable sags in the middle
+
+			# Two-segment cable (start→mid, mid→end) for sag effect
+			for half in range(2):
+				var p1 := seg_pos + Vector3(0, 0.5, 0) if half == 0 else mid
+				var p2 := mid if half == 0 else other_pos + Vector3(0, 0.5, 0)
+				var cable_dir := p2 - p1
+				var cable_len := cable_dir.length()
+				if cable_len < 0.5:
+					continue
+
+				var cable := MeshInstance3D.new()
+				var cable_mesh := BoxMesh.new()
+				cable_mesh.size = Vector3(cable_len, 0.02, 0.02)
+				cable.mesh = cable_mesh
+				cable.set_surface_override_material(0, wire_mat)
+
+				# Position at midpoint, rotate to face from p1 to p2
+				cable.position = (p1 + p2) * 0.5
+				cable.look_at_from_position(cable.position, p2)
+				# BoxMesh extends along X, but look_at aligns Z, so rotate 90 on Y
+				cable.rotation.y += PI * 0.5
+
+				cable.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				add_child(cable)
+
+			cable_count += 1
+
+			# 25% of cables get a small junction box at the sag point
+			if rng.randf() < 0.25:
+				var jbox := MeshInstance3D.new()
+				var jbox_mesh := BoxMesh.new()
+				jbox_mesh.size = Vector3(0.15, 0.1, 0.1)
+				jbox.mesh = jbox_mesh
+				jbox.position = mid
+				jbox.set_surface_override_material(0, _make_ps1_material(Color(0.1, 0.1, 0.12)))
+				add_child(jbox)
+
+			# 15% get a tiny red LED indicator on the junction
+			if rng.randf() < 0.15:
+				var led := MeshInstance3D.new()
+				var led_mesh := BoxMesh.new()
+				led_mesh.size = Vector3(0.04, 0.04, 0.04)
+				led.mesh = led_mesh
+				led.position = mid + Vector3(0, 0.06, 0)
+				led.set_surface_override_material(0,
+					_make_ps1_material(Color(0.3, 0.02, 0.01), true, Color(1.0, 0.1, 0.05), 3.0))
+				add_child(led)
+
+	print("CityGenerator: walkway cables=", cable_count)
 
 func _generate_hk_neon_signs() -> void:
 	## HK-style protruding neon signs distributed across city buildings.
