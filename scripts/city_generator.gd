@@ -184,7 +184,7 @@ func _ready() -> void:
 	#_generate_subway_entrances()
 	#_generate_neon_light_shafts()
 	#_generate_distant_city_glow()
-	#_generate_rooftop_water_tanks()
+	_generate_rooftop_water_tanks()
 	#_setup_neon_buzz_audio()
 	#_setup_radio_audio()
 	#_generate_stray_cats()
@@ -6521,10 +6521,12 @@ func _setup_neon_buzz_audio() -> void:
 		})
 
 func _generate_rooftop_water_tanks() -> void:
+	## Adds water tanks, antenna clusters, satellite dishes, and aviation warning lights
+	## to building rooftops. Creates iconic cyberpunk skyline silhouettes.
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 6700
 	var children_snapshot := get_children()
-	var tanks_to_add: Array[Dictionary] = []
+	var rooftops: Array[Dictionary] = []
 	for raw_child in children_snapshot:
 		if not raw_child is MeshInstance3D:
 			continue
@@ -6532,47 +6534,185 @@ func _generate_rooftop_water_tanks() -> void:
 		if not child.mesh is BoxMesh:
 			continue
 		var bsize: Vector3 = (child.mesh as BoxMesh).size
-		if bsize.y < 20.0:
+		if bsize.y < 12.0:
 			continue
-		if rng.randf() > 0.10:
-			continue
-		tanks_to_add.append({
+		rooftops.append({
+			"node": child,
 			"pos": Vector3(child.position.x, child.position.y + bsize.y * 0.5, child.position.z),
 			"roof_w": bsize.x,
 			"roof_d": bsize.z,
+			"height": bsize.y,
 		})
+
 	var tank_color := Color(0.15, 0.13, 0.12)
+	var rust_color := Color(0.22, 0.12, 0.08)
 	var leg_color := Color(0.1, 0.1, 0.1)
-	for td in tanks_to_add:
-		var tank_parent := Node3D.new()
+	var metal_color := Color(0.2, 0.2, 0.22)
+	var antenna_color := Color(0.12, 0.12, 0.15)
+	var tank_count := 0
+	var antenna_count := 0
+
+	for td in rooftops:
 		var roof_pos: Vector3 = td["pos"]
 		var rw: float = td["roof_w"]
 		var rd: float = td["roof_d"]
-		var offset_x := rng.randf_range(-rw * 0.25, rw * 0.25)
-		var offset_z := rng.randf_range(-rd * 0.25, rd * 0.25)
-		tank_parent.position = Vector3(roof_pos.x + offset_x, roof_pos.y, roof_pos.z + offset_z)
-		# Cylinder tank body
-		var tank := MeshInstance3D.new()
-		var tank_mesh := CylinderMesh.new()
-		tank_mesh.top_radius = 0.8
-		tank_mesh.bottom_radius = 0.8
-		tank_mesh.height = 1.5
-		tank.mesh = tank_mesh
-		tank.position = Vector3(0, 2.5, 0)
-		tank.set_surface_override_material(0, _make_ps1_material(tank_color))
-		tank_parent.add_child(tank)
-		# 4 legs
-		for li in range(4):
-			var leg := MeshInstance3D.new()
-			var leg_mesh := BoxMesh.new()
-			leg_mesh.size = Vector3(0.08, 1.8, 0.08)
-			leg.mesh = leg_mesh
-			var lx := 0.5 if li % 2 == 0 else -0.5
-			var lz := 0.5 if li < 2 else -0.5
-			leg.position = Vector3(lx, 0.9, lz)
-			leg.set_surface_override_material(0, _make_ps1_material(leg_color))
-			tank_parent.add_child(leg)
-		add_child(tank_parent)
+		var bh: float = td["height"]
+
+		# Water tank (30% of buildings > 15m tall)
+		if bh > 15.0 and rng.randf() < 0.30:
+			var tank_parent := Node3D.new()
+			var offset_x := rng.randf_range(-rw * 0.25, rw * 0.25)
+			var offset_z := rng.randf_range(-rd * 0.25, rd * 0.25)
+			tank_parent.position = Vector3(roof_pos.x + offset_x, roof_pos.y, roof_pos.z + offset_z)
+
+			# Tank body (cylinder)
+			var tank := MeshInstance3D.new()
+			var tank_mesh := CylinderMesh.new()
+			var tank_r := rng.randf_range(0.6, 1.2)
+			var tank_h := rng.randf_range(1.2, 2.0)
+			tank_mesh.top_radius = tank_r
+			tank_mesh.bottom_radius = tank_r
+			tank_mesh.height = tank_h
+			tank_mesh.radial_segments = 8
+			tank.mesh = tank_mesh
+			tank.position = Vector3(0, 1.8 + tank_h * 0.5, 0)
+			var use_rust := rng.randf() < 0.4
+			tank.set_surface_override_material(0,
+				_make_ps1_material(rust_color if use_rust else tank_color))
+			tank_parent.add_child(tank)
+
+			# Tank lid (slightly wider disc)
+			var lid := MeshInstance3D.new()
+			var lid_mesh := CylinderMesh.new()
+			lid_mesh.top_radius = tank_r + 0.05
+			lid_mesh.bottom_radius = tank_r + 0.05
+			lid_mesh.height = 0.08
+			lid_mesh.radial_segments = 8
+			lid.mesh = lid_mesh
+			lid.position = Vector3(0, 1.8 + tank_h + 0.04, 0)
+			lid.set_surface_override_material(0, _make_ps1_material(metal_color))
+			tank_parent.add_child(lid)
+
+			# 4 support legs
+			for li in range(4):
+				var leg := MeshInstance3D.new()
+				var leg_mesh := BoxMesh.new()
+				leg_mesh.size = Vector3(0.08, 1.8, 0.08)
+				leg.mesh = leg_mesh
+				var lx := (tank_r - 0.15) * (1.0 if li % 2 == 0 else -1.0)
+				var lz := (tank_r - 0.15) * (1.0 if li < 2 else -1.0)
+				leg.position = Vector3(lx, 0.9, lz)
+				leg.set_surface_override_material(0, _make_ps1_material(leg_color))
+				tank_parent.add_child(leg)
+
+			# Pipe running down from tank (40%)
+			if rng.randf() < 0.4:
+				var pipe := MeshInstance3D.new()
+				var pipe_mesh := BoxMesh.new()
+				pipe_mesh.size = Vector3(0.06, 1.8, 0.06)
+				pipe.mesh = pipe_mesh
+				pipe.position = Vector3(tank_r + 0.1, 0.9, 0)
+				pipe.set_surface_override_material(0, _make_ps1_material(leg_color))
+				tank_parent.add_child(pipe)
+
+			add_child(tank_parent)
+			tank_count += 1
+
+		# Antenna cluster (35% of buildings > 12m)
+		if rng.randf() < 0.35:
+			var ant_parent := Node3D.new()
+			var ax := rng.randf_range(-rw * 0.3, rw * 0.3)
+			var az := rng.randf_range(-rd * 0.3, rd * 0.3)
+			ant_parent.position = Vector3(roof_pos.x + ax, roof_pos.y, roof_pos.z + az)
+
+			# Main antenna pole
+			var pole := MeshInstance3D.new()
+			var pole_mesh := BoxMesh.new()
+			var pole_h := rng.randf_range(2.0, 5.0)
+			pole_mesh.size = Vector3(0.06, pole_h, 0.06)
+			pole.mesh = pole_mesh
+			pole.position = Vector3(0, pole_h * 0.5, 0)
+			pole.set_surface_override_material(0, _make_ps1_material(antenna_color))
+			ant_parent.add_child(pole)
+
+			# Cross-bars (1-3)
+			var num_bars := rng.randi_range(1, 3)
+			for bi in range(num_bars):
+				var bar := MeshInstance3D.new()
+				var bar_mesh := BoxMesh.new()
+				var bar_w := rng.randf_range(0.8, 1.8)
+				bar_mesh.size = Vector3(bar_w, 0.04, 0.04)
+				bar.mesh = bar_mesh
+				bar.position = Vector3(0, pole_h * (0.5 + bi * 0.2), 0)
+				bar.set_surface_override_material(0, _make_ps1_material(antenna_color))
+				ant_parent.add_child(bar)
+
+			# Small red warning light at top (50% of tall antennas)
+			if pole_h > 3.0 and rng.randf() < 0.50:
+				var warn_light := OmniLight3D.new()
+				warn_light.light_color = Color(1.0, 0.1, 0.05)
+				warn_light.light_energy = 1.5
+				warn_light.omni_range = 8.0
+				warn_light.omni_attenuation = 1.5
+				warn_light.shadow_enabled = false
+				warn_light.position = Vector3(0, pole_h + 0.1, 0)
+				ant_parent.add_child(warn_light)
+
+				# Red light bulb mesh
+				var bulb := MeshInstance3D.new()
+				var bulb_mesh := BoxMesh.new()
+				bulb_mesh.size = Vector3(0.12, 0.12, 0.12)
+				bulb.mesh = bulb_mesh
+				bulb.position = Vector3(0, pole_h + 0.1, 0)
+				bulb.set_surface_override_material(0,
+					_make_ps1_material(Color(0.3, 0.02, 0.01), true, Color(1.0, 0.1, 0.05), 5.0))
+				ant_parent.add_child(bulb)
+
+				# Slow blink
+				flickering_lights.append({
+					"node": warn_light, "mesh": bulb,
+					"base_energy": 1.5, "phase": rng.randf() * TAU,
+					"speed": rng.randf_range(1.5, 3.0), "style": "slow_pulse",
+				})
+
+			add_child(ant_parent)
+			antenna_count += 1
+
+		# Satellite dish (15% of buildings > 18m)
+		if bh > 18.0 and rng.randf() < 0.15:
+			var dish_parent := Node3D.new()
+			var dx := rng.randf_range(-rw * 0.3, rw * 0.3)
+			var dz := rng.randf_range(-rd * 0.3, rd * 0.3)
+			dish_parent.position = Vector3(roof_pos.x + dx, roof_pos.y, roof_pos.z + dz)
+
+			# Dish base pole
+			var dpole := MeshInstance3D.new()
+			var dpole_mesh := BoxMesh.new()
+			dpole_mesh.size = Vector3(0.1, 1.0, 0.1)
+			dpole.mesh = dpole_mesh
+			dpole.position = Vector3(0, 0.5, 0)
+			dpole.set_surface_override_material(0, _make_ps1_material(metal_color))
+			dish_parent.add_child(dpole)
+
+			# Dish (tilted flat disc approximated as a thin cylinder)
+			var dish := MeshInstance3D.new()
+			var dish_mesh := CylinderMesh.new()
+			var dish_r := rng.randf_range(0.5, 1.0)
+			dish_mesh.top_radius = dish_r
+			dish_mesh.bottom_radius = dish_r * 0.3
+			dish_mesh.height = 0.15
+			dish_mesh.radial_segments = 8
+			dish.mesh = dish_mesh
+			dish.position = Vector3(0, 1.1, 0)
+			dish.rotation.x = rng.randf_range(0.4, 0.8)  # tilted upward
+			dish.rotation.y = rng.randf_range(0, TAU)
+			dish.set_surface_override_material(0, _make_ps1_material(metal_color))
+			dish_parent.add_child(dish)
+
+			add_child(dish_parent)
+			antenna_count += 1
+
+	print("CityGenerator: rooftop tanks=", tank_count, " antennas=", antenna_count)
 
 func _setup_radio_audio() -> void:
 	radio_rng.seed = 7100
